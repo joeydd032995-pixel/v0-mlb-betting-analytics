@@ -1,266 +1,255 @@
-// Core data types for MLB betting analytics
+// ─── Core Types for NRFI/YRFI Prediction Engine ───────────────────────────────
+
+export type Hand = "R" | "L" | "S"
+export type League = "AL" | "NL"
+export type Division = "East" | "Central" | "West"
+export type WeatherCondition = "clear" | "cloudy" | "overcast" | "light-rain" | "dome"
+export type WindDirection = "in" | "out" | "crosswind" | "calm"
+export type ConfidenceLevel = "High" | "Medium" | "Low"
+export type Recommendation =
+  | "STRONG_NRFI"
+  | "LEAN_NRFI"
+  | "TOSS_UP"
+  | "LEAN_YRFI"
+  | "STRONG_YRFI"
+export type ImpactDirection = "positive" | "negative" | "neutral"
+export type ImpactMagnitude = "strong" | "moderate" | "slight"
+
+// ─── Team ─────────────────────────────────────────────────────────────────────
 
 export interface Team {
   id: string
   name: string
   abbreviation: string
   city: string
-  division: string
-  league: string
+  league: League
+  division: Division
+  primaryColor: string
+  firstInning: TeamFirstInningStats
 }
 
-export interface Player {
+export interface TeamFirstInningStats {
+  /** Average runs scored per first inning */
+  runsPerGame: number
+  /** Offensive factor relative to league avg (1.0 = average) */
+  offenseFactor: number
+  /** OPS in the first inning */
+  ops: number
+  /** wOBA in first inning */
+  woba: number
+  /** K% in first inning */
+  kRate: number
+  /** BB% in first inning */
+  bbRate: number
+  /** Season YRFI rate (% games they score in 1st) */
+  yrfiRate: number
+  /** Home YRFI rate */
+  homeYrfiRate: number
+  /** Away YRFI rate */
+  awayYrfiRate: number
+  /** YRFI rate in last 10 games */
+  last10YrfiRate: number
+  /** Avg 1st-inning runs vs RHP */
+  avgRunsVsRHP: number
+  /** Avg 1st-inning runs vs LHP */
+  avgRunsVsLHP: number
+}
+
+// ─── Pitcher ──────────────────────────────────────────────────────────────────
+
+export interface Pitcher {
   id: string
   name: string
   teamId: string
-  position: string
-  battingHand?: "L" | "R" | "S"
-  throwingHand?: "L" | "R"
+  throws: Hand
+  age: number
+  firstInning: PitcherFirstInningStats
+  overall: PitcherOverallStats
 }
 
-export interface PitcherStats {
-  playerId: string
-  season: number
+export interface PitcherFirstInningStats {
+  /** ERA in just the first inning */
   era: number
+  /** WHIP in the first inning */
+  whip: number
+  /** Strikeout % in 1st inning */
+  kRate: number
+  /** Walk % in 1st inning */
+  bbRate: number
+  /** HR rate per 9 in 1st inning */
+  hrPer9: number
+  /** BABIP in 1st inning */
+  babip: number
+  /** % of starts where 0 runs allowed in 1st inning */
+  nrfiRate: number
+  /** Average runs allowed per first inning */
+  avgRunsAllowed: number
+  /** % of time the first batter reaches base */
+  firstBatterOBP: number
+  /** Results of last 5 starts: true = NRFI achieved */
+  last5Results: boolean[]
+  /** Runs allowed in 1st inning over last 5 starts */
+  last5RunsAllowed: number[]
+  /** Number of starts this season (sample size) */
+  startCount: number
+  /** NRFI rate at home */
+  homeNrfiRate: number
+  /** NRFI rate on the road */
+  awayNrfiRate: number
+}
+
+export interface PitcherOverallStats {
+  era: number
+  fip: number
+  xfip: number
   whip: number
   kPer9: number
   bbPer9: number
   innings: number
   wins: number
   losses: number
-  saves: number
-  fip: number // Fielding Independent Pitching
-  xFIP: number // Expected FIP
-  babip: number // Batting Average on Balls In Play
 }
 
-export interface BatterStats {
-  playerId: string
-  season: number
-  avg: number
-  obp: number
-  slg: number
-  ops: number
-  hr: number
-  rbi: number
-  sb: number
-  wOBA: number // Weighted On-Base Average
-  wRC: number // Weighted Runs Created
-  babip: number
-}
+// ─── Game ─────────────────────────────────────────────────────────────────────
 
 export interface Game {
   id: string
-  date: Date
+  date: string
+  time: string
+  timeZone: string
   homeTeamId: string
   awayTeamId: string
-  homeStarterId: string
-  awayStarterId: string
+  homePitcherId: string
+  awayPitcherId: string
   venue: string
-  weather?: Weather
-  status: "scheduled" | "live" | "final"
-  homeScore?: number
-  awayScore?: number
-  inning?: number
+  /** Run-scoring park factor (1.0 = neutral, >1 hitter-friendly) */
+  parkFactor: number
+  weather: Weather
+  odds?: GameOdds
 }
 
 export interface Weather {
-  temp: number
+  temperature: number
   windSpeed: number
-  windDirection: string
-  conditions: string
+  windDirection: WindDirection
+  conditions: WeatherCondition
+  humidity: number
 }
 
-export interface OddsData {
-  gameId: string
+export interface GameOdds {
+  nrfiOdds: number   // American odds  e.g. -140
+  yrfiOdds: number
   bookmaker: string
-  timestamp: Date
-  moneylineHome: number
-  moneylineAway: number
-  spreadHome: number
-  spreadHomeOdds: number
-  spreadAway: number
-  spreadAwayOdds: number
-  totalOver: number
-  totalOverOdds: number
-  totalUnder: number
-  totalUnderOdds: number
 }
 
-export interface Projection {
+// ─── Prediction Output ────────────────────────────────────────────────────────
+
+export interface NRFIPrediction {
   gameId: string
-  model: string
-  homeWinProb: number
-  awayWinProb: number
-  projectedHomeScore: number
-  projectedAwayScore: number
-  projectedTotal: number
-  confidence: number
-  factors: ProjectionFactors
+  /** P(neither team scores in 1st inning) */
+  nrfiProbability: number
+  yrfiProbability: number
+  /** Poisson λ — expected runs for home team in 1st */
+  homeExpectedRuns: number
+  /** Poisson λ — expected runs for away team in 1st */
+  awayExpectedRuns: number
+  /** P(home team scores 0) */
+  homeScores0Prob: number
+  /** P(away team scores 0) */
+  awayScores0Prob: number
+  confidence: ConfidenceLevel
+  confidenceScore: number
+  recommendation: Recommendation
+  factors: PredictionFactor[]
+  modelInputs: ModelInputs
+  valueAnalysis?: ValueAnalysis
 }
 
-export interface ProjectionFactors {
-  pitcherMatchup: number
-  recentForm: number
-  homeAdvantage: number
-  restDays: number
-  weather: number
-  bullpenStrength: number
+export interface PredictionFactor {
+  name: string
+  /** positive = favors NRFI; negative = favors YRFI */
+  impact: ImpactDirection
+  magnitude: ImpactMagnitude
+  description: string
+  value?: string
 }
 
-export interface BettingEdge {
-  gameId: string
-  betType: "moneyline" | "spread" | "total"
-  side: string
-  fairOdds: number
-  marketOdds: number
-  edgePercent: number
-  expectedValue: number
-  confidence: number
+export interface ModelInputs {
+  homePitcherNrfiRate: number
+  awayPitcherNrfiRate: number
+  homeOffenseFactor: number
+  awayOffenseFactor: number
+  parkFactor: number
+  weatherMultiplier: number
+  recentFormMultiplier: number
+}
+
+export interface ValueAnalysis {
+  impliedNrfiProb: number
+  impliedYrfiProb: number
+  nrfiEdge: number
+  yrfiEdge: number
+  nrfiOdds: number
+  yrfiOdds: number
+  recommendedBet: "NRFI" | "YRFI" | "NO_BET"
   kellyFraction: number
-  recommendedUnits: number
-}
-
-export interface Bet {
-  id: string
-  gameId: string
-  betType: string
-  side: string
-  odds: number
-  stake: number
-  result?: "win" | "loss" | "push"
-  profit?: number
-  placedAt: Date
-  settledAt?: Date
-}
-
-export interface BankrollStats {
-  totalBankroll: number
-  startingBankroll: number
-  totalWagered: number
-  totalProfit: number
-  roi: number
-  winRate: number
-  averageOdds: number
-  unitSize: number
-  totalBets: number
-}
-
-export interface DetailedPitcherStats extends PitcherStats {
-  // Advanced metrics
-  FIP_regressed: number
-  xFIP: number
-  SIERA: number
-  xERA: number
-  FIPMinus: number
-  K_pct: number
-  BB_pct: number
-  K_BB_pct: number
-  GB_pct: number
-  HR_FB: number
-  hardHit_pct_allowed: number
-  barrel_pct_allowed: number
-  xwOBA_allowed: number
-
-  // Sample size
-  BF: number
-  battedBalls: number
-}
-
-export interface DetailedBatterStats extends BatterStats {
-  // Advanced metrics
-  wOBA_regressed: number
-  xwOBA: number
-  xwOBA_regressed: number
-  ISO: number
-  ISO_regressed: number
-  K_pct: number
-  BB_pct: number
-  K_pct_regressed: number
-  BB_pct_regressed: number
-  hardHit_pct: number
-  barrel_pct: number
-  barrel_pct_regressed: number
-  OSwing_pct: number
-  Contact_pct: number
-
-  // Sample size
-  PA: number
-  battedBalls: number
-}
-
-export interface EnhancedProjection extends Projection {
-  // Confidence intervals
-  homeScoreCI: [number, number] // 90% confidence interval
-  awayScoreCI: [number, number]
-  totalCI: [number, number]
-
-  // Component breakdowns
-  starterImpact: {
-    home: number
-    away: number
-  }
-  bullpenImpact: {
-    home: number
-    away: number
-  }
-  lineupStrength: {
-    home: number
-    away: number
-  }
-
-  // Model details
-  pythagoreanWinPct: {
-    home: number
-    away: number
-  }
-  log5WinProb: {
-    home: number
-    away: number
-  }
-
-  // Volatility
-  runsVolatility: number
-
-  // Warnings
-  warnings: string[]
-}
-
-export interface PlayerPropProjection {
-  playerId: string
-  playerName: string
-  gameId: string
-  propType: "strikeouts" | "hits" | "homeruns" | "total_bases"
-
-  // Projection
   expectedValue: number
-  lambda: number // Poisson parameter
+}
 
-  // Probabilities
-  overUnder: {
-    [line: string]: {
-      overProb: number
-      underProb: number
-    }
-  }
+// ─── Historical Results ───────────────────────────────────────────────────────
 
-  // Market comparison
-  marketLines: {
-    line: number
-    overOdds: number
-    underOdds: number
-  }[]
+export interface HistoricalResult {
+  id: string
+  date: string
+  homeTeam: string
+  awayTeam: string
+  homePitcher: string
+  awayPitcher: string
+  venue: string
+  nrfiProbability: number
+  prediction: "NRFI" | "YRFI"
+  actualResult: "NRFI" | "YRFI"
+  correct: boolean
+  confidence: ConfidenceLevel
+  runsFirstInning: { home: number; away: number }
+  nrfiOdds?: number
+  yrfiOdds?: number
+  profitLoss?: number
+}
 
-  // Edge
-  bestEdge?: {
-    line: number
-    side: "over" | "under"
-    fairProb: number
-    marketProb: number
-    edge: number
-    ev: number
-  }
+export interface ModelAccuracy {
+  totalPredictions: number
+  correct: number
+  accuracy: number
+  nrfiAccuracy: number
+  yrfiAccuracy: number
+  highConfAccuracy: number
+  medConfAccuracy: number
+  roi: number
+  calibrationData: CalibrationPoint[]
+  monthlyData: MonthlyAccuracy[]
+}
 
-  confidence: number
-  warnings: string[]
+export interface CalibrationPoint {
+  predictedBin: number
+  actualRate: number
+  count: number
+}
+
+export interface MonthlyAccuracy {
+  month: string
+  accuracy: number
+  predictions: number
+  roi: number
+}
+
+// ─── UI Helpers ───────────────────────────────────────────────────────────────
+
+export interface FilterOptions {
+  confidenceLevel: "all" | "High" | "Medium" | "Low"
+  recommendation: "all" | "NRFI" | "YRFI" | "toss-up"
+  league: "all" | "AL" | "NL"
+  minEdge: number
+  sortBy: "probability" | "confidence" | "edge" | "time"
+  showValueOnly: boolean
 }
