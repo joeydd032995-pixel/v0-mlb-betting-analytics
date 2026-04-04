@@ -177,58 +177,13 @@ The app ships with **realistic mock data** that powers the full UI. To enable li
 
 ---
 
-### 1. MLB Stats API (Free — No Key Required)
+### 1. The Odds API
 
-The official MLB Stats API provides game schedules, starting pitcher assignments, team rosters, and real-time game data.
-
-**Base URL:** `https://statsapi.mlb.com/api/v1`
-
-**Key Endpoints:**
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /schedule?sportId=1&date=YYYY-MM-DD` | Today's game slate with team and pitcher IDs |
-| `GET /people/{personId}/stats?stats=statSplits&group=pitching` | Pitcher stat splits |
-| `GET /teams/{teamId}/stats?stats=season&group=hitting` | Team hitting stats |
-| `GET /game/{gamePk}/linescore` | Live linescore (for result tracking) |
-
-**Example — Fetch today's schedule:**
-
-```typescript
-// lib/api/mlb.ts
-const MLB_BASE = "https://statsapi.mlb.com/api/v1"
-
-export async function fetchTodayGames(date: string) {
-  const res = await fetch(
-    `${MLB_BASE}/schedule?sportId=1&date=${date}&hydrate=team,probablePitcher,linescore`,
-    { next: { revalidate: 300 } }  // cache 5 min
-  )
-  const data = await res.json()
-  return data.dates?.[0]?.games ?? []
-}
-
-export async function fetchPitcherStats(pitcherId: number, season: number) {
-  const res = await fetch(
-    `${MLB_BASE}/people/${pitcherId}/stats?stats=statSplits&group=pitching&season=${season}&sitCodes=1`
-  )
-  const data = await res.json()
-  // sitCodes=1 filters to first-inning stats
-  return data.stats?.[0]?.splits ?? []
-}
-```
-
-**No API key required.** Rate limit: ~unlimited for reasonable usage.
-
----
-
-### 2. The Odds API
-
-Provides NRFI/YRFI odds from DraftKings, FanDuel, BetMGM, Caesars, and others.
+Provides NRFI/YRFI odds from DraftKings, FanDuel, BetMGM, Caesars, and 40+ bookmakers.
 
 **Website:** [the-odds-api.com](https://the-odds-api.com)  
+**Docs:** [the-odds-api.com/liveapi/guides/v4/](https://the-odds-api.com/liveapi/guides/v4/)  
 **Free tier:** 500 requests/month  
-**Paid plans:** from $19/month for 10,000 requests
-
 **Env variable:** `THE_ODDS_API_KEY`
 
 **Key Endpoints:**
@@ -236,8 +191,8 @@ Provides NRFI/YRFI odds from DraftKings, FanDuel, BetMGM, Caesars, and others.
 | Endpoint | Purpose |
 |---|---|
 | `GET /v4/sports/baseball_mlb/events` | Today's MLB event IDs |
-| `GET /v4/sports/baseball_mlb/odds?markets=batter_first_inning_scored` | NRFI/YRFI odds |
-| `GET /v4/sports/baseball_mlb/events/{eventId}/odds?markets=batter_first_inning_scored` | Odds for specific game |
+| `GET /v4/sports/baseball_mlb/odds?markets=batter_first_inning_scored` | NRFI/YRFI odds for all games |
+| `GET /v4/sports/baseball_mlb/events/{eventId}/odds` | Odds for a specific game |
 
 **Example:**
 
@@ -245,53 +200,55 @@ Provides NRFI/YRFI odds from DraftKings, FanDuel, BetMGM, Caesars, and others.
 // lib/api/odds.ts
 const ODDS_BASE = "https://api.the-odds-api.com/v4"
 
-export async function fetchNrfiOdds(eventId: string) {
+export async function fetchNrfiOdds(eventId?: string) {
+  const url = eventId
+    ? `${ODDS_BASE}/sports/baseball_mlb/events/${eventId}/odds`
+    : `${ODDS_BASE}/sports/baseball_mlb/odds`
+
   const res = await fetch(
-    `${ODDS_BASE}/sports/baseball_mlb/events/${eventId}/odds` +
-    `?apiKey=${process.env.THE_ODDS_API_KEY}` +
-    `&regions=us&markets=batter_first_inning_scored&oddsFormat=american`
+    `${url}?apiKey=${process.env.THE_ODDS_API_KEY}` +
+    `&regions=us&markets=batter_first_inning_scored&oddsFormat=american`,
+    { next: { revalidate: 60 } }
   )
   const data = await res.json()
-  return data.bookmakers ?? []
+  return data.bookmakers ?? data ?? []
 }
 ```
 
-> **Note:** Market key for NRFI/YRFI is `batter_first_inning_scored`. Check The Odds API docs for the exact market slug, as it may vary by bookmaker.
+> **Market key:** `batter_first_inning_scored` is the NRFI/YRFI prop market.
 
 ---
 
-### 3. OpenWeatherMap API
+### 2. OpenWeatherMap API
 
-Provides current and forecast weather for MLB stadium locations.
+Provides current and forecast weather at each MLB stadium's GPS coordinates.
 
 **Website:** [openweathermap.org/api](https://openweathermap.org/api)  
-**Free tier:** 1,000 calls/day (Current Weather API)  
-**Paid plans:** from $40/month for forecasts
-
+**Free tier:** 1,000 calls/day  
 **Env variable:** `OPENWEATHER_API_KEY`
 
-**Key Endpoint:**
+**Key Endpoints:**
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /data/2.5/weather?lat={lat}&lon={lon}` | Current weather at stadium coordinates |
-| `GET /data/2.5/forecast?lat={lat}&lon={lon}` | 5-day / 3-hour forecast |
+| `GET /data/2.5/weather?lat={lat}&lon={lon}&appid={key}&units=imperial` | Current weather at stadium |
+| `GET /data/3.0/onecall?lat={lat}&lon={lon}&appid={key}` | Hourly forecast for game-time weather |
 
-**Stadium Coordinates (pre-configured in the app):**
+**Stadium Coordinates (pre-configured):**
 
 ```typescript
 // lib/constants/stadiums.ts
 export const STADIUM_COORDS: Record<string, { lat: number; lon: number; dome: boolean }> = {
-  "loanDepot Park":      { lat: 25.7781, lon: -80.2197, dome: true  },
-  "Petco Park":          { lat: 32.7073, lon: -117.1566, dome: false },
-  "Busch Stadium":       { lat: 38.6226, lon: -90.1928, dome: false },
-  "Yankee Stadium":      { lat: 40.8296, lon: -73.9262, dome: false },
-  "Wrigley Field":       { lat: 41.9484, lon: -87.6553, dome: false },
-  "Globe Life Field":    { lat: 32.7512, lon: -97.0832, dome: false },
+  "loanDepot Park":   { lat: 25.7781, lon: -80.2197, dome: true  },
+  "Petco Park":       { lat: 32.7073, lon: -117.1566, dome: false },
+  "Busch Stadium":    { lat: 38.6226, lon: -90.1928,  dome: false },
+  "Yankee Stadium":   { lat: 40.8296, lon: -73.9262,  dome: false },
+  "Wrigley Field":    { lat: 41.9484, lon: -87.6553,  dome: false },
+  "Globe Life Field": { lat: 32.7512, lon: -97.0832,  dome: false },
   // ... add all 30 stadiums
 }
 
-export async function fetchGameWeather(venue: string, gameTime: string) {
+export async function fetchGameWeather(venue: string) {
   const coords = STADIUM_COORDS[venue]
   if (!coords || coords.dome) return { conditions: "dome" as const }
 
@@ -313,37 +270,76 @@ export async function fetchGameWeather(venue: string, gameTime: string) {
 
 ---
 
-### 4. Sports Data IO — MLB API (Optional, Enhanced Stats)
+### 3. API-Sports — Baseball API
 
-For deeper first-inning stat splits not available from the free MLB Stats API.
+Provides MLB game schedules, starting pitchers, team stats, and live game status.
 
-**Website:** [sportsdata.io](https://sportsdata.io/mlb-api)  
-**Free trial:** 1,000 calls  
-**Paid plans:** from $9/month
-
-**Env variable:** `SPORTSDATA_API_KEY`
+**Website:** [api-sports.io](https://api-sports.io)  
+**Docs:** [api-sports.io/documentation/baseball/v1](https://api-sports.io/documentation/baseball/v1)  
+**Free tier:** 100 requests/day · **Auth:** Header `x-apisports-key`  
+**Env variable:** `API_SPORTS_KEY`
 
 **Key Endpoints:**
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /v3/mlb/stats/json/PitcherGameStatsByDate/{date}` | Per-game pitcher stats |
-| `GET /v3/mlb/stats/json/PlayerSeasonStats/{season}` | Full season pitcher splits |
-| `GET /v3/mlb/scores/json/GamesByDate/{date}` | Confirmed starters + weather |
+| `GET /games?league=1&season=2026&date=YYYY-MM-DD` | Today's MLB game slate with starters |
+| `GET /players/statistics?league=1&season=2026&player={id}` | Pitcher season stats |
+| `GET /teams/statistics?league=1&season=2026&team={id}` | Team season stats |
+| `GET /games?id={gameId}` | Live/completed game with score |
 
 **Example:**
 
 ```typescript
-const SPORTSDATA_BASE = "https://api.sportsdata.io/v3/mlb"
+// lib/api/api-sports.ts
+const BASE = process.env.API_SPORTS_BASE_URL ?? "https://v1.baseball.api-sports.io"
 
-export async function fetchPitcherSplits(playerId: number, season: number) {
+async function apiSportsFetch(path: string) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "x-apisports-key": process.env.API_SPORTS_KEY! },
+    next: { revalidate: 300 },
+  })
+  return res.json()
+}
+
+export async function fetchTodayGames(date: string) {
+  const data = await apiSportsFetch(`/games?league=1&season=2026&date=${date}`)
+  return data.response ?? []
+}
+
+export async function fetchPitcherStats(playerId: number) {
+  const data = await apiSportsFetch(`/players/statistics?league=1&season=2026&player=${playerId}`)
+  return data.response?.[0] ?? null
+}
+```
+
+---
+
+### 4. SportsBlaze API (Optional — Enhanced Analytics)
+
+Advanced MLB batting splits, pitcher xStats, and matchup-level analytics.
+
+**Website:** [sportsblaze.com](https://sportsblaze.com)  
+**Docs:** [docs.sportsblaze.com](https://docs.sportsblaze.com)  
+**Auth:** Query parameter `?key=YOUR_KEY`  
+**Env variable:** `SPORTSBLAZE_API_KEY`
+
+**Example:**
+
+```typescript
+// lib/api/sportsblaze.ts
+const BASE = process.env.SPORTSBLAZE_BASE_URL ?? "https://api.sportsblaze.com"
+
+export async function fetchPitcherSplits(playerId: string) {
   const res = await fetch(
-    `${SPORTSDATA_BASE}/stats/json/PlayerSeasonStatsByPlayer/${season}/${playerId}`,
-    { headers: { "Ocp-Apim-Subscription-Key": process.env.SPORTSDATA_API_KEY! } }
+    `${BASE}/mlb/v1/players/${playerId}/splits?key=${process.env.SPORTSBLAZE_API_KEY}`,
+    { next: { revalidate: 300 } }
   )
   return res.json()
 }
 ```
+
+> If `SPORTSBLAZE_API_KEY` is not set, the engine falls back to API-Sports data.
 
 ---
 
@@ -351,12 +347,12 @@ export async function fetchPitcherSplits(playerId: number, season: number) {
 
 | API | Calls/Day | Free Tier Limit | Notes |
 |---|---|---|---|
-| MLB Stats API | ~50 | Unlimited | Schedule + pitcher stats |
-| The Odds API | ~30 | 500/month | NRFI/YRFI odds per game |
-| OpenWeatherMap | ~30 | 1,000/day | 1 call per outdoor stadium |
-| Sports Data IO | ~15 | 1,000 trial | Optional — enhanced splits |
+| The Odds API | ~30 | ~16/day (500/mo) | NRFI/YRFI odds per game |
+| OpenWeatherMap | ~20 | 1,000/day | 1 call per outdoor stadium |
+| API-Sports | ~50 | 100/day | Schedule + pitcher stats |
+| SportsBlaze | ~15 | varies | Optional enhanced splits |
 
-**Total estimated daily calls: ~125** — well within all free tiers for daily use.
+> **Tip:** API-Sports' free tier (100/day) is tight for a full 15-game slate — cache aggressively and consider upgrading for production use.
 
 ---
 
@@ -372,8 +368,8 @@ cp .env.example .env.local
 |---|---|---|
 | `THE_ODDS_API_KEY` | For value bets | NRFI/YRFI odds from 40+ bookmakers |
 | `OPENWEATHER_API_KEY` | For weather | Stadium weather at game time |
-| `SPORTSDATA_API_KEY` | Optional | Enhanced first-inning stat splits |
-| `MLB_STATS_API_BASE` | Optional | Override MLB API base URL |
+| `API_SPORTS_KEY` | For live data | Game schedules and pitcher stats |
+| `SPORTSBLAZE_API_KEY` | Optional | Enhanced batting splits and xStats |
 | `NEXT_PUBLIC_APP_URL` | Optional | Full URL for metadata/OG images |
 
 See `.env.example` for the complete list with descriptions.
@@ -619,7 +615,7 @@ function computePitcherNrfiRate(gameLogs: GameLog[]): number {
 For current-season first-inning ERA, use the `statSplits` endpoint with `sitCodes=1` (first inning):
 
 ```
-GET /api/v1/people/{pitcherId}/stats?stats=statSplits&group=pitching&sitCodes=1&season=2025
+GET /api/v1/people/{pitcherId}/stats?stats=statSplits&group=pitching&sitCodes=1&season=2026
 ```
 
 ---
@@ -667,4 +663,4 @@ This tool is intended for informational and educational purposes. NRFI/YRFI prob
 
 ## License
 
-MIT © 2025
+MIT © 2026

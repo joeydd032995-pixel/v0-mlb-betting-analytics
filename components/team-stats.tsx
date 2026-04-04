@@ -187,7 +187,7 @@ export function TeamStats({ teams }: Props) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        * YRFI Rate = % of games where the team scored in the 1st inning. L10 = last 10 games. All stats reflect 2025 season through April 2.
+        * YRFI Rate = % of games where the team scored in the 1st inning. L10 = last 10 games. All stats reflect 2026 season through April 4.
       </p>
     </div>
   )
