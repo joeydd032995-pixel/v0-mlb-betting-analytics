@@ -15,8 +15,6 @@ export type Recommendation =
 export type ImpactDirection = "positive" | "negative" | "neutral"
 export type ImpactMagnitude = "strong" | "moderate" | "slight"
 
-// ─── Team ─────────────────────────────────────────────────────────────────────
-
 export interface Team {
   id: string
   name: string
@@ -29,33 +27,19 @@ export interface Team {
 }
 
 export interface TeamFirstInningStats {
-  /** Average runs scored per first inning */
   runsPerGame: number
-  /** Offensive factor relative to league avg (1.0 = average) */
   offenseFactor: number
-  /** OPS in the first inning */
   ops: number
-  /** wOBA in first inning */
   woba: number
-  /** K% in first inning */
   kRate: number
-  /** BB% in first inning */
   bbRate: number
-  /** Season YRFI rate (% games they score in 1st) */
   yrfiRate: number
-  /** Home YRFI rate */
   homeYrfiRate: number
-  /** Away YRFI rate */
   awayYrfiRate: number
-  /** YRFI rate in last 10 games */
   last10YrfiRate: number
-  /** Avg 1st-inning runs vs RHP */
   avgRunsVsRHP: number
-  /** Avg 1st-inning runs vs LHP */
   avgRunsVsLHP: number
 }
-
-// ─── Pitcher ──────────────────────────────────────────────────────────────────
 
 export interface Pitcher {
   id: string
@@ -68,33 +52,19 @@ export interface Pitcher {
 }
 
 export interface PitcherFirstInningStats {
-  /** ERA in just the first inning */
   era: number
-  /** WHIP in the first inning */
   whip: number
-  /** Strikeout % in 1st inning */
   kRate: number
-  /** Walk % in 1st inning */
   bbRate: number
-  /** HR rate per 9 in 1st inning */
   hrPer9: number
-  /** BABIP in 1st inning */
   babip: number
-  /** % of starts where 0 runs allowed in 1st inning */
   nrfiRate: number
-  /** Average runs allowed per first inning */
   avgRunsAllowed: number
-  /** % of time the first batter reaches base */
   firstBatterOBP: number
-  /** Results of last 5 starts: true = NRFI achieved */
   last5Results: boolean[]
-  /** Runs allowed in 1st inning over last 5 starts */
   last5RunsAllowed: number[]
-  /** Number of starts this season (sample size) */
   startCount: number
-  /** NRFI rate at home */
   homeNrfiRate: number
-  /** NRFI rate on the road */
   awayNrfiRate: number
 }
 
@@ -110,8 +80,6 @@ export interface PitcherOverallStats {
   losses: number
 }
 
-// ─── Game ─────────────────────────────────────────────────────────────────────
-
 export interface Game {
   id: string
   date: string
@@ -122,7 +90,6 @@ export interface Game {
   homePitcherId: string
   awayPitcherId: string
   venue: string
-  /** Run-scoring park factor (1.0 = neutral, >1 hitter-friendly) */
   parkFactor: number
   weather: Weather
   odds?: GameOdds
@@ -137,25 +104,18 @@ export interface Weather {
 }
 
 export interface GameOdds {
-  nrfiOdds: number   // American odds  e.g. -140
+  nrfiOdds: number
   yrfiOdds: number
   bookmaker: string
 }
 
-// ─── Prediction Output ────────────────────────────────────────────────────────
-
 export interface NRFIPrediction {
   gameId: string
-  /** P(neither team scores in 1st inning) */
   nrfiProbability: number
   yrfiProbability: number
-  /** Poisson λ — expected runs for home team in 1st */
   homeExpectedRuns: number
-  /** Poisson λ — expected runs for away team in 1st */
   awayExpectedRuns: number
-  /** P(home team scores 0) */
   homeScores0Prob: number
-  /** P(away team scores 0) */
   awayScores0Prob: number
   confidence: ConfidenceLevel
   confidenceScore: number
@@ -167,7 +127,6 @@ export interface NRFIPrediction {
 
 export interface PredictionFactor {
   name: string
-  /** positive = favors NRFI; negative = favors YRFI */
   impact: ImpactDirection
   magnitude: ImpactMagnitude
   description: string
@@ -195,8 +154,6 @@ export interface ValueAnalysis {
   kellyFraction: number
   expectedValue: number
 }
-
-// ─── Historical Results ───────────────────────────────────────────────────────
 
 export interface HistoricalResult {
   id: string
@@ -242,8 +199,6 @@ export interface MonthlyAccuracy {
   predictions: number
   roi: number
 }
-
-// ─── UI Helpers ───────────────────────────────────────────────────────────────
 
 export interface FilterOptions {
   confidenceLevel: "all" | "High" | "Medium" | "Low"
