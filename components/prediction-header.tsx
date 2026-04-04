@@ -22,8 +22,8 @@ export function PredictionHeader({ predictions, accuracy }: Props) {
   const stats = [
     {
       label: "Season Accuracy",
-      value: `${(accuracy.accuracy * 100).toFixed(1)}%`,
-      sub: `${accuracy.correct}/${accuracy.totalPredictions} correct`,
+      value: accuracy.totalPredictions > 0 ? `${(accuracy.accuracy * 100).toFixed(1)}%` : "—",
+      sub: accuracy.totalPredictions > 0 ? `${accuracy.correct}/${accuracy.totalPredictions} correct` : "Season just started",
       icon: Target,
       color: "text-emerald-400",
       bg: "bg-emerald-400/10 border-emerald-400/20",
@@ -39,7 +39,7 @@ export function PredictionHeader({ predictions, accuracy }: Props) {
     {
       label: "High Confidence",
       value: highConf.toString(),
-      sub: `${(accuracy.highConfAccuracy * 100).toFixed(1)}% hist. accuracy`,
+      sub: accuracy.totalPredictions > 0 ? `${(accuracy.highConfAccuracy * 100).toFixed(1)}% hist. accuracy` : "No data yet",
       icon: Zap,
       color: "text-amber-400",
       bg: "bg-amber-400/10 border-amber-400/20",
@@ -47,14 +47,14 @@ export function PredictionHeader({ predictions, accuracy }: Props) {
     {
       label: "Value Bets Found",
       value: valueBets.toString(),
-      sub: `${(accuracy.roi * 100).toFixed(1)}% season ROI`,
+      sub: accuracy.totalPredictions > 0 ? `${(accuracy.roi * 100).toFixed(1)}% season ROI` : "No bets tracked yet",
       icon: TrendingUp,
       color: "text-violet-400",
       bg: "bg-violet-400/10 border-violet-400/20",
     },
     {
       label: "Model ROI (2026)",
-      value: `+${(accuracy.roi * 100).toFixed(1)}%`,
+      value: accuracy.totalPredictions > 0 ? `+${(accuracy.roi * 100).toFixed(1)}%` : "—",
       sub: "Flat-stake on value bets",
       icon: BarChart2,
       color: "text-rose-400",
