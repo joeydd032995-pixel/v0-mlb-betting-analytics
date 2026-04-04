@@ -173,21 +173,23 @@ export default function HomePage() {
     games: Game[]
     pitchersById: Record<string, Pitcher>
     teamsById: Record<string, Team>
+    noGames?: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetch("/api/predictions")
-      .then((r) => {
-        if (!r.ok) throw new Error(`API returned ${r.status}`)
-        return r.json()
+      .then(async (r) => {
+        const d = await r.json()
+        if (!r.ok) throw new Error(d?.error ?? `API returned ${r.status}`)
+        return d
       })
       .then((d) => {
         setLiveData(d)
         setLoading(false)
       })
-      .catch((e) => {
+      .catch((e: Error) => {
         setError(e.message)
         setLoading(false)
       })
@@ -331,8 +333,21 @@ export default function HomePage() {
                 ))}
               </div>
             ) : error ? (
-              <div className="rounded-lg border border-destructive/40 bg-destructive/10 py-16 text-center">
-                <p className="text-sm text-destructive">Failed to load predictions: {error}</p>
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 py-12 text-center space-y-2 px-4">
+                <p className="text-sm font-semibold text-destructive">Failed to load live predictions</p>
+                <p className="text-xs text-muted-foreground">{error}</p>
+                <p className="text-xs text-muted-foreground">
+                  Check{" "}
+                  <a href="/api/debug" target="_blank" className="underline text-primary">
+                    /api/debug
+                  </a>{" "}
+                  to diagnose the API connection.
+                </p>
+              </div>
+            ) : liveData?.noGames ? (
+              <div className="rounded-lg border border-border/40 bg-muted/10 py-16 text-center space-y-1">
+                <p className="text-sm font-medium text-foreground">No games scheduled today</p>
+                <p className="text-xs text-muted-foreground">Check back on the next scheduled game day.</p>
               </div>
             ) : filtered.length === 0 ? (
               <div className="rounded-lg border border-border/40 bg-muted/10 py-16 text-center">
