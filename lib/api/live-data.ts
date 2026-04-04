@@ -279,7 +279,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
   // 1. Fetch today's games
   const apiGames = await fetchGamesByDate(date)
   if (!apiGames || apiGames.length === 0) {
-    throw new Error(`No MLB games found for ${date}`)
+    // Return empty slate — caller decides how to handle a no-game day
+    return { games: [], pitchers: new Map(), teams: new Map() }
   }
 
   // 2. Fetch all NRFI odds (one request covers all games)
