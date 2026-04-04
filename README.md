@@ -173,7 +173,10 @@ cp .env.example .env.local
 
 ## API Integrations
 
-The app ships with **realistic mock data** that powers the full UI. To enable live predictions, connect the four external APIs below.
+The app ships with **realistic mock data** that powers the full UI. To enable live predictions, connect the following APIs:
+- **Required:** The Odds API + OpenWeatherMap
+- **Built-in (no auth):** MLB Stats API
+- **Optional:** SportsBlaze
 
 ---
 
@@ -270,46 +273,61 @@ export async function fetchGameWeather(venue: string) {
 
 ---
 
-### 3. API-Sports — Baseball API
+### 3. MLB Stats API
 
-Provides MLB game schedules, starting pitchers, team stats, and live game status.
+**Official free API from MLB.com** — provides game schedules, starting pitchers, pitcher stats, and team statistics. No authentication or API key required.
 
-**Website:** [api-sports.io](https://api-sports.io)  
-**Docs:** [api-sports.io/documentation/baseball/v1](https://api-sports.io/documentation/baseball/v1)  
-**Free tier:** 100 requests/day · **Auth:** Header `x-apisports-key`  
-**Env variable:** `API_SPORTS_KEY`
+**Website:** [statsapi.mlb.com](https://statsapi.mlb.com)  
+**Docs:** [github.com/toddrob99/MLB-StatsAPI](https://github.com/toddrob99/MLB-StatsAPI)  
+**Auth:** None — completely free and unlimited  
+**Env variable:** None required ✓
+
+**Advantages:**
+- ✓ Completely free (no API key, no plan tiers)
+- ✓ No seasonal restrictions (access 2026 and all current seasons)
+- ✓ Official MLB.com data source
+- ✓ Unlimited requests (reasonable rate-limiting expected)
 
 **Key Endpoints:**
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /games?league=1&season=2026&date=YYYY-MM-DD` | Today's MLB game slate with starters |
-| `GET /players/statistics?league=1&season=2026&player={id}` | Pitcher season stats |
-| `GET /teams/statistics?league=1&season=2026&team={id}` | Team season stats |
-| `GET /games?id={gameId}` | Live/completed game with score |
+| `GET /schedule?sportId=1&date=YYYY-MM-DD` | Today's MLB game slate with probable starters |
+| `GET /people/{pitcherId}?hydrate=stats(group=[pitching])` | Pitcher season stats (ERA, WHIP, strikeouts, walks) |
+| `GET /teams/{teamId}?hydrate=stats` | Team season stats (AVG, OBP, SLG, OPS) |
+| `GET /game/{gamePk}/feed/live` | Live/completed game with play-by-play data |
 
 **Example:**
 
 ```typescript
-// lib/api/api-sports.ts
-const BASE = process.env.API_SPORTS_BASE_URL ?? "https://v1.baseball.api-sports.io"
+// lib/api/mlb-stats.ts
+const BASE_URL = "https://statsapi.mlb.com/api/v1"
 
-async function apiSportsFetch(path: string) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "x-apisports-key": process.env.API_SPORTS_KEY! },
+export async function fetchGamesByDate(date: string) {
+  const res = await fetch(`${BASE_URL}/schedule?sportId=1&date=${date}`, {
     next: { revalidate: 300 },
   })
-  return res.json()
-}
-
-export async function fetchTodayGames(date: string) {
-  const data = await apiSportsFetch(`/games?league=1&season=2026&date=${date}`)
-  return data.response ?? []
+  const data = await res.json()
+  return data.dates?.[0]?.games ?? []
 }
 
 export async function fetchPitcherStats(playerId: number) {
-  const data = await apiSportsFetch(`/players/statistics?league=1&season=2026&player=${playerId}`)
-  return data.response?.[0] ?? null
+  const res = await fetch(
+    `${BASE_URL}/people/${playerId}?hydrate=stats(group=[pitching])`,
+    { next: { revalidate: 3600 } }
+  )
+  const data = await res.json()
+  const pitcher = data.people?.[0]
+  return pitcher?.seasonStats?.pitching ?? null
+}
+
+export async function fetchTeamStats(teamId: number) {
+  const res = await fetch(`${BASE_URL}/teams/${teamId}?hydrate=stats`, {
+    next: { revalidate: 3600 },
+  })
+  const data = await res.json()
+  const hittingStats = data.stats?.find(s => s.type.displayName === "season")?.stats ?? {}
+  return { stats: { hitting: hittingStats } }
 }
 ```
 
@@ -349,10 +367,10 @@ export async function fetchPitcherSplits(playerId: string) {
 |---|---|---|---|
 | The Odds API | ~30 | ~16/day (500/mo) | NRFI/YRFI odds per game |
 | OpenWeatherMap | ~20 | 1,000/day | 1 call per outdoor stadium |
-| API-Sports | ~50 | 100/day | Schedule + pitcher stats |
+| **MLB Stats API** | **~40** | **Unlimited** | **Schedule + pitcher stats (no auth)** |
 | SportsBlaze | ~15 | varies | Optional enhanced splits |
 
-> **Tip:** API-Sports' free tier (100/day) is tight for a full 15-game slate — cache aggressively and consider upgrading for production use.
+> **Cost savings:** MLB Stats API is completely free and unlimited, replacing the need to upgrade API-Sports. No plan restrictions or seasonal blocking.
 
 ---
 
@@ -366,11 +384,12 @@ cp .env.example .env.local
 
 | Variable | Required | Description |
 |---|---|---|
-| `THE_ODDS_API_KEY` | For value bets | NRFI/YRFI odds from 40+ bookmakers |
-| `OPENWEATHER_API_KEY` | For weather | Stadium weather at game time |
-| `API_SPORTS_KEY` | For live data | Game schedules and pitcher stats |
+| `THE_ODDS_API_KEY` | ✓ Yes | NRFI/YRFI odds from 40+ bookmakers |
+| `OPENWEATHER_API_KEY` | ✓ Yes | Stadium weather at game time |
 | `SPORTSBLAZE_API_KEY` | Optional | Enhanced batting splits and xStats |
 | `NEXT_PUBLIC_APP_URL` | Optional | Full URL for metadata/OG images |
+
+**Note:** No API key is needed for MLB game data — the app uses the free, official MLB Stats API (`statsapi.mlb.com`) which requires no authentication.
 
 See `.env.example` for the complete list with descriptions.
 
@@ -648,10 +667,12 @@ Then connect the repo to [vercel.com](https://vercel.com) and add environment va
 ### Environment Variables in Vercel
 
 Go to **Project Settings → Environment Variables** and add:
-- `THE_ODDS_API_KEY`
-- `OPENWEATHER_API_KEY`
-- `SPORTSDATA_API_KEY` (optional)
+- `THE_ODDS_API_KEY` ✓ Required
+- `OPENWEATHER_API_KEY` ✓ Required
+- `SPORTSBLAZE_API_KEY` (optional)
 - `NEXT_PUBLIC_APP_URL` → your deployed URL
+
+No API key needed for MLB game data (uses free MLB Stats API).
 
 ---
 
