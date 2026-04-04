@@ -1,6 +1,6 @@
 /**
  * Mock data for NRFI/YRFI Prediction Engine
- * All statistics are representative of the 2025 MLB season.
+ * All statistics are representative of the 2026 MLB season.
  */
 
 import type { Team, Pitcher, Game, HistoricalResult, ModelAccuracy } from "./types"
@@ -584,7 +584,7 @@ export const pitchers: Pitcher[] = [
 export const todayGames: Game[] = [
   {
     id: "g1",
-    date: "2025-04-02",
+    date: "2026-04-04",
     time: "1:10 PM",
     timeZone: "ET",
     homeTeamId: "mia",
@@ -598,7 +598,7 @@ export const todayGames: Game[] = [
   },
   {
     id: "g2",
-    date: "2025-04-02",
+    date: "2026-04-04",
     time: "4:05 PM",
     timeZone: "ET",
     homeTeamId: "sd",
@@ -612,7 +612,7 @@ export const todayGames: Game[] = [
   },
   {
     id: "g3",
-    date: "2025-04-02",
+    date: "2026-04-04",
     time: "2:15 PM",
     timeZone: "ET",
     homeTeamId: "stl",
@@ -626,7 +626,7 @@ export const todayGames: Game[] = [
   },
   {
     id: "g4",
-    date: "2025-04-02",
+    date: "2026-04-04",
     time: "7:05 PM",
     timeZone: "ET",
     homeTeamId: "nyy",
@@ -640,7 +640,7 @@ export const todayGames: Game[] = [
   },
   {
     id: "g5",
-    date: "2025-04-02",
+    date: "2026-04-04",
     time: "7:20 PM",
     timeZone: "ET",
     homeTeamId: "chc",
@@ -654,7 +654,7 @@ export const todayGames: Game[] = [
   },
   {
     id: "g6",
-    date: "2025-04-02",
+    date: "2026-04-04",
     time: "8:05 PM",
     timeZone: "ET",
     homeTeamId: "tex",
@@ -673,7 +673,7 @@ export const todayGames: Game[] = [
 export const historicalResults: HistoricalResult[] = [
   {
     id: "h001",
-    date: "2025-04-01",
+    date: "2026-04-03",
     homeTeam: "NYY",
     awayTeam: "BOS",
     homePitcher: "Gerrit Cole",
@@ -691,7 +691,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h002",
-    date: "2025-04-01",
+    date: "2026-04-03",
     homeTeam: "LAD",
     awayTeam: "SF",
     homePitcher: "Tyler Glasnow",
@@ -709,7 +709,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h003",
-    date: "2025-04-01",
+    date: "2026-04-03",
     homeTeam: "HOU",
     awayTeam: "SEA",
     homePitcher: "Framber Valdez",
@@ -727,7 +727,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h004",
-    date: "2025-04-01",
+    date: "2026-04-03",
     homeTeam: "ATL",
     awayTeam: "MIA",
     homePitcher: "Spencer Strider",
@@ -745,7 +745,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h005",
-    date: "2025-04-01",
+    date: "2026-04-03",
     homeTeam: "PHI",
     awayTeam: "NYM",
     homePitcher: "Zack Wheeler",
@@ -763,7 +763,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h006",
-    date: "2025-04-01",
+    date: "2026-04-03",
     homeTeam: "CHC",
     awayTeam: "MIL",
     homePitcher: "Marcus Stroman",
@@ -781,7 +781,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h007",
-    date: "2025-03-31",
+    date: "2026-04-02",
     homeTeam: "PIT",
     awayTeam: "CIN",
     homePitcher: "Paul Skenes",
@@ -799,7 +799,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h008",
-    date: "2025-03-31",
+    date: "2026-04-02",
     homeTeam: "MIN",
     awayTeam: "DET",
     homePitcher: "Pablo López",
@@ -817,7 +817,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h009",
-    date: "2025-03-31",
+    date: "2026-04-02",
     homeTeam: "SD",
     awayTeam: "COL",
     homePitcher: "Dylan Cease",
@@ -835,7 +835,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h010",
-    date: "2025-03-31",
+    date: "2026-04-02",
     homeTeam: "TEX",
     awayTeam: "OAK",
     homePitcher: "Nathan Eovaldi",
@@ -853,7 +853,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h011",
-    date: "2025-03-30",
+    date: "2026-04-01",
     homeTeam: "STL",
     awayTeam: "KC",
     homePitcher: "Sonny Gray",
@@ -871,7 +871,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h012",
-    date: "2025-03-30",
+    date: "2026-04-01",
     homeTeam: "MIA",
     awayTeam: "NYM",
     homePitcher: "Sandy Alcantara",
@@ -889,7 +889,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h013",
-    date: "2025-03-30",
+    date: "2026-04-01",
     homeTeam: "ATL",
     awayTeam: "PHI",
     homePitcher: "Spencer Strider",
@@ -907,7 +907,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h014",
-    date: "2025-03-29",
+    date: "2026-03-31",
     homeTeam: "HOU",
     awayTeam: "LAA",
     homePitcher: "Framber Valdez",
@@ -925,7 +925,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h015",
-    date: "2025-03-29",
+    date: "2026-03-31",
     homeTeam: "NYY",
     awayTeam: "TOR",
     homePitcher: "Gerrit Cole",
@@ -943,7 +943,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h016",
-    date: "2025-03-29",
+    date: "2026-03-31",
     homeTeam: "CHC",
     awayTeam: "STL",
     homePitcher: "Marcus Stroman",
@@ -961,7 +961,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h017",
-    date: "2025-03-28",
+    date: "2026-03-30",
     homeTeam: "SF",
     awayTeam: "ARI",
     homePitcher: "Logan Webb",
@@ -979,7 +979,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h018",
-    date: "2025-03-28",
+    date: "2026-03-30",
     homeTeam: "PIT",
     awayTeam: "MIL",
     homePitcher: "Paul Skenes",
@@ -997,7 +997,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h019",
-    date: "2025-03-28",
+    date: "2026-03-30",
     homeTeam: "MIN",
     awayTeam: "CWS",
     homePitcher: "Pablo López",
@@ -1015,7 +1015,7 @@ export const historicalResults: HistoricalResult[] = [
   },
   {
     id: "h020",
-    date: "2025-03-27",
+    date: "2026-03-29",
     homeTeam: "SD",
     awayTeam: "MIA",
     homePitcher: "Dylan Cease",
@@ -1052,12 +1052,12 @@ export const modelAccuracy: ModelAccuracy = {
     { predictedBin: 0.70, actualRate: 0.67, count: 6 },   // one upset at 0.688
   ],
   monthlyData: [
-    { month: "Mar 2025", accuracy: 0.75, predictions: 20, roi: 0.148 },
-    { month: "Sep 2024", accuracy: 0.702, predictions: 124, roi: 0.092 },
-    { month: "Aug 2024", accuracy: 0.718, predictions: 138, roi: 0.112 },
-    { month: "Jul 2024", accuracy: 0.731, predictions: 142, roi: 0.128 },
-    { month: "Jun 2024", accuracy: 0.688, predictions: 130, roi: 0.065 },
-    { month: "May 2024", accuracy: 0.705, predictions: 136, roi: 0.085 },
+    { month: "Mar 2026", accuracy: 0.75, predictions: 20, roi: 0.148 },
+    { month: "Sep 2025", accuracy: 0.702, predictions: 124, roi: 0.092 },
+    { month: "Aug 2025", accuracy: 0.718, predictions: 138, roi: 0.112 },
+    { month: "Jul 2025", accuracy: 0.731, predictions: 142, roi: 0.128 },
+    { month: "Jun 2025", accuracy: 0.688, predictions: 130, roi: 0.065 },
+    { month: "May 2025", accuracy: 0.705, predictions: 136, roi: 0.085 },
   ],
 }
 

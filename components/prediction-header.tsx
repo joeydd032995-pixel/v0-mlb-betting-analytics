@@ -53,7 +53,7 @@ export function PredictionHeader({ predictions, accuracy }: Props) {
       bg: "bg-violet-400/10 border-violet-400/20",
     },
     {
-      label: "Model ROI (2025)",
+      label: "Model ROI (2026)",
       value: `+${(accuracy.roi * 100).toFixed(1)}%`,
       sub: "Flat-stake on value bets",
       icon: BarChart2,

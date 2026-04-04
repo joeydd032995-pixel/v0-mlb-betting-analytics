@@ -198,7 +198,7 @@ export function PitcherStats({ pitchers, teams }: Props) {
 
       {/* Model note */}
       <p className="text-xs text-muted-foreground">
-        * NRFI Rate = % of starts where 0 runs allowed in the 1st inning. Last 5 dots: green = NRFI achieved, red = YRFI. Stats reflect 2025 season through April 2.
+        * NRFI Rate = % of starts where 0 runs allowed in the 1st inning. Last 5 dots: green = NRFI achieved, red = YRFI. Stats reflect 2026 season through April 4.
       </p>
     </div>
   )

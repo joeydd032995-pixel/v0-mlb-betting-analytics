@@ -250,12 +250,12 @@ export default function HomePage() {
               <h1 className="text-sm font-bold leading-none tracking-tight text-foreground sm:text-base">
                 NRFI/YRFI Prediction Engine
               </h1>
-              <p className="text-xs text-muted-foreground">Advanced Poisson Model · 2025 MLB Season</p>
+              <p className="text-xs text-muted-foreground">Advanced Poisson Model · 2026 MLB Season</p>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
-              April 2, 2025
+              April 4, 2026
             </span>
             <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-muted-foreground">
               {predictions.length} games
@@ -365,7 +365,7 @@ export default function HomePage() {
             <div className="mb-4">
               <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                Model accuracy and bet-by-bet results since the start of the 2025 season.
+                Model accuracy and bet-by-bet results since the start of the 2026 season.
               </p>
             </div>
             <HistoryTable results={historicalResults} accuracy={modelAccuracy} />

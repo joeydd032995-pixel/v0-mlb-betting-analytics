@@ -283,9 +283,9 @@ Provides MLB game schedules, starting pitchers, team stats, and live game status
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /games?league=1&season=2025&date=YYYY-MM-DD` | Today's MLB game slate with starters |
-| `GET /players/statistics?league=1&season=2025&player={id}` | Pitcher season stats |
-| `GET /teams/statistics?league=1&season=2025&team={id}` | Team season stats |
+| `GET /games?league=1&season=2026&date=YYYY-MM-DD` | Today's MLB game slate with starters |
+| `GET /players/statistics?league=1&season=2026&player={id}` | Pitcher season stats |
+| `GET /teams/statistics?league=1&season=2026&team={id}` | Team season stats |
 | `GET /games?id={gameId}` | Live/completed game with score |
 
 **Example:**
@@ -303,12 +303,12 @@ async function apiSportsFetch(path: string) {
 }
 
 export async function fetchTodayGames(date: string) {
-  const data = await apiSportsFetch(`/games?league=1&season=2025&date=${date}`)
+  const data = await apiSportsFetch(`/games?league=1&season=2026&date=${date}`)
   return data.response ?? []
 }
 
 export async function fetchPitcherStats(playerId: number) {
-  const data = await apiSportsFetch(`/players/statistics?league=1&season=2025&player=${playerId}`)
+  const data = await apiSportsFetch(`/players/statistics?league=1&season=2026&player=${playerId}`)
   return data.response?.[0] ?? null
 }
 ```
@@ -615,7 +615,7 @@ function computePitcherNrfiRate(gameLogs: GameLog[]): number {
 For current-season first-inning ERA, use the `statSplits` endpoint with `sitCodes=1` (first inning):
 
 ```
-GET /api/v1/people/{pitcherId}/stats?stats=statSplits&group=pitching&sitCodes=1&season=2025
+GET /api/v1/people/{pitcherId}/stats?stats=statSplits&group=pitching&sitCodes=1&season=2026
 ```
 
 ---
@@ -663,4 +663,4 @@ This tool is intended for informational and educational purposes. NRFI/YRFI prob
 
 ## License
 
-MIT © 2025
+MIT © 2026
