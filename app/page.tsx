@@ -1,15 +1,14 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GamePredictionCard } from "@/components/game-prediction-card"
 import { PredictionHeader } from "@/components/prediction-header"
 import { PitcherStats } from "@/components/pitcher-stats"
 import { TeamStats } from "@/components/team-stats"
 import { HistoryTable } from "@/components/history-table"
-import { todayGames, teamMap, pitcherMap, historicalResults, modelAccuracy } from "@/lib/mock-data"
-import { computeAllPredictions } from "@/lib/nrfi-engine"
-import type { FilterOptions } from "@/lib/types"
+import { historicalResults, modelAccuracy } from "@/lib/mock-data"
+import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X } from "lucide-react"
 
@@ -168,22 +167,53 @@ function FilterBar({
 export default function HomePage() {
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
 
-  // Compute all predictions
-  const predictions = useMemo(
-    () => computeAllPredictions(todayGames, pitcherMap, teamMap),
-    []
+  // ── Live data state ──────────────────────────────────────────────────────────
+  const [liveData, setLiveData] = useState<{
+    predictions: NRFIPrediction[]
+    games: Game[]
+    pitchersById: Record<string, Pitcher>
+    teamsById: Record<string, Team>
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/predictions")
+      .then((r) => {
+        if (!r.ok) throw new Error(`API returned ${r.status}`)
+        return r.json()
+      })
+      .then((d) => {
+        setLiveData(d)
+        setLoading(false)
+      })
+      .catch((e) => {
+        setError(e.message)
+        setLoading(false)
+      })
+  }, [])
+
+  const pitcherMap = useMemo(
+    () => new Map(Object.entries(liveData?.pitchersById ?? {})),
+    [liveData]
   )
+  const teamMap = useMemo(
+    () => new Map(Object.entries(liveData?.teamsById ?? {})),
+    [liveData]
+  )
+  const predictions = liveData?.predictions ?? []
+  const todayGames = liveData?.games ?? []
 
   // Apply filters and sort
   const filtered = useMemo(() => {
     let items = predictions.map((pred, i) => ({
       pred,
       game: todayGames[i],
-      homeTeam: teamMap.get(todayGames[i].homeTeamId)!,
-      awayTeam: teamMap.get(todayGames[i].awayTeamId)!,
-      homePitcher: pitcherMap.get(todayGames[i].homePitcherId)!,
-      awayPitcher: pitcherMap.get(todayGames[i].awayPitcherId)!,
-    }))
+      homeTeam: teamMap.get(todayGames[i]?.homeTeamId ?? "")!,
+      awayTeam: teamMap.get(todayGames[i]?.awayTeamId ?? "")!,
+      homePitcher: pitcherMap.get(todayGames[i]?.homePitcherId ?? "")!,
+      awayPitcher: pitcherMap.get(todayGames[i]?.awayPitcherId ?? "")!,
+    })).filter((x) => x.game && x.homeTeam && x.awayTeam && x.homePitcher && x.awayPitcher)
 
     if (filters.confidenceLevel !== "all") {
       items = items.filter((x) => x.pred.confidence === filters.confidenceLevel)
@@ -255,10 +285,10 @@ export default function HomePage() {
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
-              April 4, 2026
+              {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
             </span>
             <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-muted-foreground">
-              {predictions.length} games
+              {todayGames.length} games
             </span>
           </div>
         </div>
@@ -294,7 +324,17 @@ export default function HomePage() {
           <TabsContent value="games" className="mt-4 space-y-4">
             <FilterBar filters={filters} onChange={setFilters} />
 
-            {filtered.length === 0 ? (
+            {loading ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="rounded-lg border border-border/30 bg-muted/20 h-64 animate-pulse" />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 py-16 text-center">
+                <p className="text-sm text-destructive">Failed to load predictions: {error}</p>
+              </div>
+            ) : filtered.length === 0 ? (
               <div className="rounded-lg border border-border/40 bg-muted/10 py-16 text-center">
                 <p className="text-sm text-muted-foreground">No games match the current filters.</p>
                 <button
