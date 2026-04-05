@@ -46,26 +46,26 @@ export function HistoryTable({ results, accuracy }: Props) {
         {[
           {
             label: "Overall Accuracy",
-            value: pct(accuracy.accuracy),
-            sub: `${accuracy.correct}/${accuracy.totalPredictions}`,
+            value: accuracy.totalPredictions > 0 ? pct(accuracy.accuracy) : "—",
+            sub: accuracy.totalPredictions > 0 ? `${accuracy.correct}/${accuracy.totalPredictions}` : "No data yet",
             color: "text-emerald-400",
           },
           {
             label: "NRFI Accuracy",
-            value: pct(accuracy.nrfiAccuracy),
+            value: accuracy.totalPredictions > 0 ? pct(accuracy.nrfiAccuracy) : "—",
             sub: "When predicting NRFI",
             color: "text-sky-400",
           },
           {
             label: "YRFI Accuracy",
-            value: pct(accuracy.yrfiAccuracy),
+            value: accuracy.totalPredictions > 0 ? pct(accuracy.yrfiAccuracy) : "—",
             sub: "When predicting YRFI",
             color: "text-violet-400",
           },
           {
             label: "High-Conf Accuracy",
-            value: pct(accuracy.highConfAccuracy),
-            sub: `ROI: +${pct(accuracy.roi)}`,
+            value: accuracy.totalPredictions > 0 ? pct(accuracy.highConfAccuracy) : "—",
+            sub: accuracy.totalPredictions > 0 ? `ROI: +${pct(accuracy.roi)}` : "Season just started",
             color: "text-amber-400",
           },
         ].map((s) => (
@@ -78,6 +78,7 @@ export function HistoryTable({ results, accuracy }: Props) {
       </div>
 
       {/* Monthly accuracy */}
+      {accuracy.monthlyData.length > 0 && (
       <div>
         <h3 className="mb-3 text-sm font-semibold text-foreground">Monthly Accuracy</h3>
         <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-6">
@@ -103,11 +104,18 @@ export function HistoryTable({ results, accuracy }: Props) {
           ))}
         </div>
       </div>
+      )}
 
       {/* Desktop results table */}
       <div>
         <h3 className="mb-3 text-sm font-semibold text-foreground">Recent Predictions</h3>
-        <div className="hidden md:block overflow-x-auto rounded-lg border border-border/50">
+        {results.length === 0 ? (
+          <div className="rounded-lg border border-border/40 bg-muted/10 py-16 text-center">
+            <p className="text-sm font-medium text-foreground">No predictions tracked yet</p>
+            <p className="mt-1 text-xs text-muted-foreground">Results will appear here once live game predictions are logged.</p>
+          </div>
+        ) : null}
+        <div className={cn("overflow-x-auto rounded-lg border border-border/50", results.length === 0 ? "hidden" : "hidden md:block")}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/50 bg-muted/20">
@@ -196,7 +204,7 @@ export function HistoryTable({ results, accuracy }: Props) {
 
       {/* Mobile results */}
       <div className="grid gap-3 md:hidden">
-        {results.map((r) => (
+        {results.length > 0 && results.map((r) => (
           <Card key={r.id} className="border border-border/50 p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
