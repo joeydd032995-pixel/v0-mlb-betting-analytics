@@ -12,8 +12,9 @@ const SEASON = process.env.NEXT_PUBLIC_MLB_SEASON ?? "2026"
 /** One game object returned inside /schedule dates[].games[] */
 export interface MLBGame {
   gamePk: number
-  /** ISO-8601 UTC datetime, e.g. "2026-04-05T23:10:00Z" — may be absent for unscheduled games */
-  gameDateTime?: string
+  /** ISO-8601 UTC datetime — the actual field name in the MLB API is "gameDate",
+   *  e.g. "2026-04-05T23:10:00Z".  Despite the name it contains the full timestamp. */
+  gameDate?: string
   status: { abstractGameState: string; detailedState: string }
   teams: {
     home: {
