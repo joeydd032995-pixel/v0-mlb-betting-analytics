@@ -7,7 +7,16 @@ import { PredictionHeader } from "@/components/prediction-header"
 import { PitcherStats } from "@/components/pitcher-stats"
 import { TeamStats } from "@/components/team-stats"
 import { HistoryTable } from "@/components/history-table"
-import { historicalResults, modelAccuracy } from "@/lib/mock-data"
+import {
+  buildTrackedPrediction,
+  upsertPredictions,
+  loadTrackedPredictions,
+  recordResult,
+  deletePrediction,
+  computeExtendedAccuracy,
+  type TrackedPrediction,
+  type ExtendedModelAccuracy,
+} from "@/lib/prediction-store"
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X } from "lucide-react"
@@ -173,10 +182,24 @@ export default function HomePage() {
     games: Game[]
     pitchersById: Record<string, Pitcher>
     teamsById: Record<string, Team>
+    date: string
     noGames?: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // ── Prediction tracking store ────────────────────────────────────────────────
+  const [trackedPredictions, setTrackedPredictions] = useState<TrackedPrediction[]>([])
+  const [trackingAccuracy, setTrackingAccuracy] = useState<ExtendedModelAccuracy>(() =>
+    computeExtendedAccuracy([])
+  )
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    const stored = loadTrackedPredictions()
+    setTrackedPredictions(stored)
+    setTrackingAccuracy(computeExtendedAccuracy(stored))
+  }, [])
 
   useEffect(() => {
     fetch("/api/predictions")
@@ -188,6 +211,18 @@ export default function HomePage() {
       .then((d) => {
         setLiveData(d)
         setLoading(false)
+
+        // Auto-save today's predictions to the tracking store
+        if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
+          const pitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
+          const teamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
+          const incoming   = (d.predictions as NRFIPrediction[]).map((pred, i) =>
+            buildTrackedPrediction(pred, d.games[i] as Game, pitcherMap, teamMap, d.date)
+          )
+          const updated = upsertPredictions(incoming)
+          setTrackedPredictions(updated)
+          setTrackingAccuracy(computeExtendedAccuracy(updated))
+        }
       })
       .catch((e: Error) => {
         setError(e.message)
@@ -205,6 +240,19 @@ export default function HomePage() {
   )
   const predictions = liveData?.predictions ?? []
   const todayGames = liveData?.games ?? []
+
+  // ── Store callbacks ──────────────────────────────────────────────────────────
+  const handleRecordResult = (id: string, homeRuns: number, awayRuns: number) => {
+    const updated = recordResult(id, homeRuns, awayRuns)
+    setTrackedPredictions(updated)
+    setTrackingAccuracy(computeExtendedAccuracy(updated))
+  }
+
+  const handleDeletePrediction = (id: string) => {
+    const updated = deletePrediction(id)
+    setTrackedPredictions(updated)
+    setTrackingAccuracy(computeExtendedAccuracy(updated))
+  }
 
   // Apply filters and sort
   const filtered = useMemo(() => {
@@ -299,7 +347,7 @@ export default function HomePage() {
       {/* Main content */}
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
         {/* Stats header */}
-        <PredictionHeader predictions={predictions} accuracy={modelAccuracy} />
+        <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} />
 
         {/* Tabs */}
         <Tabs defaultValue="games">
@@ -417,13 +465,24 @@ export default function HomePage() {
 
           {/* ── History Tab ── */}
           <TabsContent value="history" className="mt-4">
-            <div className="mb-4">
-              <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Model accuracy and bet-by-bet results since the start of the 2026 season.
-              </p>
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Model accuracy and bet-by-bet results since the start of the 2026 season.
+                  Predictions are auto-saved daily — record actual results after each game.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-xs text-muted-foreground">
+                {trackingAccuracy.totalTracked} tracked
+              </span>
             </div>
-            <HistoryTable results={historicalResults} accuracy={modelAccuracy} />
+            <HistoryTable
+              predictions={trackedPredictions}
+              accuracy={trackingAccuracy}
+              onRecordResult={handleRecordResult}
+              onDelete={handleDeletePrediction}
+            />
           </TabsContent>
         </Tabs>
       </main>
