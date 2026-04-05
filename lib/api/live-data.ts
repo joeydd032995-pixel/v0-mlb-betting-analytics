@@ -70,18 +70,22 @@ function mapGame(
   const venue = apiGame.venue?.name ?? "Unknown Stadium"
   const parkFactor = STADIUM_PARK_FACTORS[venue] ?? 1.0
 
-  // MLB Stats API returns ISO 8601 UTC time (e.g., "2026-04-04T20:10:00Z")
-  let displayTime = "7:05 PM"
+  // MLB Stats API returns ISO 8601 UTC time (e.g., "2026-04-05T23:10:00Z")
+  // Use Intl.DateTimeFormat directly — reliable across all Node.js/Vercel environments.
+  // Avoid the anti-pattern of `new Date(date.toLocaleString(...))` which produces
+  // Invalid Date in some runtimes because locale strings are not standardized for parsing.
+  let displayTime = "TBD"
   if (apiGame.gameDateTime) {
     try {
       const utcDate = new Date(apiGame.gameDateTime)
-      // Convert to ET (UTC-5 or UTC-4 depending on DST)
-      const etTime = new Date(utcDate.toLocaleString("en-US", { timeZone: "America/New_York" }))
-      const hours = etTime.getHours()
-      const minutes = String(etTime.getMinutes()).padStart(2, "0")
-      const ampm = hours >= 12 ? "PM" : "AM"
-      const hours12 = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours
-      displayTime = `${hours12}:${minutes} ${ampm}`
+      if (!isNaN(utcDate.getTime())) {
+        displayTime = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }).format(utcDate)
+      }
     } catch (err) {
       console.error("[mapGame] time parse error:", err)
     }
