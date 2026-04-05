@@ -294,6 +294,67 @@ export function deletePrediction(id: string): TrackedPrediction[] {
   return updated
 }
 
+// ─── Auto-record from API results ────────────────────────────────────────────
+
+/**
+ * Given a map of { gamePk → { homeRuns, awayRuns } } from /api/results,
+ * automatically records results for any pending predictions that match.
+ * Already-completed predictions are left untouched.
+ *
+ * Returns the updated predictions array and a count of newly recorded results.
+ */
+export function autoRecordResults(
+  apiResults: Record<
+    string,
+    { homeRuns: number; awayRuns: number; status?: string; inProgress?: boolean }
+  >
+): { predictions: TrackedPrediction[]; recorded: number } {
+  const stored = loadTrackedPredictions()
+  let recorded = 0
+
+  const updated = stored.map((p) => {
+    // Only update pending predictions that have a matching final result
+    if (p.status !== "pending") return p
+    const result = apiResults[p.id]
+    if (!result) return p
+    // Skip games still in progress — wait for final
+    if (result.inProgress) return p
+
+    const { homeRuns, awayRuns } = result
+    const actualResult: "NRFI" | "YRFI" =
+      homeRuns === 0 && awayRuns === 0 ? "NRFI" : "YRFI"
+    const correct = actualResult === p.prediction
+
+    let profitLoss: number | undefined
+    if (p.prediction === "NRFI" && p.nrfiOdds != null) {
+      profitLoss = correct
+        ? p.nrfiOdds > 0
+          ? p.nrfiOdds / 100
+          : 100 / Math.abs(p.nrfiOdds)
+        : -1
+    } else if (p.prediction === "YRFI" && p.yrfiOdds != null) {
+      profitLoss = correct
+        ? p.yrfiOdds > 0
+          ? p.yrfiOdds / 100
+          : 100 / Math.abs(p.yrfiOdds)
+        : -1
+    }
+
+    recorded++
+    return {
+      ...p,
+      status: "complete" as const,
+      actualResult,
+      correct,
+      runsFirstInning: { home: homeRuns, away: awayRuns },
+      profitLoss,
+    }
+  })
+
+  if (recorded > 0) persist(updated)
+  return { predictions: updated, recorded }
+}
+
 // ─── Accuracy metrics ─────────────────────────────────────────────────────────
 
 function modelAccuracyForModel(

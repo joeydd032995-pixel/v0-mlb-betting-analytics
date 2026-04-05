@@ -13,13 +13,14 @@ import {
   loadTrackedPredictions,
   recordResult,
   deletePrediction,
+  autoRecordResults,
   computeExtendedAccuracy,
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { Activity, LineChart, Users, History, SlidersHorizontal, X } from "lucide-react"
+import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw } from "lucide-react"
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
 
@@ -254,6 +255,69 @@ export default function HomePage() {
     setTrackingAccuracy(computeExtendedAccuracy(updated))
   }
 
+  // ── Results sync ─────────────────────────────────────────────────────────────
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
+
+  const syncResults = async (dates?: string[]) => {
+    setSyncing(true)
+    try {
+      // Collect unique dates from pending predictions + today
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      const pendingDates = new Set<string>(
+        trackedPredictions
+          .filter((p) => p.status === "pending")
+          .map((p) => p.date)
+      )
+      pendingDates.add(today)
+      // Also check yesterday in case games ended after midnight ET
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      pendingDates.add(
+        new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(yesterday)
+      )
+
+      const targetDates = dates ?? [...pendingDates]
+
+      let totalRecorded = 0
+      let latestPredictions = trackedPredictions
+
+      for (const date of targetDates) {
+        const res = await fetch(`/api/results?date=${date}`)
+        if (!res.ok) continue
+        const data = await res.json()
+        if (!data.results) continue
+
+        const { predictions: updated, recorded } = autoRecordResults(data.results)
+        if (recorded > 0) {
+          latestPredictions = updated
+          totalRecorded += recorded
+        }
+      }
+
+      if (totalRecorded > 0) {
+        setTrackedPredictions(latestPredictions)
+        setTrackingAccuracy(computeExtendedAccuracy(latestPredictions))
+        setLastSyncInfo(`${totalRecorded} result${totalRecorded !== 1 ? "s" : ""} recorded`)
+      } else {
+        setLastSyncInfo("No new results")
+      }
+    } catch {
+      setLastSyncInfo("Sync failed")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  // Auto-sync on mount after predictions are loaded
+  useEffect(() => {
+    const hasPending = trackedPredictions.some((p) => p.status === "pending")
+    if (hasPending) {
+      syncResults()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Run once on mount; trackedPredictions populated by the load effect above
+
   // Apply filters and sort
   const filtered = useMemo(() => {
     let items = predictions.map((pred, i) => ({
@@ -465,17 +529,30 @@ export default function HomePage() {
 
           {/* ── History Tab ── */}
           <TabsContent value="history" className="mt-4">
-            <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  Model accuracy and bet-by-bet results since the start of the 2026 season.
-                  Predictions are auto-saved daily — record actual results after each game.
+                  Predictions are auto-saved daily. 1st-inning results are fetched automatically
+                  from the MLB Stats API once games end.
                 </p>
               </div>
-              <span className="shrink-0 rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-xs text-muted-foreground">
-                {trackingAccuracy.totalTracked} tracked
-              </span>
+              <div className="flex items-center gap-2">
+                {lastSyncInfo && (
+                  <span className="text-xs text-muted-foreground">{lastSyncInfo}</span>
+                )}
+                <button
+                  onClick={() => syncResults()}
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
+                  {syncing ? "Syncing…" : "Sync Results"}
+                </button>
+                <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-xs text-muted-foreground">
+                  {trackingAccuracy.totalTracked} tracked
+                </span>
+              </div>
             </div>
             <HistoryTable
               predictions={trackedPredictions}
