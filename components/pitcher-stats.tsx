@@ -3,6 +3,7 @@
 import type { Pitcher, Team } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { bayesianShrinkage } from "@/lib/nrfi-models"
 
 interface Props {
   pitchers: Pitcher[]
@@ -30,6 +31,74 @@ function NrfiBar({ rate }: { rate: number }) {
         <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pctVal}%` }} />
       </div>
       <span className={cn("text-sm font-bold tabular-nums", nrfiColor(rate))}>{pct(rate)}</span>
+    </div>
+  )
+}
+
+// ─── Idea 2: Bayesian Sample Size Meter ──────────────────────────────────────
+
+/**
+ * Shows how much the prediction model trusts this pitcher's season data
+ * versus the league average. More starts = more season data weight.
+ *
+ * Rationale: A pitcher with 3 starts and 100% NRFI is likely overperforming.
+ * The Bayesian model automatically shrinks that toward the 62% league mean.
+ * This bar makes that adjustment visible to the bettor.
+ */
+function BayesianTrustMeter({
+  nrfiRate,
+  starts,
+}: {
+  nrfiRate: number
+  starts: number
+}) {
+  const { shrunkenRate, dataWeight } = bayesianShrinkage(nrfiRate, starts)
+  const seasonPct = Math.round(dataWeight * 100)
+  const leaguePct = 100 - seasonPct
+  const rawPct = Math.round(nrfiRate * 100)
+  const adjPct = Math.round(shrunkenRate * 100)
+  const changed = Math.abs(rawPct - adjPct) >= 2  // only note if shrinkage is meaningful
+
+  const barColor =
+    dataWeight >= 0.80 ? "bg-emerald-500" :
+    dataWeight >= 0.60 ? "bg-amber-500" :
+    "bg-rose-500"
+
+  const textColor =
+    dataWeight >= 0.80 ? "text-emerald-400" :
+    dataWeight >= 0.60 ? "text-amber-400" :
+    "text-rose-400"
+
+  return (
+    <div className="min-w-[112px] space-y-0.5">
+      {/* Fill bar */}
+      <div className="flex items-center gap-1.5">
+        <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full rounded-full transition-all", barColor)}
+            style={{ width: `${seasonPct}%` }}
+          />
+        </div>
+        <span className={cn("text-[10px] font-semibold tabular-nums", textColor)}>
+          {seasonPct}%
+        </span>
+      </div>
+      {/* Labels */}
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <span>{seasonPct}% season</span>
+        <span className="text-zinc-700">·</span>
+        <span>{leaguePct}% avg</span>
+      </div>
+      {/* Adjusted rate (only shown when shrinkage makes a visible difference) */}
+      {changed && (
+        <div className="text-[10px] tabular-nums text-muted-foreground">
+          Adj NRFI:{" "}
+          <span className={cn("font-semibold", adjPct >= rawPct ? "text-emerald-400" : "text-amber-400")}>
+            {adjPct}%
+          </span>
+          <span className="text-zinc-600"> (raw {rawPct}%)</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -93,6 +162,9 @@ export function PitcherStats({ pitchers, teams }: Props) {
               <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">BB%</th>
               <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">xR/inn</th>
               <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">GS</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Model Trust
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -144,6 +216,9 @@ export function PitcherStats({ pitchers, teams }: Props) {
                   <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
                     {fi.startCount}
                   </td>
+                  <td className="px-3 py-3">
+                    <BayesianTrustMeter nrfiRate={fi.nrfiRate} starts={fi.startCount} />
+                  </td>
                 </tr>
               )
             })}
@@ -191,6 +266,10 @@ export function PitcherStats({ pitchers, teams }: Props) {
                 <span className="text-xs text-muted-foreground">Last 5:</span>
                 <FormDots results={fi.last5Results} />
               </div>
+              <div className="mt-2 border-t border-border/30 pt-2">
+                <p className="text-[10px] text-muted-foreground mb-1">Model Trust</p>
+                <BayesianTrustMeter nrfiRate={fi.nrfiRate} starts={fi.startCount} />
+              </div>
             </Card>
           )
         })}
@@ -198,7 +277,10 @@ export function PitcherStats({ pitchers, teams }: Props) {
 
       {/* Model note */}
       <p className="text-xs text-muted-foreground">
-        * NRFI Rate = % of starts where 0 runs allowed in the 1st inning. Last 5 dots: green = NRFI achieved, red = YRFI. Stats reflect 2026 season through April 4.
+        * NRFI Rate = % of starts where 0 runs allowed in the 1st inning. Last 5 dots: green = NRFI, red = YRFI.
+        Model Trust shows how much of the prediction is based on season data vs the 62% league average —
+        pitchers with &lt;5 GS are automatically shrunk toward the mean (Bayesian hierarchical shrinkage).
+        "Adj NRFI" is the rate the engine actually uses after shrinkage.
       </p>
     </div>
   )

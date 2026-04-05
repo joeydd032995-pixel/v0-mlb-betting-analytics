@@ -123,6 +123,8 @@ export interface NRFIPrediction {
   factors: PredictionFactor[]
   modelInputs: ModelInputs
   valueAnalysis?: ValueAnalysis
+  /** Multi-model breakdown (Poisson + ZIP + Markov + Bayesian ensemble) */
+  modelBreakdown?: ModelBreakdown
 }
 
 export interface PredictionFactor {
@@ -141,6 +143,40 @@ export interface ModelInputs {
   parkFactor: number
   weatherMultiplier: number
   recentFormMultiplier: number
+}
+
+/** Per-half-inning breakdown from the four-model ensemble */
+export interface HalfInningModelBreakdown {
+  /** Base Poisson P(no score) using Bayesian-shrunk rate */
+  poissonNrfi: number
+  /** Zero-Inflated Poisson P(no score) */
+  zipNrfi: number
+  /** ZIP lockdown component: probability of a dominant 1-2-3 inning */
+  zipOmega: number
+  /** ZIP active-inning scoring rate λ */
+  zipLambda: number
+  /** Markov Chain P(no score) via 24-state base-out transition */
+  markovNrfi: number
+  /** 0–1: how much weight is on actual season data vs league average */
+  bayesianDataWeight: number
+  /** Bayesian-shrunk pitcher NRFI rate fed into models */
+  shrunkNrfiRate: number
+}
+
+/** Full multi-model breakdown for a game prediction */
+export interface ModelBreakdown {
+  /** Ensemble P(NRFI) — final blended probability */
+  ensembleNrfi: number
+  /** Ensemble P(YRFI) = 1 − ensembleNrfi */
+  ensembleYrfi: number
+  /** Half-inning breakdown: home team at bat (vs away pitcher) */
+  homeHalfInning: HalfInningModelBreakdown
+  /** Half-inning breakdown: away team at bat (vs home pitcher) */
+  awayHalfInning: HalfInningModelBreakdown
+  /** Model agreement score 0–1: 1.0 = all models agree perfectly */
+  modelConsensus: number
+  /** Indicates which model is an outlier, if any */
+  consensusNote?: string
 }
 
 export interface ValueAnalysis {

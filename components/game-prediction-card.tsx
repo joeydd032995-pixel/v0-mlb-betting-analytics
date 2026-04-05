@@ -1,6 +1,6 @@
 "use client"
 
-import type { Game, NRFIPrediction, Team, Pitcher } from "@/lib/types"
+import type { Game, NRFIPrediction, Team, Pitcher, ModelBreakdown } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import {
   CloudSun,
@@ -14,6 +14,8 @@ import {
   ChevronDown,
   ChevronUp,
   DollarSign,
+  BrainCircuit,
+  AlertTriangle,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -117,6 +119,121 @@ function WeatherBadge({ game }: { game: Game }) {
   )
 }
 
+// ─── Idea 1: Model Consensus Meter ───────────────────────────────────────────
+
+function consensusLabel(score: number) {
+  if (score >= 0.80) return { label: "Models Agree", cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/8" }
+  if (score >= 0.55) return { label: "Mixed Signals", cls: "text-amber-400 border-amber-500/30 bg-amber-500/8" }
+  return { label: "Models Diverge", cls: "text-rose-400 border-rose-500/30 bg-rose-500/8" }
+}
+
+/** Compact one-line consensus badge shown in the main (non-expanded) card */
+function ModelConsensusBadge({ consensus }: { consensus: number }) {
+  const { label, cls } = consensusLabel(consensus)
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium", cls)}>
+      <BrainCircuit className="h-3 w-3" />
+      {label}
+    </span>
+  )
+}
+
+/** Full model breakdown panel shown in the expanded section */
+function ModelBreakdownPanel({
+  bd,
+  awayAbbr,
+  homeAbbr,
+}: {
+  bd: ModelBreakdown
+  awayAbbr: string
+  homeAbbr: string
+}) {
+  // Game-level per-model NRFI: both half-innings must hold for NRFI
+  // homeHalfInning = home pitcher (stops away team) ; awayHalfInning = away pitcher (stops home team)
+  const models = [
+    {
+      name: "Poisson",
+      p: bd.homeHalfInning.poissonNrfi * bd.awayHalfInning.poissonNrfi,
+      detail: "Bayesian-shrunk λ via e^(−λ)",
+    },
+    {
+      name: "ZIP",
+      p: bd.homeHalfInning.zipNrfi * bd.awayHalfInning.zipNrfi,
+      detail: `ω ${(bd.homeHalfInning.zipOmega * 100).toFixed(0)}% / ${(bd.awayHalfInning.zipOmega * 100).toFixed(0)}% lockdown`,
+    },
+    {
+      name: "Markov",
+      p: bd.homeHalfInning.markovNrfi * bd.awayHalfInning.markovNrfi,
+      detail: "24-state base-out chain",
+    },
+  ]
+
+  const { label, cls } = consensusLabel(bd.modelConsensus)
+
+  return (
+    <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/5 p-3">
+      <div className="flex items-center justify-between mb-2.5">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
+          <BrainCircuit className="h-3.5 w-3.5" />
+          Model Ensemble
+        </p>
+        <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold", cls)}>
+          {label}
+        </span>
+      </div>
+
+      {/* Per-model probability bars */}
+      <div className="space-y-2">
+        {models.map(({ name, p, detail }) => {
+          const pct = Math.round(p * 100)
+          const isNrfi = p >= 0.5
+          return (
+            <div key={name}>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="w-14 text-[11px] font-semibold text-foreground/80">{name}</span>
+                <span className="flex-1 text-[10px] text-muted-foreground truncate">{detail}</span>
+                <span className={cn("text-xs font-bold tabular-nums", isNrfi ? "text-emerald-400" : "text-rose-400")}>
+                  {pct}%
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted/50">
+                <div
+                  className={cn("h-full rounded-full", isNrfi ? "bg-emerald-500" : "bg-rose-500")}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Bayesian data-trust for each pitcher */}
+      <div className="mt-2.5 grid grid-cols-2 gap-x-4 border-t border-sky-500/15 pt-2 text-[10px]">
+        <div>
+          <span className="text-muted-foreground">{awayAbbr} pitcher trust </span>
+          <span className="font-semibold text-sky-300">
+            {(bd.homeHalfInning.bayesianDataWeight * 100).toFixed(0)}% season
+          </span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">{homeAbbr} pitcher trust </span>
+          <span className="font-semibold text-sky-300">
+            {(bd.awayHalfInning.bayesianDataWeight * 100).toFixed(0)}% season
+          </span>
+        </div>
+      </div>
+
+      {/* Outlier note */}
+      {bd.consensusNote && (
+        <div className="mt-1.5 flex items-start gap-1 text-[10px] text-amber-400">
+          <AlertTriangle className="h-3 w-3 flex-shrink-0 mt-px" />
+          <span className="italic">{bd.consensusNote}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function GamePredictionCard({
   game,
   prediction,
@@ -189,6 +306,9 @@ export function GamePredictionCard({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <RecommendationBadge rec={prediction.recommendation} />
           <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
+          {prediction.modelBreakdown && (
+            <ModelConsensusBadge consensus={prediction.modelBreakdown.modelConsensus} />
+          )}
           {va && va.recommendedBet !== "NO_BET" && (
             <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300">
               <DollarSign className="h-3 w-3" />
@@ -247,6 +367,15 @@ export function GamePredictionCard({
               </li>
             ))}
           </ul>
+
+          {/* Model ensemble breakdown */}
+          {prediction.modelBreakdown && (
+            <ModelBreakdownPanel
+              bd={prediction.modelBreakdown}
+              awayAbbr={awayTeam.abbreviation}
+              homeAbbr={homeTeam.abbreviation}
+            />
+          )}
 
           {/* Value analysis detail */}
           {va && (
