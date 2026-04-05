@@ -75,9 +75,9 @@ function mapGame(
   // Avoid the anti-pattern of `new Date(date.toLocaleString(...))` which produces
   // Invalid Date in some runtimes because locale strings are not standardized for parsing.
   let displayTime = "TBD"
-  if (apiGame.gameDateTime) {
+  if (apiGame.gameDate) {
     try {
-      const utcDate = new Date(apiGame.gameDateTime)
+      const utcDate = new Date(apiGame.gameDate)
       if (!isNaN(utcDate.getTime())) {
         displayTime = new Intl.DateTimeFormat("en-US", {
           timeZone: "America/New_York",
