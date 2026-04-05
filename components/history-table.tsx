@@ -488,6 +488,13 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete }
       )}
 
       {/* ── Pending results ── */}
+      {pending.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Results for pending games are fetched automatically from the MLB Stats API once
+          each game ends — use the <strong className="text-foreground">Sync Results</strong> button
+          above to refresh, or enter runs manually below.
+        </p>
+      )}
       <PendingSection pending={pending} onRecordResult={onRecordResult} onDelete={onDelete} />
 
       {/* ── Completed predictions table ── */}

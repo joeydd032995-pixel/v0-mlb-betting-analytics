@@ -30,6 +30,24 @@ export interface MLBGame {
   venue?: { id?: number; name?: string }
 }
 
+/** Per-inning line score entry */
+export interface MLBInning {
+  num: number
+  home: { runs?: number; hits?: number; errors?: number; leftOnBase?: number }
+  away: { runs?: number; hits?: number; errors?: number; leftOnBase?: number }
+}
+
+/** Full linescore for a game */
+export interface MLBLinescore {
+  currentInning?: number
+  inningState?: string  // "Top" | "Middle" | "Bottom" | "End"
+  innings: MLBInning[]
+  teams: {
+    home: { runs?: number; hits?: number; errors?: number }
+    away: { runs?: number; hits?: number; errors?: number }
+  }
+}
+
 /**
  * Cleaned pitcher season stats — flattened from the API's nested
  * people[0].stats[].splits[0].stat shape.
@@ -91,6 +109,38 @@ export async function fetchGamesByDate(date: string): Promise<MLBGame[]> {
     300
   )
   return data?.dates?.[0]?.games ?? []
+}
+
+/**
+ * Fetches the inning-by-inning linescore for a completed (or in-progress) game.
+ *   GET /game/{gamePk}/linescore
+ *
+ * The innings array is ordered 1-9 (or more for extras). Each entry has:
+ *   { num, home: { runs, hits, errors }, away: { runs, hits, errors } }
+ *
+ * For 1st-inning results we use: innings.find(i => i.num === 1)
+ *
+ * Returns null if the game hasn't started or the API returned no data.
+ */
+export async function fetchGameLinescore(
+  gamePk: number
+): Promise<MLBLinescore | null> {
+  // Revalidate every 60s — we want reasonably fresh data without hammering the API.
+  const data = await mlbFetch<{ liveData?: { linescore?: MLBLinescore }; linescore?: MLBLinescore }>(
+    `/game/${gamePk}/linescore`,
+    60
+  )
+
+  // The linescore endpoint returns the linescore directly at the root level
+  if (!data) return null
+
+  // Some versions of the API nest under liveData; handle both
+  const ls = (data as unknown as MLBLinescore).innings
+    ? (data as unknown as MLBLinescore)
+    : data.liveData?.linescore ?? data.linescore ?? null
+
+  if (!ls || !ls.innings || ls.innings.length === 0) return null
+  return ls
 }
 
 /**
