@@ -1,17 +1,14 @@
 /**
  * NRFI/YRFI Prediction Engine
  *
- * Core algorithm uses a Poisson scoring model:
- *   P(X = 0) = e^(−λ)   where λ = expected runs in the first inning
+ * Ensemble of four complementary models:
+ *  1. Poisson (base)               — e^(−λ), λ from pitcher NRFI rate
+ *  2. Bayesian Shrinkage           — corrects small-sample NRFI rate estimates
+ *  3. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
+ *  4. Markov Chain (24 states)     — state-based base-out inning simulation
  *
- * λ for each half-inning is derived from:
- *   1. Pitcher's historical first-inning NRFI rate  → base λ via −ln(nrfiRate)
- *   2. Opposing offense factor                      → multiplicative adjustment
- *   3. Park factor                                  → multiplicative adjustment
- *   4. Weather multiplier                           → multiplicative adjustment
- *   5. Recent-form multiplier                       → multiplicative adjustment
- *
- * P(NRFI) = P(home scores 0) × P(away scores 0)
+ * Ensemble weights: Poisson 25%, ZIP 35%, Markov 40%
+ * P(NRFI) = P(home scores 0) × P(away scores 0)  (per-ensemble)
  */
 
 import type {
@@ -21,11 +18,17 @@ import type {
   NRFIPrediction,
   PredictionFactor,
   ModelInputs,
+  ModelBreakdown,
+  HalfInningModelBreakdown,
   ValueAnalysis,
   ConfidenceLevel,
   Recommendation,
   Weather,
 } from "./types"
+import {
+  computeHalfInningEnsemble,
+  combineHalfInnings,
+} from "./nrfi-models"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -361,7 +364,8 @@ function buildFactors(
 function computeConfidence(
   nrfiProbability: number,
   homePitcher: Pitcher,
-  awayPitcher: Pitcher
+  awayPitcher: Pitcher,
+  modelConsensus: number = 0.5
 ): { level: ConfidenceLevel; score: number } {
   let score = 50
 
@@ -369,13 +373,14 @@ function computeConfidence(
   const dist = Math.abs(nrfiProbability - 0.5)
   score += dist * 70
 
-  // Sample size
+  // Sample size — Bayesian logic: small samples reduce confidence
   const minStarts = Math.min(
     homePitcher.firstInning.startCount,
     awayPitcher.firstInning.startCount
   )
   if (minStarts >= 18) score += 12
   else if (minStarts >= 10) score += 6
+  else if (minStarts <= 3) score -= 14  // Very few starts → heavy shrinkage
   else score -= 8
 
   // Recent form consistency (low variance = higher confidence)
@@ -388,6 +393,9 @@ function computeConfidence(
   }
   const totalVariance = consistency(homePitcher) + consistency(awayPitcher)
   score -= totalVariance * 15
+
+  // Model consensus bonus/penalty: all models agree → +8; strong divergence → −8
+  score += (modelConsensus - 0.5) * 16
 
   score = Math.max(10, Math.min(98, Math.round(score)))
   const level: ConfidenceLevel = score >= 68 ? "High" : score >= 45 ? "Medium" : "Low"
@@ -440,6 +448,39 @@ function computeValueAnalysis(
   }
 }
 
+// ─── Model Consensus ──────────────────────────────────────────────────────────
+
+/**
+ * Computes a 0–1 agreement score across the three structural models
+ * for a single half-inning. 1.0 = all models within 1% of each other.
+ */
+function halfInningConsensus(bd: HalfInningModelBreakdown): number {
+  const probs = [bd.poissonNrfi, bd.zipNrfi, bd.markovNrfi]
+  const mean = probs.reduce((a, b) => a + b, 0) / probs.length
+  const variance = probs.reduce((s, p) => s + (p - mean) ** 2, 0) / probs.length
+  const stdDev = Math.sqrt(variance)
+  // Map std dev to a 0–1 consensus score (0.15 std dev → ~0 consensus)
+  return Math.max(0, Math.min(1, 1 - stdDev / 0.15))
+}
+
+function outlierNote(
+  homeHalf: HalfInningModelBreakdown,
+  awayHalf: HalfInningModelBreakdown
+): string | undefined {
+  const checkHalf = (bd: HalfInningModelBreakdown, label: string): string | undefined => {
+    const probs = { Poisson: bd.poissonNrfi, ZIP: bd.zipNrfi, Markov: bd.markovNrfi }
+    const values = Object.values(probs)
+    const mean = values.reduce((a, b) => a + b, 0) / values.length
+    for (const [name, p] of Object.entries(probs)) {
+      if (Math.abs(p - mean) > 0.08) {
+        return `${name} model diverges ${p > mean ? "bullish" : "bearish"} for NRFI (${label} half)`
+      }
+    }
+    return undefined
+  }
+  return checkHalf(homeHalf, "home") ?? checkHalf(awayHalf, "away")
+}
+
 // ─── Main Engine ──────────────────────────────────────────────────────────────
 
 export function computeNRFIPrediction(
@@ -454,51 +495,98 @@ export function computeNRFIPrediction(
 
   const weatherMult = computeWeatherMultiplier(game.weather)
   const recentMult = computeRecentFormMultiplier(homePitcher, awayPitcher)
+  const tempF = game.weather.conditions === "dome" ? 72 : (game.weather.temperature ?? 72)
 
-  // λ for away team scoring (they face the home pitcher)
+  // ── Base Poisson (for factors, lambda display, and legacy compatibility) ──
   const awayLambda = computeLambda(
     homePitcher.firstInning.nrfiRate,
     awayTeam.firstInning.offenseFactor,
     game.parkFactor,
     weatherMult * recentMult
   )
-
-  // λ for home team scoring (they face the away pitcher)
   const homeLambda = computeLambda(
     awayPitcher.firstInning.nrfiRate,
     homeTeam.firstInning.offenseFactor,
     game.parkFactor,
     weatherMult * recentMult
   )
+  const awayScores0Base = Math.exp(-awayLambda)
+  const homeScores0Base = Math.exp(-homeLambda)
 
-  const awayScores0 = Math.exp(-awayLambda)
-  const homeScores0 = Math.exp(-homeLambda)
-  const nrfiProb = awayScores0 * homeScores0
+  // ── Multi-model ensemble ──────────────────────────────────────────────────
+  // "home half inning" = away team batting vs home pitcher
+  const homeHalfRaw = computeHalfInningEnsemble(
+    homePitcher,
+    awayTeam.firstInning.offenseFactor,
+    game.parkFactor,
+    tempF
+  )
+  // "away half inning" = home team batting vs away pitcher
+  const awayHalfRaw = computeHalfInningEnsemble(
+    awayPitcher,
+    homeTeam.firstInning.offenseFactor,
+    game.parkFactor,
+    tempF
+  )
+
+  const ensembleNrfi = combineHalfInnings(homeHalfRaw, awayHalfRaw)
+
+  // Blend: 60% ensemble, 40% base Poisson (for numerical stability & familiarity)
+  const blendedNrfi = 0.60 * ensembleNrfi + 0.40 * (awayScores0Base * homeScores0Base)
+  const nrfiProb = Math.max(0.05, Math.min(0.95, blendedNrfi))
   const yrfiProb = 1 - nrfiProb
 
+  // ── Build model breakdown for UI ─────────────────────────────────────────
+  const homeHalf: HalfInningModelBreakdown = {
+    poissonNrfi:        homeHalfRaw.poissonNrfi,
+    zipNrfi:            homeHalfRaw.zipNrfi,
+    zipOmega:           homeHalfRaw.zipOmega,
+    zipLambda:          homeHalfRaw.zipLambda,
+    markovNrfi:         homeHalfRaw.markovNrfi,
+    bayesianDataWeight: homeHalfRaw.bayesianDataWeight,
+    shrunkNrfiRate:     homeHalfRaw.shrunkNrfiRate,
+  }
+  const awayHalf: HalfInningModelBreakdown = {
+    poissonNrfi:        awayHalfRaw.poissonNrfi,
+    zipNrfi:            awayHalfRaw.zipNrfi,
+    zipOmega:           awayHalfRaw.zipOmega,
+    zipLambda:          awayHalfRaw.zipLambda,
+    markovNrfi:         awayHalfRaw.markovNrfi,
+    bayesianDataWeight: awayHalfRaw.bayesianDataWeight,
+    shrunkNrfiRate:     awayHalfRaw.shrunkNrfiRate,
+  }
+  const consensus =
+    (halfInningConsensus(homeHalf) + halfInningConsensus(awayHalf)) / 2
+
+  const modelBreakdown: ModelBreakdown = {
+    ensembleNrfi,
+    ensembleYrfi: 1 - ensembleNrfi,
+    homeHalfInning: homeHalf,
+    awayHalfInning: awayHalf,
+    modelConsensus: consensus,
+    consensusNote: outlierNote(homeHalf, awayHalf),
+  }
+
+  // ── Confidence (now includes model consensus as a factor) ─────────────────
   const { level: confidence, score: confScore } = computeConfidence(
     nrfiProb,
     homePitcher,
-    awayPitcher
+    awayPitcher,
+    consensus
   )
 
   const modelInputs: ModelInputs = {
     homePitcherNrfiRate: homePitcher.firstInning.nrfiRate,
     awayPitcherNrfiRate: awayPitcher.firstInning.nrfiRate,
-    homeOffenseFactor: homeTeam.firstInning.offenseFactor,
-    awayOffenseFactor: awayTeam.firstInning.offenseFactor,
-    parkFactor: game.parkFactor,
-    weatherMultiplier: weatherMult,
+    homeOffenseFactor:   homeTeam.firstInning.offenseFactor,
+    awayOffenseFactor:   awayTeam.firstInning.offenseFactor,
+    parkFactor:          game.parkFactor,
+    weatherMultiplier:   weatherMult,
     recentFormMultiplier: recentMult,
   }
 
   const factors = buildFactors(
-    game,
-    homePitcher,
-    awayPitcher,
-    homeTeam,
-    awayTeam,
-    weatherMult
+    game, homePitcher, awayPitcher, homeTeam, awayTeam, weatherMult
   )
 
   const valueAnalysis = game.odds
@@ -511,14 +599,15 @@ export function computeNRFIPrediction(
     yrfiProbability: yrfiProb,
     homeExpectedRuns: homeLambda,
     awayExpectedRuns: awayLambda,
-    homeScores0Prob: homeScores0,
-    awayScores0Prob: awayScores0,
+    homeScores0Prob: homeScores0Base,
+    awayScores0Prob: awayScores0Base,
     confidence,
     confidenceScore: confScore,
     recommendation: getRecommendation(nrfiProb),
     factors,
     modelInputs,
     valueAnalysis,
+    modelBreakdown,
   }
 }
 
