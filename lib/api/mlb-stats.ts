@@ -78,10 +78,15 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Returns today's MLB game slate. Each game includes probablePitcher if announced. */
+/** Returns today's MLB game slate. Each game includes probablePitcher if announced.
+ *
+ * `hydrate=probablePitcher` is required — without it the MLB Stats API omits
+ * the probablePitcher field entirely from the schedule response.
+ * `gameType=R` restricts to regular season only (excludes spring training, playoffs).
+ */
 export async function fetchGamesByDate(date: string): Promise<MLBGame[]> {
   const data = await mlbFetch<{ dates: Array<{ games: MLBGame[] }> }>(
-    `/schedule?sportId=1&date=${date}`,
+    `/schedule?sportId=1&date=${date}&hydrate=probablePitcher&gameType=R`,
     300
   )
   return data?.dates?.[0]?.games ?? []
