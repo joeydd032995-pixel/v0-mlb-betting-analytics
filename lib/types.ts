@@ -142,7 +142,7 @@ export interface ModelInputs {
   awayOffenseFactor: number
   parkFactor: number
   weatherMultiplier: number
-  recentFormMultiplier: number
+  recentFormMultiplier?: number
 }
 
 /** Per-half-inning breakdown from the four-model ensemble */
