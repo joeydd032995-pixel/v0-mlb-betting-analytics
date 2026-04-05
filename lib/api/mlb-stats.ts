@@ -4,57 +4,61 @@
  * No authentication required
  */
 
-interface MLBGame {
+const BASE_URL = "https://statsapi.mlb.com/api/v1"
+const SEASON = process.env.NEXT_PUBLIC_MLB_SEASON ?? "2026"
+
+// ─── Wire types (match actual API JSON shape) ─────────────────────────────────
+
+/** One game object returned inside /schedule dates[].games[] */
+export interface MLBGame {
   gamePk: number
-  gameDateTime: string
+  /** ISO-8601 UTC datetime, e.g. "2026-04-05T23:10:00Z" — may be absent for unscheduled games */
+  gameDateTime?: string
   status: { abstractGameState: string; detailedState: string }
   teams: {
     home: {
       team: { id: number; name: string }
-      pitcher?: { id: number; fullName: string }
+      /** Field is literally "probablePitcher" in the MLB API response */
+      probablePitcher?: { id: number; fullName: string }
     }
     away: {
       team: { id: number; name: string }
-      pitcher?: { id: number; fullName: string }
+      probablePitcher?: { id: number; fullName: string }
     }
   }
-  venue?: { name?: string; city?: string }
+  venue?: { id?: number; name?: string }
 }
 
-interface MLBPitcherStats {
-  person: { id: number; fullName: string }
-  seasonStats: {
-    pitching: {
-      gamesStarted?: number
-      era?: string
-      whip?: string
-      strikeOuts?: number
-      walks?: number
-      inningsPitched?: string
-      hits?: number
-      homeRuns?: number
-      runsAllowed?: number
-    }
-  }
+/**
+ * Cleaned pitcher season stats — flattened from the API's nested
+ * people[0].stats[].splits[0].stat shape.
+ */
+export interface MLBPitcherSeasonStats {
+  fullName: string
+  gamesStarted: number
+  era: number
+  whip: number
+  strikeOuts: number
+  baseOnBalls: number
+  inningsPitched: number
+  hits: number
+  homeRuns: number
 }
 
-interface MLBTeamStats {
-  team: { id: number; name: string }
-  stats: {
-    hitting: {
-      avg?: string
-      obp?: string
-      slg?: string
-      ops?: string
-      runs?: number
-      gamesPlayed?: number
-    }
-  }
+/**
+ * Cleaned team hitting stats — flattened from the API's nested
+ * stats[].splits[0].stat shape.
+ */
+export interface MLBTeamHittingStats {
+  gamesPlayed: number
+  ops: number
+  obp: number
+  avg: number
+  slg: number
+  runs: number
 }
 
-export type { MLBGame, MLBPitcherStats, MLBTeamStats }
-
-const BASE_URL = "https://statsapi.mlb.com/api/v1"
+// ─── Fetch helper ─────────────────────────────────────────────────────────────
 
 async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> {
   try {
@@ -65,16 +69,17 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
       console.error(`[mlb-stats] HTTP ${res.status} for ${path}`)
       return null
     }
-    const json = await res.json()
-    return json as T
+    return (await res.json()) as T
   } catch (err) {
     console.error(`[mlb-stats] fetch error for ${path}:`, err)
     return null
   }
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/** Returns today's MLB game slate. Each game includes probablePitcher if announced. */
 export async function fetchGamesByDate(date: string): Promise<MLBGame[]> {
-  // Expected format: YYYY-MM-DD
   const data = await mlbFetch<{ dates: Array<{ games: MLBGame[] }> }>(
     `/schedule?sportId=1&date=${date}`,
     300
@@ -82,38 +87,133 @@ export async function fetchGamesByDate(date: string): Promise<MLBGame[]> {
   return data?.dates?.[0]?.games ?? []
 }
 
-export async function fetchPitcherStats(playerId: number): Promise<MLBPitcherStats | null> {
-  const data = await mlbFetch<{ people: MLBPitcherStats[] }>(
-    `/people/${playerId}?hydrate=stats(group=[pitching])`,
+/**
+ * Fetches a pitcher's current-season pitching stats via:
+ *   /people/{id}?hydrate=stats(group=[pitching],type=[season])&season=YYYY
+ *
+ * The API returns: people[0].stats[].splits[0].stat
+ * MLB API uses "baseOnBalls" for walks — not "walks".
+ *
+ * Returns null if the player has no stats yet this season (e.g. just called up).
+ */
+export async function fetchPitcherStats(
+  playerId: number
+): Promise<MLBPitcherSeasonStats | null> {
+  type RawSplit = {
+    stat: {
+      gamesStarted?: number
+      era?: string
+      whip?: string
+      strikeOuts?: number
+      baseOnBalls?: number
+      inningsPitched?: string
+      hits?: number
+      homeRuns?: number
+    }
+  }
+  type RawStatGroup = {
+    type: { displayName: string }
+    group: { displayName: string }
+    splits: RawSplit[]
+  }
+  type RawPerson = {
+    id: number
+    fullName: string
+    stats?: RawStatGroup[]
+  }
+
+  const data = await mlbFetch<{ people: RawPerson[] }>(
+    `/people/${playerId}?hydrate=stats(group=[pitching],type=[season])&season=${SEASON}`,
     3600
   )
-  const pitcher = data?.people?.[0]
-  if (!pitcher) return null
-  return pitcher
-}
 
-export async function fetchTeamStats(teamId: number): Promise<MLBTeamStats | null> {
-  const data = await mlbFetch<{ stats: Array<{ type: string; stats: any }> }>(
-    `/teams/${teamId}?hydrate=stats`,
-    3600
-  )
+  const person = data?.people?.[0]
+  if (!person) return null
 
-  if (!data) return null
+  const pitchingSplit = person.stats
+    ?.find(
+      (s) =>
+        s.type?.displayName?.toLowerCase() === "season" &&
+        s.group?.displayName?.toLowerCase() === "pitching"
+    )
+    ?.splits?.[0]?.stat
 
-  // Extract batting stats from hydrated data
-  const bittingStats = data.stats?.find((s) => s.type?.displayName === "season")?.stats ?? {}
+  // No 2026 stats yet — return name-only record so the pitcher card still shows up
+  if (!pitchingSplit) {
+    return {
+      fullName: person.fullName,
+      gamesStarted: 0,
+      era: 4.0,
+      whip: 1.28,
+      strikeOuts: 0,
+      baseOnBalls: 0,
+      inningsPitched: 0,
+      hits: 0,
+      homeRuns: 0,
+    }
+  }
 
   return {
-    team: { id: teamId, name: "" },
-    stats: {
-      hitting: {
-        avg: bittingStats.avg,
-        obp: bittingStats.obp,
-        slg: bittingStats.slg,
-        ops: bittingStats.ops,
-        runs: bittingStats.runs,
-        gamesPlayed: bittingStats.gamesPlayed,
-      },
-    },
+    fullName: person.fullName,
+    gamesStarted: pitchingSplit.gamesStarted ?? 0,
+    era: parseFloat(pitchingSplit.era ?? "4.0") || 4.0,
+    whip: parseFloat(pitchingSplit.whip ?? "1.28") || 1.28,
+    strikeOuts: pitchingSplit.strikeOuts ?? 0,
+    baseOnBalls: pitchingSplit.baseOnBalls ?? 0,
+    inningsPitched: parseFloat(pitchingSplit.inningsPitched ?? "0") || 0,
+    hits: pitchingSplit.hits ?? 0,
+    homeRuns: pitchingSplit.homeRuns ?? 0,
+  }
+}
+
+/**
+ * Fetches a team's current-season hitting stats via:
+ *   /teams/{id}/stats?stats=season&group=hitting&season=YYYY
+ *
+ * The API returns: stats[].splits[0].stat
+ *
+ * Returns null if the team has no stats yet (very start of season).
+ */
+export async function fetchTeamStats(
+  teamId: number
+): Promise<MLBTeamHittingStats | null> {
+  type RawSplit = {
+    stat: {
+      gamesPlayed?: number
+      avg?: string
+      obp?: string
+      slg?: string
+      ops?: string
+      runs?: number
+    }
+  }
+  type RawStatGroup = {
+    type: { displayName: string }
+    group: { displayName: string }
+    splits: RawSplit[]
+  }
+
+  const data = await mlbFetch<{ stats: RawStatGroup[] }>(
+    `/teams/${teamId}/stats?stats=season&group=hitting&season=${SEASON}`,
+    3600
+  )
+
+  const hittingSplit = data?.stats
+    ?.find(
+      (s) =>
+        s.type?.displayName?.toLowerCase() === "season" &&
+        s.group?.displayName?.toLowerCase() === "hitting"
+    )
+    ?.splits?.[0]?.stat
+
+  if (!hittingSplit) return null
+
+  return {
+    gamesPlayed: hittingSplit.gamesPlayed ?? 0,
+    avg: parseFloat(hittingSplit.avg ?? "0") || 0,
+    obp: parseFloat(hittingSplit.obp ?? "0") || 0,
+    slg: parseFloat(hittingSplit.slg ?? "0") || 0,
+    ops: parseFloat(hittingSplit.ops ?? "0") || 0,
+    runs: hittingSplit.runs ?? 0,
   }
 }

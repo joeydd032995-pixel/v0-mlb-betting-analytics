@@ -1,5 +1,5 @@
 import { fetchGamesByDate, fetchPitcherStats, fetchTeamStats } from "./mlb-stats"
-import type { MLBGame, MLBPitcherStats, MLBTeamStats } from "./mlb-stats"
+import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats } from "./mlb-stats"
 import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
@@ -70,18 +70,22 @@ function mapGame(
   const venue = apiGame.venue?.name ?? "Unknown Stadium"
   const parkFactor = STADIUM_PARK_FACTORS[venue] ?? 1.0
 
-  // MLB Stats API returns ISO 8601 UTC time (e.g., "2026-04-04T20:10:00Z")
-  let displayTime = "7:05 PM"
+  // MLB Stats API returns ISO 8601 UTC time (e.g., "2026-04-05T23:10:00Z")
+  // Use Intl.DateTimeFormat directly — reliable across all Node.js/Vercel environments.
+  // Avoid the anti-pattern of `new Date(date.toLocaleString(...))` which produces
+  // Invalid Date in some runtimes because locale strings are not standardized for parsing.
+  let displayTime = "TBD"
   if (apiGame.gameDateTime) {
     try {
       const utcDate = new Date(apiGame.gameDateTime)
-      // Convert to ET (UTC-5 or UTC-4 depending on DST)
-      const etTime = new Date(utcDate.toLocaleString("en-US", { timeZone: "America/New_York" }))
-      const hours = etTime.getHours()
-      const minutes = String(etTime.getMinutes()).padStart(2, "0")
-      const ampm = hours >= 12 ? "PM" : "AM"
-      const hours12 = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours
-      displayTime = `${hours12}:${minutes} ${ampm}`
+      if (!isNaN(utcDate.getTime())) {
+        displayTime = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }).format(utcDate)
+      }
     } catch (err) {
       console.error("[mapGame] time parse error:", err)
     }
@@ -90,11 +94,11 @@ function mapGame(
   const homeTeamId = resolveTeamId(apiGame.teams.home.team.name)
   const awayTeamId = resolveTeamId(apiGame.teams.away.team.name)
 
-  const homePitcherId = apiGame.teams.home.pitcher?.id
-    ? String(apiGame.teams.home.pitcher.id)
+  const homePitcherId = apiGame.teams.home.probablePitcher?.id
+    ? String(apiGame.teams.home.probablePitcher.id)
     : `tbd-home-${apiGame.gamePk}`
-  const awayPitcherId = apiGame.teams.away.pitcher?.id
-    ? String(apiGame.teams.away.pitcher.id)
+  const awayPitcherId = apiGame.teams.away.probablePitcher?.id
+    ? String(apiGame.teams.away.probablePitcher.id)
     : `tbd-away-${apiGame.gamePk}`
 
   return {
@@ -116,23 +120,19 @@ function mapGame(
 // ─── mapPitcher ───────────────────────────────────────────────────────────────
 
 function mapPitcher(
-  apiStats: MLBPitcherStats | null,
+  apiStats: MLBPitcherSeasonStats | null,
   pitcherId: string,
   teamId: string,
   pitcherName: string
 ): Pitcher {
   const defaultEra = 4.0
   const defaultWhip = 1.28
-  const defaultStartCount = 3
-  const defaultKRate = 0.22
-  const defaultBbRate = 0.08
+  const defaultStartCount = 0
+  const defaultKRate = 0.225
+  const defaultBbRate = 0.085
 
-  if (
-    !apiStats ||
-    !apiStats.seasonStats ||
-    !apiStats.seasonStats.pitching ||
-    !apiStats.seasonStats.pitching.era
-  ) {
+  // If no API data at all, build a fully default pitcher
+  if (!apiStats) {
     const nrfiRate = estimateNrfiRate(defaultEra)
     return {
       id: pitcherId,
@@ -163,40 +163,32 @@ function mapPitcher(
         whip: defaultWhip,
         kPer9: defaultKRate * 27,
         bbPer9: defaultBbRate * 27,
-        innings: defaultStartCount * 6,
+        innings: 0,
         wins: 0,
         losses: 0,
       },
     }
   }
 
-  const stats = apiStats.seasonStats.pitching
+  // MLB Stats API returns flattened stats (MLBPitcherSeasonStats)
+  const era = apiStats.era
+  const whip = apiStats.whip
+  const startCount = apiStats.gamesStarted
+  const innings = apiStats.inningsPitched
 
-  const era = parseFloat(String(stats.era)) || defaultEra
-  // MLB Stats API doesn't always provide WHIP; estimate from hits and walks
-  let whip = defaultWhip
-  if (stats.hits !== undefined && stats.walks !== undefined && stats.inningsPitched) {
-    const ip = parseFloat(String(stats.inningsPitched))
-    if (ip > 0) {
-      whip = (stats.hits + stats.walks) / ip
-    }
-  }
-
-  const startCount = stats.gamesStarted ?? defaultStartCount
-  const strikeouts = stats.strikeOuts ?? 0
-  const walks = stats.walks ?? 0
-  const ipRaw = stats.inningsPitched
-  const innings = ipRaw ? parseFloat(String(ipRaw)) : startCount * 6
-
-  const kRate = innings > 0 ? strikeouts / (innings / 9) / 27 : defaultKRate
-  const bbRate = innings > 0 ? walks / (innings / 9) / 27 : defaultBbRate
+  // K% and BB% per batter faced (approx: BF ≈ IP * 4.3)
+  const bf = Math.max(1, innings * 4.3)
+  const kRate = apiStats.strikeOuts / bf
+  const bbRate = apiStats.baseOnBalls / bf
+  // HR/9
+  const hrPer9 = innings > 0 ? (apiStats.homeRuns / innings) * 9 : 1.1
 
   const nrfiRate = estimateNrfiRate(era)
   const firstBatterOBP = (whip / (1 + whip)) * 0.85
 
   return {
     id: pitcherId,
-    name: apiStats.person?.fullName ?? pitcherName,
+    name: apiStats.fullName,
     teamId,
     throws: "R",
     age: 28,
@@ -205,7 +197,7 @@ function mapPitcher(
       whip,
       kRate,
       bbRate,
-      hrPer9: 1.1,
+      hrPer9,
       babip: 0.3,
       nrfiRate,
       avgRunsAllowed: 1 - nrfiRate,
@@ -242,14 +234,14 @@ function buildLast5(pitcherId: string, nrfiRate: number): boolean[] {
 // ─── mapTeam ──────────────────────────────────────────────────────────────────
 
 function mapTeam(
-  apiTeamStats: MLBTeamStats | null,
+  apiTeamStats: MLBTeamHittingStats | null,
   teamId: string
 ): Team {
   const staticInfo = MLB_TEAMS[teamId]
+  const defaultOps = 0.720
 
-  const defaultOps = 0.72
-  const opsValue = apiTeamStats?.stats?.hitting?.ops
-  const ops = opsValue ? parseFloat(String(opsValue)) || defaultOps : defaultOps
+  // Use live OPS if available (flattened from splits[0].stat.ops)
+  const ops = (apiTeamStats?.ops && apiTeamStats.ops > 0) ? apiTeamStats.ops : defaultOps
 
   const offenseFactor = estimateOffenseFactor(ops)
   const runsPerGame = offenseFactor * 0.48
@@ -267,9 +259,9 @@ function mapTeam(
       runsPerGame,
       offenseFactor,
       ops,
-      woba: ops * 0.38,
-      kRate: 0.22,
-      bbRate: 0.08,
+      woba: (apiTeamStats?.obp ?? ops * 0.43) * 0.88,
+      kRate: 0.225,
+      bbRate: 0.085,
       yrfiRate,
       homeYrfiRate: yrfiRate + 0.02,
       awayYrfiRate: yrfiRate - 0.02,
@@ -305,8 +297,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       const homeTeamApiId = apiGame.teams.home.team.id
       const awayTeamApiId = apiGame.teams.away.team.id
 
-      const homePitcherApiId = apiGame.teams.home.pitcher?.id
-      const awayPitcherApiId = apiGame.teams.away.pitcher?.id
+      const homePitcherApiId = apiGame.teams.home.probablePitcher?.id
+      const awayPitcherApiId = apiGame.teams.away.probablePitcher?.id
 
       const venue = apiGame.venue?.name ?? "Unknown Stadium"
 
@@ -357,8 +349,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
     games.push(game)
 
     // Map pitchers
-    const homePitcherName = apiGame.teams.home.pitcher?.fullName ?? "TBD"
-    const awayPitcherName = apiGame.teams.away.pitcher?.fullName ?? "TBD"
+    const homePitcherName = apiGame.teams.home.probablePitcher?.fullName ?? "TBD"
+    const awayPitcherName = apiGame.teams.away.probablePitcher?.fullName ?? "TBD"
 
     const homePitcher = mapPitcher(
       homePitcherStats,
