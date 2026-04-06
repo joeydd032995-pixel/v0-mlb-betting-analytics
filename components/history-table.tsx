@@ -327,6 +327,18 @@ function CompletedRow({ pred, onDelete }: { pred: TrackedPrediction; onDelete: (
           >
             {pct(pred.nrfiProbability)}
           </span>
+          <span className="text-muted-foreground"> / </span>
+          <span
+            className={cn(
+              pred.yrfiProbability >= 0.57
+                ? "text-rose-400"
+                : pred.yrfiProbability <= 0.45
+                  ? "text-emerald-400"
+                  : "text-muted-foreground"
+            )}
+          >
+            {pct(pred.yrfiProbability)}
+          </span>
         </td>
         <td className="px-3 py-3 text-center">
           <span
@@ -518,7 +530,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete }
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matchup</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pitchers</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">NRFI%</th>
+                    <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">NRFI% / YRFI%</th>
                     <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prediction</th>
                     <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Result</th>
                     <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Conf</th>
@@ -577,7 +589,12 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete }
                     >
                       {r.prediction}
                     </span>
-                    <span className="text-muted-foreground">{pct(r.nrfiProbability)} NRFI</span>
+                    <span className="text-muted-foreground">
+                      <span className={r.nrfiProbability >= 0.57 ? "text-emerald-400" : r.nrfiProbability <= 0.45 ? "text-rose-400" : ""}>{pct(r.nrfiProbability)}</span>
+                      {" NRFI · "}
+                      <span className={r.yrfiProbability >= 0.57 ? "text-rose-400" : r.yrfiProbability <= 0.45 ? "text-emerald-400" : ""}>{pct(r.yrfiProbability)}</span>
+                      {" YRFI"}
+                    </span>
                     <ConfBadge level={r.confidence} />
                     {r.profitLoss != null && (
                       <span
