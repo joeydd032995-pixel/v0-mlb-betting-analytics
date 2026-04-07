@@ -2,11 +2,12 @@ import { auth } from "@/lib/auth"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-export default auth((req: NextRequest & { auth: { user?: { id?: string; plan?: string | null } } | null }) => {
+export default auth((req: NextRequest & { auth: { user?: { id?: string; plan?: string | null; emailVerified?: Date | string | null; email?: string } } | null }) => {
   const { pathname } = req.nextUrl
   const session = req.auth
   const isAuthed = !!session?.user
   const hasPlan = !!session?.user?.plan
+  const isVerified = !!session?.user?.emailVerified
 
   // ── Helper ──────────────────────────────────────────────────────────────
   const redirect = (path: string) =>
@@ -16,6 +17,12 @@ export default auth((req: NextRequest & { auth: { user?: { id?: string; plan?: s
   if (pathname === "/login" || pathname === "/register") {
     if (isAuthed && hasPlan) return redirect("/dashboard")
     return NextResponse.next()
+  }
+
+  // ── Unverified users: bounce to /verify from everywhere except /verify itself ─
+  if (isAuthed && !isVerified && pathname !== "/verify") {
+    const email = session?.user?.email ?? ""
+    return redirect(`/verify?email=${encodeURIComponent(email)}`)
   }
 
   // ── Root: gate or pass through ──────────────────────────────────────────

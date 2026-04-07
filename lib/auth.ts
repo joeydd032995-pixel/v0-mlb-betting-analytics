@@ -37,8 +37,8 @@ const providers = [
       const valid = await comparePassword(password, user.hashedPassword)
       if (!valid) return null
 
-      if (!user.emailVerified) return null
-
+      // Unverified users are allowed to sign in — middleware will redirect
+      // them to /verify until emailVerified is set.
       return {
         id: user.id,
         name: user.name,

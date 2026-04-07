@@ -432,7 +432,7 @@ export function RegisterForm() {
       }
 
       router.push(
-        `/onboarding/verify?email=${encodeURIComponent(state.step1Data.email)}`
+        `/verify?email=${encodeURIComponent(state.step1Data.email)}`
       )
     } catch {
       setFormError("Network error. Please check your connection and try again.")
