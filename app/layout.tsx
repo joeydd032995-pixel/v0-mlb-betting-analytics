@@ -1,6 +1,8 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
+import { SessionProvider } from "next-auth/react"
+import { auth } from "@/lib/auth"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -25,13 +27,17 @@ export const viewport = {
   themeColor: "#0a0a0a",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const session = await auth()
+
   return (
     <html lang="en" className="dark bg-background">
       <body className="font-sans antialiased">
-        {children}
+        <SessionProvider session={session}>
+          {children}
+        </SessionProvider>
         <Analytics />
       </body>
     </html>
