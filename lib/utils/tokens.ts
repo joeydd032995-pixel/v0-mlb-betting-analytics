@@ -2,7 +2,19 @@ import { SignJWT, jwtVerify } from "jose"
 
 const getSecret = () => {
   const secret = process.env.NEXTAUTH_SECRET
-  if (!secret) throw new Error("NEXTAUTH_SECRET is not set")
+
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("NEXTAUTH_SECRET must be set in production")
+    }
+    // Dev fallback — log a warning so it's obvious the env var is missing
+    console.warn(
+      "[tokens] NEXTAUTH_SECRET is not set. Using an insecure dev fallback.\n" +
+        "  Add NEXTAUTH_SECRET=<random_string> to .env.local to silence this."
+    )
+    return new TextEncoder().encode("dev-insecure-secret-set-nextauth-secret")
+  }
+
   return new TextEncoder().encode(secret)
 }
 
