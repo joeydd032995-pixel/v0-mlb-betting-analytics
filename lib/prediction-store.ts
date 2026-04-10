@@ -110,6 +110,10 @@ export interface ExtendedModelAccuracy extends ModelAccuracy {
   totalTracked: number
   /** P/L in flat-stake units on high-confidence bets only */
   highConfPnL: number
+  nrfiCorrect: number
+  nrfiTotal: number
+  yrfiCorrect: number
+  yrfiTotal: number
 }
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
@@ -408,6 +412,10 @@ export function computeExtendedAccuracy(
     pendingCount: pending.length,
     totalTracked: predictions.length,
     highConfPnL: 0,
+    nrfiCorrect: 0,
+    nrfiTotal: 0,
+    yrfiCorrect: 0,
+    yrfiTotal: 0,
   }
 
   if (complete.length === 0) return empty
@@ -490,5 +498,9 @@ export function computeExtendedAccuracy(
     pendingCount: pending.length,
     totalTracked: predictions.length,
     highConfPnL,
+    nrfiCorrect,
+    nrfiTotal:   nrfiPreds.length,
+    yrfiCorrect,
+    yrfiTotal:   yrfiPreds.length,
   }
 }
