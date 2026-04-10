@@ -333,11 +333,23 @@ export function GamePredictionCard({
           </div>
         </div>
 
-        {/* Recent form pills */}
+        {/* Recent form pills — pitchers */}
         <div className="mt-3 flex flex-col gap-1.5">
           <PitcherFormRow name={awayPitcher.name} results={awayPitcher.firstInning.last5Results} />
           <PitcherFormRow name={homePitcher.name} results={homePitcher.firstInning.last5Results} />
         </div>
+
+        {/* Recent form pills — team offense */}
+        {(awayTeam.firstInning.last5Results || homeTeam.firstInning.last5Results) && (
+          <div className="mt-2 flex flex-col gap-1.5 border-t border-border/30 pt-2">
+            {awayTeam.firstInning.last5Results && (
+              <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />
+            )}
+            {homeTeam.firstInning.last5Results && (
+              <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Expand / collapse factors */}
@@ -414,6 +426,32 @@ function PitcherFormRow({ name, results }: { name: string; results: boolean[] })
   return (
     <div className="flex items-center gap-2">
       <span className="w-32 shrink-0 truncate text-xs text-muted-foreground">{name}</span>
+      <div className="flex gap-1">
+        {results.map((r, i) => (
+          <span
+            key={i}
+            className={cn(
+              "inline-flex h-5 w-5 items-center justify-center rounded-sm text-[10px] font-bold",
+              r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+            )}
+          >
+            {r ? "N" : "Y"}
+          </span>
+        ))}
+      </div>
+      <span className="text-xs text-muted-foreground">
+        {results.filter(Boolean).length}/{results.length}
+      </span>
+    </div>
+  )
+}
+
+function TeamFormRow({ abbr, results }: { abbr: string; results: boolean[] }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-32 shrink-0 text-xs text-muted-foreground">
+        {abbr} <span className="text-zinc-600">off</span>
+      </span>
       <div className="flex gap-1">
         {results.map((r, i) => (
           <span

@@ -39,6 +39,8 @@ export interface TeamFirstInningStats {
   last10YrfiRate: number
   avgRunsVsRHP: number
   avgRunsVsLHP: number
+  /** Last 5 games: true = team did NOT score in 1st (NRFI half), false = scored (YRFI half) */
+  last5Results?: boolean[]
 }
 
 export interface Pitcher {

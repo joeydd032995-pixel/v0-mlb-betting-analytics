@@ -266,6 +266,7 @@ function mapTeam(
       homeYrfiRate: yrfiRate + 0.02,
       awayYrfiRate: yrfiRate - 0.02,
       last10YrfiRate: yrfiRate,
+      last5Results: buildLast5(teamId, 1 - yrfiRate),
       avgRunsVsRHP: runsPerGame,
       avgRunsVsLHP: runsPerGame * 1.05,
     },
