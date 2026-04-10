@@ -417,13 +417,17 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete }
           {
             label: "NRFI Accuracy",
             value: accuracy.totalPredictions > 0 ? pct(accuracy.nrfiAccuracy) : "—",
-            sub: "When predicting NRFI",
+            sub: accuracy.nrfiTotal > 0
+              ? `${accuracy.nrfiCorrect}/${accuracy.nrfiTotal} correct`
+              : "When predicting NRFI",
             color: "text-sky-400",
           },
           {
             label: "YRFI Accuracy",
             value: accuracy.totalPredictions > 0 ? pct(accuracy.yrfiAccuracy) : "—",
-            sub: "When predicting YRFI",
+            sub: accuracy.yrfiTotal > 0
+              ? `${accuracy.yrfiCorrect}/${accuracy.yrfiTotal} correct`
+              : "When predicting YRFI",
             color: "text-violet-400",
           },
           {
