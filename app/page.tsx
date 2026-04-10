@@ -195,12 +195,24 @@ export default function HomePage() {
     computeExtendedAccuracy([])
   )
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount, then immediately sync all pending predictions
+  // across the full season so accuracy stats are up to date on every refresh.
+  // Note: basePredictions is passed to syncResults to avoid the stale-state race
+  // condition where trackedPredictions is still [] when the effect fires.
   useEffect(() => {
     const stored = loadTrackedPredictions()
     setTrackedPredictions(stored)
     setTrackingAccuracy(computeExtendedAccuracy(stored))
-  }, [])
+
+    const hasPending = stored.some((p) => p.status === "pending")
+    if (hasPending) {
+      // Collect ALL dates with pending predictions (full season coverage)
+      const allPendingDates = [...new Set(
+        stored.filter((p) => p.status === "pending").map((p) => p.date)
+      )]
+      syncResults(allPendingDates, stored)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch("/api/predictions")
@@ -259,13 +271,15 @@ export default function HomePage() {
   const [syncing, setSyncing] = useState(false)
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
 
-  const syncResults = async (dates?: string[]) => {
+  const syncResults = async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
     setSyncing(true)
     try {
-      // Collect unique dates from pending predictions + today
+      // Use basePredictions when provided (e.g. on mount before state is set)
+      // to avoid reading stale closure state
+      const baseData = basePredictions ?? trackedPredictions
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
       const pendingDates = new Set<string>(
-        trackedPredictions
+        baseData
           .filter((p) => p.status === "pending")
           .map((p) => p.date)
       )
@@ -308,15 +322,6 @@ export default function HomePage() {
       setSyncing(false)
     }
   }
-
-  // Auto-sync on mount after predictions are loaded
-  useEffect(() => {
-    const hasPending = trackedPredictions.some((p) => p.status === "pending")
-    if (hasPending) {
-      syncResults()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Run once on mount; trackedPredictions populated by the load effect above
 
   // Apply filters and sort
   const filtered = useMemo(() => {
