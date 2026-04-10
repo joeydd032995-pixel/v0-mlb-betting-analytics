@@ -20,7 +20,7 @@ import {
 } from "@/lib/prediction-store"
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw } from "lucide-react"
+import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
 
@@ -270,6 +270,7 @@ export default function HomePage() {
   // ── Results sync ─────────────────────────────────────────────────────────────
   const [syncing, setSyncing] = useState(false)
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
 
   const syncResults = async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
     setSyncing(true)
@@ -320,6 +321,43 @@ export default function HomePage() {
       setLastSyncInfo("Sync failed")
     } finally {
       setSyncing(false)
+    }
+  }
+
+  // Backfill historical predictions from season start to yesterday
+  const backfillSeason = async () => {
+    setBackfilling(true)
+    setLastSyncInfo(null)
+    try {
+      // 2026 MLB season started ~March 20; go back 30 days from today to cover the full season
+      const toDate = new Date()
+      toDate.setDate(toDate.getDate() - 1) // yesterday (games are complete)
+      const to = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(toDate)
+      const fromDate = new Date()
+      fromDate.setDate(fromDate.getDate() - 30)
+      const from = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(fromDate)
+
+      const res = await fetch(`/api/backfill?from=${from}&to=${to}`)
+      if (!res.ok) throw new Error(`Backfill API error ${res.status}`)
+      const data = await res.json()
+
+      if (data.predictions && data.predictions.length > 0) {
+        const merged = upsertPredictions(data.predictions)
+        setTrackedPredictions(merged)
+        setTrackingAccuracy(computeExtendedAccuracy(merged))
+        const completed = (data.predictions as TrackedPrediction[]).filter(
+          (p) => p.status === "complete"
+        ).length
+        setLastSyncInfo(
+          `Imported ${completed} completed result${completed !== 1 ? "s" : ""} across ${data.datesProcessed} day${data.datesProcessed !== 1 ? "s" : ""}`
+        )
+      } else {
+        setLastSyncInfo("No historical data found")
+      }
+    } catch {
+      setLastSyncInfo("Backfill failed")
+    } finally {
+      setBackfilling(false)
     }
   }
 
@@ -547,8 +585,17 @@ export default function HomePage() {
                   <span className="text-xs text-muted-foreground">{lastSyncInfo}</span>
                 )}
                 <button
+                  onClick={backfillSeason}
+                  disabled={backfilling || syncing}
+                  title="Retroactively import predictions and results for the past 30 days to populate season accuracy stats"
+                  className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                >
+                  <DatabaseZap className={cn("h-3 w-3", backfilling && "animate-pulse")} />
+                  {backfilling ? "Importing…" : "Import Season Data"}
+                </button>
+                <button
                   onClick={() => syncResults()}
-                  disabled={syncing}
+                  disabled={syncing || backfilling}
                   className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
                 >
                   <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
