@@ -21,6 +21,9 @@ import {
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
+import { AuthNav } from "@/components/auth-nav"
+import { useAuth } from "@clerk/nextjs"
+import { toast } from "sonner"
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
 
@@ -176,6 +179,24 @@ function FilterBar({
 
 export default function HomePage() {
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
+
+  // ── Auth state (Clerk) ───────────────────────────────────────────────────────
+  const { isLoaded: authLoaded, isSignedIn } = useAuth()
+
+  // Show a one-time welcome toast the first time a user arrives while signed in.
+  // sessionStorage is cleared when the browser tab closes, so signing in again
+  // in a new session will show the toast again — which is intentional.
+  useEffect(() => {
+    if (!authLoaded || !isSignedIn) return
+    const TOAST_KEY = "nrfi_welcome_shown"
+    if (!sessionStorage.getItem(TOAST_KEY)) {
+      toast.success("Signed in successfully", {
+        description: "Welcome to the NRFI/YRFI Prediction Engine!",
+        duration: 4000,
+      })
+      sessionStorage.setItem(TOAST_KEY, "1")
+    }
+  }, [authLoaded, isSignedIn])
 
   // ── Live data state ──────────────────────────────────────────────────────────
   const [liveData, setLiveData] = useState<{
@@ -447,6 +468,8 @@ export default function HomePage() {
             <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-muted-foreground">
               {todayGames.length} games
             </span>
+            {/* Auth controls — Sign In / Sign Up for guests, UserButton for members */}
+            <AuthNav />
           </div>
         </div>
       </header>

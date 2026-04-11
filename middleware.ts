@@ -1,0 +1,55 @@
+// middleware.ts
+// Clerk middleware — runs on every request so Clerk can read/write the auth
+// session cookie and populate auth() / useAuth() across the app.
+//
+// Current policy: everything is PUBLIC.
+// The dashboard is fully accessible without an account (free-tier preview).
+// When you add premium/paywall features, uncomment the protected-route block
+// below and add your route patterns there.
+//
+// Docs: https://clerk.com/docs/references/nextjs/clerk-middleware
+
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
+
+// ---------------------------------------------------------------------------
+// Protected routes (paywall-ready — uncomment when adding premium features)
+// ---------------------------------------------------------------------------
+// const isProtectedRoute = createRouteMatcher([
+//   "/api/premium(.*)",    // future: gated prediction data
+//   "/api/admin(.*)",      // future: admin dashboard
+//   "/account(.*)",        // future: subscription management
+// ])
+
+// ---------------------------------------------------------------------------
+// Public routes — always accessible, even without an account
+// ---------------------------------------------------------------------------
+// Everything is public by default; only routes matched above would be gated.
+const _isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/(.*)",           // all existing API routes stay open
+])
+
+export default clerkMiddleware(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async (auth, _req) => {
+    // Paywall hook — protect premium routes when ready:
+    // if (isProtectedRoute(_req)) {
+    //   await auth.protect()
+    // }
+    //
+    // For now: do nothing — Clerk still sets up the auth session on every
+    // request so useAuth() / auth() return the correct user everywhere.
+  }
+)
+
+export const config = {
+  matcher: [
+    // Run on every path EXCEPT Next.js internals and static assets.
+    // The negative lookahead skips _next/*, and common static file extensions.
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // Always run for API routes so server-side auth() works there too.
+    "/(api|trpc)(.*)",
+  ],
+}

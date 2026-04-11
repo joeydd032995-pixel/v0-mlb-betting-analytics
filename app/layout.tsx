@@ -1,6 +1,9 @@
+// app/layout.tsx
 import type React from "react"
 import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
+import { ClerkProvider } from "@clerk/nextjs"
+import { Toaster } from "sonner"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -29,11 +32,35 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark bg-background">
-      <body className="font-sans antialiased">
-        {children}
-        <Analytics />
-      </body>
-    </html>
+    // ClerkProvider must wrap the entire app so auth state is available
+    // everywhere via useAuth(), auth(), currentUser(), etc.
+    //
+    // afterSignOutUrl tells Clerk where to redirect after the user logs out
+    // (can also be set via NEXT_PUBLIC_CLERK_AFTER_SIGN_OUT_URL env var).
+    <ClerkProvider afterSignOutUrl="/">
+      <html lang="en" className="dark bg-background">
+        <body className="font-sans antialiased">
+          {children}
+
+          {/* Sonner toast portal — styled to match the dark navy theme.
+              toast() calls anywhere in the app will render here. */}
+          <Toaster
+            theme="dark"
+            position="top-right"
+            richColors
+            toastOptions={{
+              style: {
+                background: "oklch(0.205 0 0)",  /* --card */
+                border: "1px solid oklch(0.269 0 0)", /* --border */
+                color: "oklch(0.985 0 0)",        /* --foreground */
+              },
+              className: "font-sans text-sm",
+            }}
+          />
+
+          <Analytics />
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }
