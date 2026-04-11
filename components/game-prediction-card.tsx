@@ -166,6 +166,11 @@ function ModelBreakdownPanel({
       p: bd.homeHalfInning.markovNrfi * bd.awayHalfInning.markovNrfi,
       detail: "24-state base-out chain",
     },
+    {
+      name: "MAPRE",
+      p: bd.homeHalfInning.mapreNrfi * bd.awayHalfInning.mapreNrfi,
+      detail: "sOPS+, BAbip, HR/PA, HFA, rest/travel",
+    },
   ]
 
   const { label, cls } = consensusLabel(bd.modelConsensus)

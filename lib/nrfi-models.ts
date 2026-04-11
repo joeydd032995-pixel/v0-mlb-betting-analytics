@@ -392,6 +392,96 @@ export function computeUmpireWideness(
   return Math.max(-1, Math.min(1, (kEffect + bbEffect) / 2))
 }
 
+// ─── 5. MAPRE (Multi-Factor Adjusted Poisson Run Expectancy) ─────────────────
+
+/**
+ * Inputs for the MAPRE model (MODEL 4).
+ * All fields are optional — missing values fall back to league defaults so that
+ * MAPRE degrades gracefully to an enhanced base Poisson when split data is absent.
+ */
+export interface MAPREInputs {
+  /** Batting team's 1st-inning sOPS+ (100 = league average). Default 100. */
+  sOpsPlus?: number
+  /** Pitcher's allowed BAbip in the 1st inning. Default 0.295 (league avg). */
+  babip1st?: number
+  /** Batting team's 1st-inning HR per PA. Default 0.034 (league avg). */
+  hrPerPa1st?: number
+  /**
+   * Pitcher barrel% deviation (Statcast) or (1st-inning ERA / season ERA − 1).
+   * Positive = worse early command → more barrels allowed. Default 0.
+   */
+  barrelDev?: number
+  /** true = home pitcher faces the batting team this half. Default false. */
+  isHomePitcher?: boolean
+  /**
+   * true = away offense is fatigued: rest days < 4 OR time-zone shift > 3.
+   * Default false (no schedule data available).
+   */
+  awayShortRestOrTravel?: boolean
+}
+
+export interface MAPREHalfResult {
+  /** Adjusted Poisson λ for this half-inning (stored for ρ calculation at game level) */
+  lambdaAdj: number
+  /** P(no score this half) = e^(−lambdaAdj) — no ρ applied yet */
+  nrfiProb: number
+}
+
+/**
+ * MODEL 4: MAPRE — per-half-inning computation.
+ *
+ * Injects eight hidden 2024–2025 factors on top of the Bayesian-shrunk baseLambda:
+ *  • M_sOPS:     batting team 1st-inning sOPS+ surge
+ *  • M_BAbip:    1st-inning BAbip / ROE inflation (fresh-defense errors)
+ *  • M_HR:       disproportionate early-inning HR rate
+ *  • M_pitchMix: starter command drop (barrel or Stuff+ deviation)
+ *  • Δ_HFA:      home-pitcher advantage (−0.045 λ)
+ *  • Δ_rest:     away-offense fatigue (+0.032 λ)
+ *  • floor:      small-sample λ floor at 0.35
+ *
+ * Cross-half correlation (ρ) and the Negative Binomial option are handled
+ * in combineHalfInnings where both lambda values are available.
+ *
+ * @param baseLambda  −ln(shrunkNrfiRate) — the raw Poisson λ before offense/park
+ * @param inputs      MAPRE context inputs (all optional; defaults to league avg)
+ */
+export function computeMAPREHalfInning(
+  baseLambda: number,
+  inputs: MAPREInputs = {}
+): MAPREHalfResult {
+  const {
+    sOpsPlus            = 100,
+    babip1st            = 0.295,
+    hrPerPa1st          = 0.034,
+    barrelDev           = 0,
+    isHomePitcher       = false,
+    awayShortRestOrTravel = false,
+  } = inputs
+
+  // ── Multipliers (each capped [0.70, 1.50]) ────────────────────────────────
+  const clampM = (v: number) => Math.max(0.70, Math.min(1.50, v))
+  const M_sOPS     = clampM(1 + 0.0015 * (sOpsPlus    - 100))
+  const M_BAbip    = clampM(1 + 1.8    * (babip1st     - 0.295))
+  const M_HR       = clampM(1 + 9      * (hrPerPa1st   - 0.034))
+  const M_pitchMix = clampM(1 + 0.12   * barrelDev)
+
+  // ── Additive deltas (each clamped [−0.10, +0.15]) ─────────────────────────
+  const clampD = (v: number) => Math.max(-0.10, Math.min(0.15, v))
+  const delta_HFA  = clampD(isHomePitcher       ? -0.045 : 0)
+  const delta_rest = clampD(awayShortRestOrTravel ?  0.032 : 0)
+
+  // ── Adjusted lambda ────────────────────────────────────────────────────────
+  let lambdaAdj = baseLambda * M_sOPS * M_BAbip * M_HR * M_pitchMix
+                + delta_HFA + delta_rest
+  lambdaAdj = Math.max(lambdaAdj, 0.35)   // small-sample floor
+  lambdaAdj = Math.max(lambdaAdj, 0)      // prevent negative
+
+  return {
+    lambdaAdj,
+    nrfiProb: Math.exp(-lambdaAdj),
+  }
+}
+
 // ─── Ensemble ─────────────────────────────────────────────────────────────────
 
 export interface ModelBreakdown {
@@ -405,12 +495,16 @@ export interface ModelBreakdown {
   zipLambda: number
   /** Markov Chain P(NRFI) for this half-inning */
   markovNrfi: number
+  /** MAPRE P(NRFI) for this half-inning (no ρ; ρ applied in combineHalfInnings) */
+  mapreNrfi: number
+  /** MAPRE adjusted λ stored for ρ and Negative Binomial calc at game level */
+  mapreLambdaAdj: number
   /** How much the model trusts season data vs league average (0=all league, 1=all data) */
   bayesianDataWeight: number
   /** The shrunk (Bayesian-adjusted) NRFI rate fed into models */
   shrunkNrfiRate: number
   /** Ensemble weights actually applied */
-  weights: { poisson: number; zip: number; markov: number }
+  weights: { poisson: number; zip: number; markov: number; mapre: number }
   /** Log-5 matchup PA outcomes used as input to Markov */
   paOutcomes: PAOutcomes
 }
@@ -424,17 +518,19 @@ export interface HalfInningBreakdown {
  * Compute ensemble P(NRFI) for ONE half-inning using all four models.
  *
  * The Bayesian shrinkage is a pre-processing step (data quality) that feeds
- * into the Poisson, ZIP, and Markov models rather than being a 4th vote.
+ * into the Poisson, ZIP, Markov, and MAPRE models rather than being a 5th vote.
  *
- * Ensemble weights: Poisson 25%, ZIP 35%, Markov 40%
- * (Markov weighted highest as the most theoretically complete model for small samples)
+ * Ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
+ * Cross-half ρ correlation and the Negative Binomial option for MAPRE are
+ * applied in combineHalfInnings where both lambda values are available.
  */
 export function computeHalfInningEnsemble(
   pitcher: Pitcher,
   offenseFactor: number,
   parkFactor: number,
   temperatureF: number,
-  umpireWideness: number = 0
+  umpireWideness: number = 0,
+  mapreInputs?: MAPREInputs
 ): ModelBreakdown {
   // Step 1: Bayesian shrinkage on the pitcher's NRFI rate
   const { shrunkenRate, dataWeight } = bayesianShrinkage(
@@ -470,12 +566,18 @@ export function computeHalfInningEnsemble(
   const paOutcomes = computePAOutcomes(shrunkPitcher, offenseFactor)
   const markovResult = computeMarkovNrfi(paOutcomes)
 
-  // Step 5: Ensemble
-  const weights = { poisson: 0.25, zip: 0.35, markov: 0.40 }
+  // Step 5: MAPRE — uses raw poissonLambda (pre offense/park) as base
+  // Its multipliers (M_sOPS, M_BAbip, M_HR, M_pitchMix) replace the standard
+  // offense × park adjustment with 2024–2025 calibrated 1st-inning factors.
+  const mapreResult = computeMAPREHalfInning(poissonLambda, mapreInputs)
+
+  // Step 6: Ensemble — Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
+  const weights = { poisson: 0.20, zip: 0.30, markov: 0.30, mapre: 0.20 }
   const ensembleNrfi =
     weights.poisson * poissonNrfi +
-    weights.zip * zipResult.nrfiProb +
-    weights.markov * markovResult.nrfiProb
+    weights.zip     * zipResult.nrfiProb +
+    weights.markov  * markovResult.nrfiProb +
+    weights.mapre   * mapreResult.nrfiProb
 
   return {
     poissonNrfi,
@@ -483,6 +585,8 @@ export function computeHalfInningEnsemble(
     zipOmega: zipResult.omega,
     zipLambda: zipResult.lambda,
     markovNrfi: markovResult.nrfiProb,
+    mapreNrfi: mapreResult.nrfiProb,
+    mapreLambdaAdj: mapreResult.lambdaAdj,
     bayesianDataWeight: dataWeight,
     shrunkNrfiRate: shrunkenRate,
     weights,
@@ -492,22 +596,45 @@ export function computeHalfInningEnsemble(
 
 /**
  * Final combined P(NRFI) from both half-inning ensemble results.
- * P(NRFI_game) = P(home scores 0) × P(away scores 0)
+ *
+ * Architecture:
+ *  • Poisson/ZIP/Markov (80% weight total): product of per-half probabilities
+ *  • MAPRE (20% weight): full-game probability computed with ρ correlation and
+ *    optional Negative Binomial overdispersion (λ_total_adj > 0.8)
+ *
+ * This gives MAPRE's ρ cross-half correlation term the correct game-level scope
+ * while keeping the per-half per-model architecture for the other three models.
  */
 export function combineHalfInnings(
   homeBreakdown: ModelBreakdown,
   awayBreakdown: ModelBreakdown
 ): number {
-  const w = homeBreakdown.weights  // Same weights for both sides
-  const homeP =
-    w.poisson * homeBreakdown.poissonNrfi +
-    w.zip * homeBreakdown.zipNrfi +
-    w.markov * homeBreakdown.markovNrfi
+  // ── Three-model product (Poisson 20%, ZIP 30%, Markov 30% → sum 80%) ──────
+  // Normalize each half to sum-to-1 over the three models, then multiply halves.
+  const homeP3 =
+    0.20 * homeBreakdown.poissonNrfi +
+    0.30 * homeBreakdown.zipNrfi +
+    0.30 * homeBreakdown.markovNrfi
+  const awayP3 =
+    0.20 * awayBreakdown.poissonNrfi +
+    0.30 * awayBreakdown.zipNrfi +
+    0.30 * awayBreakdown.markovNrfi
+  const threeModelGame = (homeP3 / 0.80) * (awayP3 / 0.80)
 
-  const awayP =
-    w.poisson * awayBreakdown.poissonNrfi +
-    w.zip * awayBreakdown.zipNrfi +
-    w.markov * awayBreakdown.markovNrfi
+  // ── Full MAPRE with ρ correlation (20% weight) ────────────────────────────
+  // λ_total combines both halves; ρ activates when both halves are high-run.
+  const lambdaTotal = homeBreakdown.mapreLambdaAdj + awayBreakdown.mapreLambdaAdj
+  const rho = (homeBreakdown.mapreLambdaAdj > 0.60 && awayBreakdown.mapreLambdaAdj > 0.60)
+    ? 0.022
+    : 0
+  const lambdaTotalAdj = lambdaTotal * (1 + rho)
 
-  return Math.max(0.05, Math.min(0.95, homeP * awayP))
+  // Negative Binomial when overdispersion is meaningful (λ_total_adj > 0.8, r = 1.3)
+  const r = 1.3
+  const mapreFullProb = lambdaTotalAdj > 0.8
+    ? Math.pow(r / (r + lambdaTotalAdj), r)
+    : Math.exp(-lambdaTotalAdj)
+
+  // ── Blend ─────────────────────────────────────────────────────────────────
+  return Math.max(0.05, Math.min(0.95, 0.80 * threeModelGame + 0.20 * mapreFullProb))
 }

@@ -159,6 +159,10 @@ export interface HalfInningModelBreakdown {
   zipLambda: number
   /** Markov Chain P(no score) via 24-state base-out transition */
   markovNrfi: number
+  /** MAPRE P(no score) for this half (per-half, no ρ) */
+  mapreNrfi: number
+  /** MAPRE adjusted λ — stored so combineHalfInnings can apply ρ and Neg Binomial */
+  mapreLambdaAdj: number
   /** 0–1: how much weight is on actual season data vs league average */
   bayesianDataWeight: number
   /** Bayesian-shrunk pitcher NRFI rate fed into models */
