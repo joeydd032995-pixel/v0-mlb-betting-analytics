@@ -28,6 +28,7 @@ import type {
 import {
   computeHalfInningEnsemble,
   combineHalfInnings,
+  type MAPREInputs,
 } from "./nrfi-models"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -451,11 +452,11 @@ function computeValueAnalysis(
 // ─── Model Consensus ──────────────────────────────────────────────────────────
 
 /**
- * Computes a 0–1 agreement score across the three structural models
+ * Computes a 0–1 agreement score across all four structural models
  * for a single half-inning. 1.0 = all models within 1% of each other.
  */
 function halfInningConsensus(bd: HalfInningModelBreakdown): number {
-  const probs = [bd.poissonNrfi, bd.zipNrfi, bd.markovNrfi]
+  const probs = [bd.poissonNrfi, bd.zipNrfi, bd.markovNrfi, bd.mapreNrfi]
   const mean = probs.reduce((a, b) => a + b, 0) / probs.length
   const variance = probs.reduce((s, p) => s + (p - mean) ** 2, 0) / probs.length
   const stdDev = Math.sqrt(variance)
@@ -468,7 +469,12 @@ function outlierNote(
   awayHalf: HalfInningModelBreakdown
 ): string | undefined {
   const checkHalf = (bd: HalfInningModelBreakdown, label: string): string | undefined => {
-    const probs = { Poisson: bd.poissonNrfi, ZIP: bd.zipNrfi, Markov: bd.markovNrfi }
+    const probs = {
+      Poisson: bd.poissonNrfi,
+      ZIP:     bd.zipNrfi,
+      Markov:  bd.markovNrfi,
+      MAPRE:   bd.mapreNrfi,
+    }
     const values = Object.values(probs)
     const mean = values.reduce((a, b) => a + b, 0) / values.length
     for (const [name, p] of Object.entries(probs)) {
@@ -513,20 +519,45 @@ export function computeNRFIPrediction(
   const awayScores0Base = Math.exp(-awayLambda)
   const homeScores0Base = Math.exp(-homeLambda)
 
+  // ── MAPRE inputs (per half-inning) ────────────────────────────────────────
+  // "home half" = away team bats vs home pitcher
+  const homeMabreInputs: MAPREInputs = {
+    sOpsPlus:             awayTeam.firstInning.offenseFactor * 100,
+    babip1st:             homePitcher.firstInning.babip,
+    // HR/PA ≈ hrPer9 / (9 innings × 4.3 BF/inning)
+    hrPerPa1st:           homePitcher.firstInning.hrPer9 / 38.7,
+    barrelDev:            0,     // no Statcast data → graceful degradation
+    isHomePitcher:        true,
+    awayShortRestOrTravel: false, // no schedule data → default off
+  }
+  // "away half" = home team bats vs away pitcher
+  const awayMapreInputs: MAPREInputs = {
+    sOpsPlus:             homeTeam.firstInning.offenseFactor * 100,
+    babip1st:             awayPitcher.firstInning.babip,
+    hrPerPa1st:           awayPitcher.firstInning.hrPer9 / 38.7,
+    barrelDev:            0,
+    isHomePitcher:        false,
+    awayShortRestOrTravel: false,
+  }
+
   // ── Multi-model ensemble ──────────────────────────────────────────────────
   // "home half inning" = away team batting vs home pitcher
   const homeHalfRaw = computeHalfInningEnsemble(
     homePitcher,
     awayTeam.firstInning.offenseFactor,
     game.parkFactor,
-    tempF
+    tempF,
+    0,
+    homeMabreInputs
   )
   // "away half inning" = home team batting vs away pitcher
   const awayHalfRaw = computeHalfInningEnsemble(
     awayPitcher,
     homeTeam.firstInning.offenseFactor,
     game.parkFactor,
-    tempF
+    tempF,
+    0,
+    awayMapreInputs
   )
 
   const ensembleNrfi = combineHalfInnings(homeHalfRaw, awayHalfRaw)
@@ -543,6 +574,8 @@ export function computeNRFIPrediction(
     zipOmega:           homeHalfRaw.zipOmega,
     zipLambda:          homeHalfRaw.zipLambda,
     markovNrfi:         homeHalfRaw.markovNrfi,
+    mapreNrfi:          homeHalfRaw.mapreNrfi,
+    mapreLambdaAdj:     homeHalfRaw.mapreLambdaAdj,
     bayesianDataWeight: homeHalfRaw.bayesianDataWeight,
     shrunkNrfiRate:     homeHalfRaw.shrunkNrfiRate,
   }
@@ -552,6 +585,8 @@ export function computeNRFIPrediction(
     zipOmega:           awayHalfRaw.zipOmega,
     zipLambda:          awayHalfRaw.zipLambda,
     markovNrfi:         awayHalfRaw.markovNrfi,
+    mapreNrfi:          awayHalfRaw.mapreNrfi,
+    mapreLambdaAdj:     awayHalfRaw.mapreLambdaAdj,
     bayesianDataWeight: awayHalfRaw.bayesianDataWeight,
     shrunkNrfiRate:     awayHalfRaw.shrunkNrfiRate,
   }
