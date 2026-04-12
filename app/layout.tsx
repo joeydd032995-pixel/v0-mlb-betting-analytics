@@ -4,6 +4,10 @@ import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
 import { ClerkProvider } from "@clerk/nextjs"
 import { Toaster } from "sonner"
+import { SubscriptionProvider } from "@/components/subscription-provider"
+import { getSubscriptionTier } from "@/lib/actions/subscription-actions"
+import { getPicksUsedToday } from "@/lib/actions/usage-actions"
+import { auth } from "@clerk/nextjs/server"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -28,31 +32,45 @@ export const viewport = {
   themeColor: "#0a0a0a",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Fetch subscription tier and daily pick usage server-side so the
+  // SubscriptionProvider has accurate data from the very first render —
+  // no client-side flash of wrong tier.
+  const { userId } = await auth()
+
+  const [initialTier, initialPicksToday] = await Promise.all([
+    getSubscriptionTier(),
+    userId ? getPicksUsedToday() : Promise.resolve(0),
+  ])
+
   return (
-    // ClerkProvider must wrap the entire app so auth state is available
+    // ClerkProvider must be the outermost wrapper so auth state is available
     // everywhere via useAuth(), auth(), currentUser(), etc.
-    //
-    // afterSignOutUrl tells Clerk where to redirect after the user logs out
-    // (can also be set via NEXT_PUBLIC_CLERK_AFTER_SIGN_OUT_URL env var).
     <ClerkProvider afterSignOutUrl="/">
       <html lang="en" className="dark bg-background">
         <body className="font-sans antialiased">
-          {children}
+          {/* SubscriptionProvider makes tier + pick quota available to all
+              client components via useSubscription(). It also owns the
+              UpgradeModal state so any component can call openUpgradeModal(). */}
+          <SubscriptionProvider
+            initialTier={initialTier}
+            initialPicksToday={initialPicksToday}
+          >
+            {children}
+          </SubscriptionProvider>
 
-          {/* Sonner toast portal — styled to match the dark navy theme.
-              toast() calls anywhere in the app will render here. */}
+          {/* Sonner toast portal — styled to match the dark navy theme */}
           <Toaster
             theme="dark"
             position="top-right"
             richColors
             toastOptions={{
               style: {
-                background: "oklch(0.205 0 0)",  /* --card */
-                border: "1px solid oklch(0.269 0 0)", /* --border */
-                color: "oklch(0.985 0 0)",        /* --foreground */
+                background: "oklch(0.205 0 0)",       /* --card */
+                border:     "1px solid oklch(0.269 0 0)", /* --border */
+                color:      "oklch(0.985 0 0)",        /* --foreground */
               },
               className: "font-sans text-sm",
             }}

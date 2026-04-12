@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
+import Link from "next/link"
 
 interface Props {
   game: Game
@@ -27,6 +28,11 @@ interface Props {
   awayTeam: Team
   homePitcher: Pitcher
   awayPitcher: Pitcher
+  /**
+   * When false (free tier), the expandable "Key Factors" section is hidden and
+   * a locked teaser is shown instead. Defaults to true for paid users.
+   */
+  showAdvanced?: boolean
 }
 
 function pct(n: number) {
@@ -246,6 +252,7 @@ export function GamePredictionCard({
   awayTeam,
   homePitcher,
   awayPitcher,
+  showAdvanced = true,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
   const nrfiPct = Math.round(prediction.nrfiProbability * 100)
@@ -357,70 +364,85 @@ export function GamePredictionCard({
         )}
       </div>
 
-      {/* Expand / collapse factors */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between border-t border-border/40 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/20"
-      >
-        <span>Key Factors ({prediction.factors.length})</span>
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-      </button>
+      {/* Expand / collapse factors — paid only */}
+      {showAdvanced ? (
+        <>
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center justify-between border-t border-border/40 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/20"
+          >
+            <span>Key Factors ({prediction.factors.length})</span>
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
 
-      {expanded && (
-        <div className="border-t border-border/30 bg-muted/10 px-4 pb-4 pt-3">
-          <ul className="space-y-2">
-            {prediction.factors.map((f, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <FactorIcon impact={f.impact} />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-foreground/90">{f.name}</span>
-                    {f.value && (
-                      <span className="text-xs text-muted-foreground">{f.value}</span>
+          {expanded && (
+            <div className="border-t border-border/30 bg-muted/10 px-4 pb-4 pt-3">
+              <ul className="space-y-2">
+                {prediction.factors.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <FactorIcon impact={f.impact} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-foreground/90">{f.name}</span>
+                        {f.value && (
+                          <span className="text-xs text-muted-foreground">{f.value}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Model ensemble breakdown */}
+              {prediction.modelBreakdown && (
+                <ModelBreakdownPanel
+                  bd={prediction.modelBreakdown}
+                  awayAbbr={awayTeam.abbreviation}
+                  homeAbbr={homeTeam.abbreviation}
+                />
+              )}
+
+              {/* Value analysis detail */}
+              {va && (
+                <div className="mt-3 rounded-md border border-violet-500/20 bg-violet-500/5 p-3">
+                  <p className="text-xs font-semibold text-violet-300 mb-1.5">Value Analysis · {game.odds?.bookmaker}</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <span className="text-muted-foreground">NRFI Odds</span>
+                    <span className="font-medium tabular-nums">{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
+                    <span className="text-muted-foreground">YRFI Odds</span>
+                    <span className="font-medium tabular-nums">{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
+                    {va.recommendedBet !== "NO_BET" && (
+                      <>
+                        <span className="text-muted-foreground">Model Edge</span>
+                        <span className={cn("font-semibold tabular-nums", "text-violet-300")}>
+                          +{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(2)}%
+                          {" "}on {va.recommendedBet}
+                        </span>
+                        <span className="text-muted-foreground">Kelly Size</span>
+                        <span className="font-medium tabular-nums">{pct(va.kellyFraction)} of bankroll</span>
+                        <span className="text-muted-foreground">Expected Value</span>
+                        <span className={cn("font-semibold tabular-nums", va.expectedValue > 0 ? "text-emerald-400" : "text-rose-400")}>
+                          {va.expectedValue > 0 ? "+" : ""}{(va.expectedValue * 100).toFixed(2)}%
+                        </span>
+                      </>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
                 </div>
-              </li>
-            ))}
-          </ul>
-
-          {/* Model ensemble breakdown */}
-          {prediction.modelBreakdown && (
-            <ModelBreakdownPanel
-              bd={prediction.modelBreakdown}
-              awayAbbr={awayTeam.abbreviation}
-              homeAbbr={homeTeam.abbreviation}
-            />
-          )}
-
-          {/* Value analysis detail */}
-          {va && (
-            <div className="mt-3 rounded-md border border-violet-500/20 bg-violet-500/5 p-3">
-              <p className="text-xs font-semibold text-violet-300 mb-1.5">Value Analysis · {game.odds?.bookmaker}</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                <span className="text-muted-foreground">NRFI Odds</span>
-                <span className="font-medium tabular-nums">{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
-                <span className="text-muted-foreground">YRFI Odds</span>
-                <span className="font-medium tabular-nums">{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
-                {va.recommendedBet !== "NO_BET" && (
-                  <>
-                    <span className="text-muted-foreground">Model Edge</span>
-                    <span className={cn("font-semibold tabular-nums", "text-violet-300")}>
-                      +{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(2)}%
-                      {" "}on {va.recommendedBet}
-                    </span>
-                    <span className="text-muted-foreground">Kelly Size</span>
-                    <span className="font-medium tabular-nums">{pct(va.kellyFraction)} of bankroll</span>
-                    <span className="text-muted-foreground">Expected Value</span>
-                    <span className={cn("font-semibold tabular-nums", va.expectedValue > 0 ? "text-emerald-400" : "text-rose-400")}>
-                      {va.expectedValue > 0 ? "+" : ""}{(va.expectedValue * 100).toFixed(2)}%
-                    </span>
-                  </>
-                )}
-              </div>
+              )}
             </div>
           )}
+        </>
+      ) : (
+        /* Free tier — locked teaser for advanced analysis */
+        <div className="flex items-center justify-between border-t border-border/40 px-4 py-2">
+          <span className="text-xs text-muted-foreground">Key Factors + Value Analysis</span>
+          <Link
+            href="/pricing"
+            className="flex items-center gap-1 rounded border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/10 transition-colors"
+          >
+            Unlock
+          </Link>
         </div>
       )}
     </Card>

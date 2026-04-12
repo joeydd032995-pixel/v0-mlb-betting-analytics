@@ -20,10 +20,12 @@ import {
 } from "@/lib/prediction-store"
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
+import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap, Lock, Zap } from "lucide-react"
 import { AuthNav } from "@/components/auth-nav"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
+import { useSubscription } from "@/components/subscription-provider"
+import Link from "next/link"
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
 
@@ -177,8 +179,97 @@ function FilterBar({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// ─── Locked pick teaser card ──────────────────────────────────────────────────
+function LockedPickCard({ onUnlock }: { onUnlock: () => void }) {
+  return (
+    <div className="relative flex flex-col overflow-hidden rounded-lg border border-border/40 bg-card/40 min-h-[260px]">
+      {/* Blurred background suggestion */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/60 to-background/90 z-10" />
+      {/* Fake shimmer rows to suggest content */}
+      <div className="p-4 space-y-3 opacity-30 select-none pointer-events-none">
+        <div className="h-3 w-2/3 rounded bg-muted/60 animate-pulse" />
+        <div className="h-8 w-1/2 rounded bg-muted/40 animate-pulse" />
+        <div className="h-3 w-full rounded bg-muted/30 animate-pulse" />
+        <div className="h-3 w-3/4 rounded bg-muted/30 animate-pulse" />
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="h-14 rounded bg-muted/20 animate-pulse" />
+          <div className="h-14 rounded bg-muted/20 animate-pulse" />
+        </div>
+      </div>
+      {/* Lock overlay */}
+      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 p-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/40 border border-border/50">
+          <Lock className="h-4.5 w-4.5 text-muted-foreground" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-foreground">Pick locked</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Upgrade to unlock unlimited daily picks</p>
+        </div>
+        <button
+          onClick={onUnlock}
+          className="flex items-center gap-1.5 rounded-md bg-primary/90 hover:bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors"
+        >
+          <Zap className="h-3.5 w-3.5" />
+          Unlock all picks
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Locked tab overlay ────────────────────────────────────────────────────────
+function LockedTabOverlay({
+  title,
+  description,
+  context,
+  onUnlock,
+}: {
+  title: string
+  description: string
+  context: "pitchers" | "teams" | "history"
+  onUnlock: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-border/40 bg-muted/10 py-20 px-6 text-center gap-4">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted/30 border border-border/50">
+        <Lock className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <div>
+        <p className="text-base font-semibold text-foreground">{title}</p>
+        <p className="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">{description}</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onUnlock}
+          className="flex items-center gap-1.5 rounded-md bg-primary/90 hover:bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors"
+        >
+          <Zap className="h-4 w-4" />
+          Upgrade
+        </button>
+        <Link
+          href="/pricing"
+          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+        >
+          See all plans
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function HomePage() {
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
+
+  // ── Subscription context ─────────────────────────────────────────────────────
+  const {
+    isPaid,
+    hasHistory,
+    hasPitcherInsights,
+    remainingPicksToday,
+    openUpgradeModal,
+  } = useSubscription()
 
   // ── Auth state (Clerk) ───────────────────────────────────────────────────────
   const { isLoaded: authLoaded, isSignedIn } = useAuth()
@@ -468,6 +559,18 @@ export default function HomePage() {
             <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-muted-foreground">
               {todayGames.length} games
             </span>
+
+            {/* Upgrade CTA — shown for free users */}
+            {!isPaid && (
+              <Link
+                href="/pricing"
+                className="hidden sm:flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20 px-2.5 py-1 text-xs font-semibold text-primary transition-colors"
+              >
+                <Zap className="h-3 w-3" />
+                Upgrade
+              </Link>
+            )}
+
             {/* Auth controls — Sign In / Sign Up for guests, UserButton for members */}
             <AuthNav />
           </div>
@@ -477,7 +580,7 @@ export default function HomePage() {
       {/* Main content */}
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
         {/* Stats header */}
-        <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} />
+        <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} isPaid={isPaid} />
 
         {/* Tabs */}
         <Tabs defaultValue="games">
@@ -538,19 +641,48 @@ export default function HomePage() {
                 </button>
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }) => (
-                  <GamePredictionCard
-                    key={game.id}
-                    game={game}
-                    prediction={pred}
-                    homeTeam={homeTeam}
-                    awayTeam={awayTeam}
-                    homePitcher={homePitcher}
-                    awayPitcher={awayPitcher}
-                  />
-                ))}
-              </div>
+              <>
+                {/* Free-tier pick quota banner */}
+                {!isPaid && filtered.length > 0 && (
+                  <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs">
+                    <span className="text-amber-300">
+                      Free plan: <strong>1 pick per day</strong> — {remainingPicksToday > 0 ? `${remainingPicksToday} remaining today` : "limit reached"}
+                    </span>
+                    <Link href="/pricing" className="font-semibold text-amber-300 hover:text-amber-200 underline underline-offset-2 transition-colors">
+                      Upgrade for unlimited →
+                    </Link>
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }, index) => {
+                    // Free users: first pick is always visible; lock the rest
+                    const isLocked = !isPaid && index >= remainingPicksToday
+
+                    if (isLocked) {
+                      return (
+                        <LockedPickCard
+                          key={game.id}
+                          onUnlock={() => openUpgradeModal("picks")}
+                        />
+                      )
+                    }
+
+                    return (
+                      <GamePredictionCard
+                        key={game.id}
+                        game={game}
+                        prediction={pred}
+                        homeTeam={homeTeam}
+                        awayTeam={awayTeam}
+                        homePitcher={homePitcher}
+                        awayPitcher={awayPitcher}
+                        showAdvanced={isPaid}
+                      />
+                    )
+                  })}
+                </div>
+              </>
             )}
 
             {/* Model explanation */}
@@ -579,7 +711,16 @@ export default function HomePage() {
                 Sorted by NRFI rate. All metrics apply to the first inning only.
               </p>
             </div>
-            <PitcherStats pitchers={[...pitcherMap.values()]} teams={teamMap} />
+            {hasPitcherInsights ? (
+              <PitcherStats pitchers={[...pitcherMap.values()]} teams={teamMap} />
+            ) : (
+              <LockedTabOverlay
+                title="Pitcher insights require Monthly or Annual"
+                description="Full pitcher rankings, Bayesian trust meters, first-inning ERA/WHIP/K%/xR, and matchup analytics."
+                context="pitchers"
+                onUnlock={() => openUpgradeModal("pitchers")}
+              />
+            )}
           </TabsContent>
 
           {/* ── Teams Tab ── */}
@@ -590,51 +731,71 @@ export default function HomePage() {
                 Sorted by YRFI rate — how often each team scores in the first inning.
               </p>
             </div>
-            <TeamStats teams={[...teamMap.values()]} />
+            {hasPitcherInsights ? (
+              <TeamStats teams={[...teamMap.values()]} />
+            ) : (
+              <LockedTabOverlay
+                title="Team analytics require Monthly or Annual"
+                description="Deep-dive first-inning offense splits, home/away YRFI rates, L10 trend data, and league rankings."
+                context="teams"
+                onUnlock={() => openUpgradeModal("teams")}
+              />
+            )}
           </TabsContent>
 
           {/* ── History Tab ── */}
           <TabsContent value="history" className="mt-4">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
-                <p className="mt-0.5 text-sm text-muted-foreground">
-                  Predictions are auto-saved daily. 1st-inning results are fetched automatically
-                  from the MLB Stats API once games end.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {lastSyncInfo && (
-                  <span className="text-xs text-muted-foreground">{lastSyncInfo}</span>
-                )}
-                <button
-                  onClick={backfillSeason}
-                  disabled={backfilling || syncing}
-                  title="Retroactively import predictions and results for the past 30 days to populate season accuracy stats"
-                  className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
-                >
-                  <DatabaseZap className={cn("h-3 w-3", backfilling && "animate-pulse")} />
-                  {backfilling ? "Importing…" : "Import Season Data"}
-                </button>
-                <button
-                  onClick={() => syncResults()}
-                  disabled={syncing || backfilling}
-                  className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
-                >
-                  <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
-                  {syncing ? "Syncing…" : "Sync Results"}
-                </button>
-                <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-xs text-muted-foreground">
-                  {trackingAccuracy.totalTracked} tracked
-                </span>
-              </div>
-            </div>
-            <HistoryTable
-              predictions={trackedPredictions}
-              accuracy={trackingAccuracy}
-              onRecordResult={handleRecordResult}
-              onDelete={handleDeletePrediction}
-            />
+            {hasHistory ? (
+              <>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      Predictions are auto-saved daily. 1st-inning results are fetched automatically
+                      from the MLB Stats API once games end.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {lastSyncInfo && (
+                      <span className="text-xs text-muted-foreground">{lastSyncInfo}</span>
+                    )}
+                    <button
+                      onClick={backfillSeason}
+                      disabled={backfilling || syncing}
+                      title="Retroactively import predictions and results for the past 30 days to populate season accuracy stats"
+                      className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                    >
+                      <DatabaseZap className={cn("h-3 w-3", backfilling && "animate-pulse")} />
+                      {backfilling ? "Importing…" : "Import Season Data"}
+                    </button>
+                    <button
+                      onClick={() => syncResults()}
+                      disabled={syncing || backfilling}
+                      className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
+                      {syncing ? "Syncing…" : "Sync Results"}
+                    </button>
+                    <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-xs text-muted-foreground">
+                      {trackingAccuracy.totalTracked} tracked
+                    </span>
+                  </div>
+                </div>
+                <HistoryTable
+                  predictions={trackedPredictions}
+                  accuracy={trackingAccuracy}
+                  onRecordResult={handleRecordResult}
+                  onDelete={handleDeletePrediction}
+                />
+              </>
+            ) : (
+              <LockedTabOverlay
+                title="History tracking requires Monthly or Annual"
+                description="Track your prediction accuracy over time, record 1st-inning results, view per-model performance breakdowns, and review monthly ROI trends."
+                context="history"
+                onUnlock={() => openUpgradeModal("history")}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </main>
