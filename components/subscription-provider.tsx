@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from "react"
 import { UpgradeModal } from "@/components/upgrade-modal"
+import { createPortalSession } from "@/lib/actions/subscription-actions"
 import {
   tierIsPaid,
   tierHasHistory,
@@ -81,9 +82,11 @@ interface Props {
   initialTier: SubscriptionTier
   /** Picks already viewed today (from daily_pick_usage table) */
   initialPicksToday: number
+  /** true when the user's last Stripe payment failed (status = past_due) */
+  initialPastDue?: boolean
 }
 
-export function SubscriptionProvider({ children, initialTier, initialPicksToday }: Props) {
+export function SubscriptionProvider({ children, initialTier, initialPicksToday, initialPastDue = false }: Props) {
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [upgradeCtx, setUpgradeCtx]   = useState<UpgradeContext>("general")
 
@@ -114,6 +117,22 @@ export function SubscriptionProvider({ children, initialTier, initialPicksToday 
 
   return (
     <SubscriptionCtx.Provider value={value}>
+      {/* Past-due payment warning — shown when Stripe marks subscription as past_due */}
+      {initialPastDue && (
+        <div className="sticky top-0 z-50 flex items-center justify-between gap-4 bg-red-950/90 border-b border-red-500/40 px-4 py-2 text-xs backdrop-blur">
+          <span className="text-red-300">
+            ⚠ Your last payment failed and your plan has been suspended.
+          </span>
+          <form action={createPortalSession}>
+            <button
+              type="submit"
+              className="whitespace-nowrap font-semibold text-red-200 underline underline-offset-2 hover:text-red-100 transition-colors"
+            >
+              Update payment method →
+            </button>
+          </form>
+        </div>
+      )}
       {children}
       <UpgradeModal
         open={upgradeOpen}

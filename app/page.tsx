@@ -25,6 +25,7 @@ import { AuthNav } from "@/components/auth-nav"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 import { useSubscription } from "@/components/subscription-provider"
+import { incrementPickUsage } from "@/lib/actions/usage-actions"
 import Link from "next/link"
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
@@ -336,6 +337,15 @@ export default function HomePage() {
       .then((d) => {
         setLiveData(d)
         setLoading(false)
+
+        // Record one pick against the free-tier daily quota whenever a signed-in
+        // free user first loads today's predictions. The server action is safe to
+        // call on every page load — once pickCount ≥ FREE_DAILY_PICK_LIMIT the
+        // SubscriptionProvider (seeded server-side) will already show 0 remaining,
+        // so the UI locks correctly. We avoid calling it for paid users or guests.
+        if (!isPaid && isSignedIn && remainingPicksToday > 0 && !d.noGames && (d.predictions?.length ?? 0) > 0) {
+          void incrementPickUsage()
+        }
 
         // Auto-save today's predictions to the tracking store
         if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {

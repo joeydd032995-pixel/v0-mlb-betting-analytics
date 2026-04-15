@@ -5,7 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { ClerkProvider } from "@clerk/nextjs"
 import { Toaster } from "sonner"
 import { SubscriptionProvider } from "@/components/subscription-provider"
-import { getSubscriptionTier } from "@/lib/actions/subscription-actions"
+import { getSubscriptionTier, getSubscriptionRow } from "@/lib/actions/subscription-actions"
 import { getPicksUsedToday } from "@/lib/actions/usage-actions"
 import { auth } from "@clerk/nextjs/server"
 import "./globals.css"
@@ -40,10 +40,12 @@ export default async function RootLayout({
   // no client-side flash of wrong tier.
   const { userId } = await auth()
 
-  const [initialTier, initialPicksToday] = await Promise.all([
+  const [initialTier, initialPicksToday, subscriptionRow] = await Promise.all([
     getSubscriptionTier(),
     userId ? getPicksUsedToday() : Promise.resolve(0),
+    userId ? getSubscriptionRow() : Promise.resolve(null),
   ])
+  const initialPastDue = subscriptionRow?.status === "past_due"
 
   return (
     // ClerkProvider must be the outermost wrapper so auth state is available
@@ -57,6 +59,7 @@ export default async function RootLayout({
           <SubscriptionProvider
             initialTier={initialTier}
             initialPicksToday={initialPicksToday}
+            initialPastDue={initialPastDue}
           >
             {children}
           </SubscriptionProvider>
