@@ -95,6 +95,36 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
   }
 }
 
+// ─── Game Status Helpers ──────────────────────────────────────────────────────
+
+/** States that mean a game has completed and the linescore is stable */
+const FINAL_STATES = new Set([
+  "final",
+  "game over",
+  "completed early",
+  "postponed",
+  "suspended",
+])
+
+/** Returns true when a game's linescore is stable (final/postponed/etc.) */
+export function isGameFinal(status: {
+  abstractGameState: string
+  detailedState: string
+}): boolean {
+  return (
+    status.abstractGameState.toLowerCase() === "final" ||
+    FINAL_STATES.has(status.detailedState.toLowerCase())
+  )
+}
+
+/** Returns true when a game is currently live (in progress) */
+export function isGameInProgress(status: {
+  abstractGameState: string
+  detailedState: string
+}): boolean {
+  return status.abstractGameState.toLowerCase() === "live"
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Returns today's MLB game slate. Each game includes probablePitcher if announced.

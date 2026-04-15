@@ -158,8 +158,8 @@ function mapPitcher(
       },
       overall: {
         era: defaultEra,
-        fip: defaultEra,
-        xfip: defaultEra,
+        fip: defaultEra,   // no IP to compute FIP — default to league-average ERA
+        xfip: defaultEra,  // xFIP requires Statcast data — fall back to ERA
         whip: defaultWhip,
         kPer9: defaultKRate * 27,
         bbPer9: defaultBbRate * 27,
@@ -210,8 +210,12 @@ function mapPitcher(
     },
     overall: {
       era,
-      fip: era,
-      xfip: era,
+      // FIP and xFIP require HR, BB, HBP, K, IP — computed from season stats
+      // as an approximation using FIP constant ≈ 3.2 (2024 MLB average)
+      fip:  innings > 0
+        ? ((13 * apiStats.homeRuns + 3 * apiStats.baseOnBalls - 2 * apiStats.strikeOuts) / innings) + 3.2
+        : era,
+      xfip: era,  // xFIP requires Statcast barrel% — not available from MLB Stats API; fall back to ERA
       whip,
       kPer9: kRate * 27,
       bbPer9: bbRate * 27,

@@ -2,9 +2,11 @@
  * Debug endpoint — diagnoses MLB Stats API connectivity and game data availability.
  * GET /api/debug
  *
- * Uses the free MLB Stats API (no authentication required).
+ * Restricted to authenticated users only to prevent information leakage
+ * (internal API URLs, schedule structure, env config hints).
  */
 import { NextResponse } from "next/server"
+import { auth } from "@clerk/nextjs/server"
 
 const MLB_API_BASE = "https://statsapi.mlb.com/api/v1"
 const SEASON = process.env.NEXT_PUBLIC_MLB_SEASON ?? "2026"
@@ -24,6 +26,11 @@ async function mlbApiGet(path: string) {
 export const dynamic = "force-dynamic"
 
 export async function GET() {
+  const { userId } = await auth()
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const today = new Date().toISOString().split("T")[0]
 
   // Test MLB Stats API endpoints

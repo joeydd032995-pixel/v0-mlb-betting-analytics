@@ -6,8 +6,10 @@
  *  2. Bayesian Shrinkage           — corrects small-sample NRFI rate estimates
  *  3. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
  *  4. Markov Chain (24 states)     — state-based base-out inning simulation
+ *  5. MAPRE                        — multi-factor adjusted Poisson run expectancy
  *
- * Ensemble weights: Poisson 25%, ZIP 35%, Markov 40%
+ * Per-half-inning ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
+ * Final game blend: 80% three-model product (Poisson/ZIP/Markov) + 20% MAPRE full-game
  * P(NRFI) = P(home scores 0) × P(away scores 0)  (per-ensemble)
  */
 

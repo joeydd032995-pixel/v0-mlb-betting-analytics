@@ -473,8 +473,7 @@ export function computeMAPREHalfInning(
   // ── Adjusted lambda ────────────────────────────────────────────────────────
   let lambdaAdj = baseLambda * M_sOPS * M_BAbip * M_HR * M_pitchMix
                 + delta_HFA + delta_rest
-  lambdaAdj = Math.max(lambdaAdj, 0.35)   // small-sample floor
-  lambdaAdj = Math.max(lambdaAdj, 0)      // prevent negative
+  lambdaAdj = Math.max(lambdaAdj, 0.35)   // small-sample floor (also prevents negative)
 
   return {
     lambdaAdj,

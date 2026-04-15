@@ -16,26 +16,11 @@ import { NextResponse } from "next/server"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
-import { fetchGamesByDate, fetchGameLinescore } from "@/lib/api/mlb-stats"
+import { fetchGamesByDate, fetchGameLinescore, isGameFinal } from "@/lib/api/mlb-stats"
 import type { TrackedPrediction } from "@/lib/prediction-store"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
-
-const FINAL_STATES = new Set([
-  "final",
-  "game over",
-  "completed early",
-  "postponed",
-  "suspended",
-])
-
-function isFinal(status: { abstractGameState: string; detailedState: string }): boolean {
-  return (
-    status.abstractGameState.toLowerCase() === "final" ||
-    FINAL_STATES.has(status.detailedState.toLowerCase())
-  )
-}
 
 function getDatesInRange(from: string, to: string): string[] {
   const dates: string[] = []
@@ -76,7 +61,7 @@ export async function GET(request: Request) {
 
         // Fetch actual game results from the MLB Stats API
         const apiGames = await fetchGamesByDate(date)
-        const finalApiGames = (apiGames ?? []).filter((g) => isFinal(g.status))
+        const finalApiGames = (apiGames ?? []).filter((g) => isGameFinal(g.status))
 
         const linescores = await Promise.all(
           finalApiGames.map((g) => fetchGameLinescore(g.gamePk))

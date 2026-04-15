@@ -25,29 +25,14 @@
  */
 
 import { NextResponse } from "next/server"
-import { fetchGamesByDate, fetchGameLinescore } from "@/lib/api/mlb-stats"
+import {
+  fetchGamesByDate,
+  fetchGameLinescore,
+  isGameFinal,
+  isGameInProgress,
+} from "@/lib/api/mlb-stats"
 
 export const dynamic = "force-dynamic"
-
-/** States that mean the game has completed (linescore is stable) */
-const FINAL_STATES = new Set([
-  "final",
-  "game over",
-  "completed early",
-  "postponed",
-  "suspended",
-])
-
-function isFinal(status: { abstractGameState: string; detailedState: string }): boolean {
-  return (
-    status.abstractGameState.toLowerCase() === "final" ||
-    FINAL_STATES.has(status.detailedState.toLowerCase())
-  )
-}
-
-function isInProgress(status: { abstractGameState: string; detailedState: string }): boolean {
-  return status.abstractGameState.toLowerCase() === "live"
-}
 
 export async function GET(request: Request) {
   try {
@@ -76,8 +61,8 @@ export async function GET(request: Request) {
       })
     }
 
-    const finalGames   = games.filter((g) => isFinal(g.status))
-    const liveGames    = games.filter((g) => isInProgress(g.status))
+    const finalGames   = games.filter((g) => isGameFinal(g.status))
+    const liveGames    = games.filter((g) => isGameInProgress(g.status))
     const pendingCount = games.length - finalGames.length - liveGames.length
 
     // Fetch linescores for final games in parallel (and live games too)
@@ -123,7 +108,7 @@ export async function GET(request: Request) {
         awayFinalRuns: ls.teams?.away?.runs ?? 0,
         status:       game.status.detailedState,
         nrfi:         homeRuns === 0 && awayRuns === 0,
-        inProgress:   isInProgress(game.status),
+        inProgress:   isGameInProgress(game.status),
       }
     }
 
