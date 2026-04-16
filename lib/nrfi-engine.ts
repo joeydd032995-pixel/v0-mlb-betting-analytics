@@ -28,8 +28,10 @@ import type {
 import {
   computeHalfInningEnsemble,
   combineHalfInnings,
+  type HalfInningEnsembleResult,
   type MAPREInputs,
 } from "./nrfi-models"
+import { impliedProbability } from "./utils/odds"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,12 +42,6 @@ const KELLY_FRACTION = 0.25
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Convert American odds to implied probability */
-export function americanToImplied(odds: number): number {
-  if (odds > 0) return 100 / (odds + 100)
-  return Math.abs(odds) / (Math.abs(odds) + 100)
-}
-
 /** Convert implied probability to American odds */
 export function impliedToAmerican(prob: number): number {
   if (prob >= 0.5) return -Math.round((prob / (1 - prob)) * 100)
@@ -54,11 +50,14 @@ export function impliedToAmerican(prob: number): number {
 
 /** Kelly Criterion: fraction of bankroll to wager */
 function kellyFraction(edge: number, odds: number): number {
-  const p = americanToImplied(odds) + edge
-  const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
-  const q = 1 - p
-  const kelly = (b * p - q) / b
-  return Math.max(0, kelly * KELLY_FRACTION)
+  // Clamp model probability to [0, 1] before computing Kelly to prevent
+  // negative q or kelly > 1 when edge is large.
+  const modelProb = Math.max(0, Math.min(1, impliedProbability(odds) + edge))
+  const decimalOdds = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+  const q = 1 - modelProb
+  const rawKelly = (decimalOdds * modelProb - q) / decimalOdds
+  // Cap at 0.25 of bankroll (25% fractional Kelly max bet)
+  return Math.max(0, Math.min(0.25, rawKelly * KELLY_FRACTION))
 }
 
 /** Expected value as a decimal return */
@@ -419,33 +418,44 @@ function computeValueAnalysis(
   nrfiProb: number,
   odds: { nrfiOdds: number; yrfiOdds: number; bookmaker: string }
 ): ValueAnalysis {
-  const impliedNrfi = americanToImplied(odds.nrfiOdds)
-  const impliedYrfi = americanToImplied(odds.yrfiOdds)
+  const impliedNrfi = impliedProbability(odds.nrfiOdds)
+  const impliedYrfi = impliedProbability(odds.yrfiOdds)
   const yrfiProb = 1 - nrfiProb
   const nrfiEdge = nrfiProb - impliedNrfi
   const yrfiEdge = yrfiProb - impliedYrfi
 
-  const MIN_EDGE = MIN_KELLY_EDGE
-  let recommendedBet: "NRFI" | "YRFI" | "NO_BET" = "NO_BET"
-  if (nrfiEdge >= MIN_EDGE) recommendedBet = "NRFI"
-  else if (yrfiEdge >= MIN_EDGE) recommendedBet = "YRFI"
-
-  const betOdds = recommendedBet === "NRFI" ? odds.nrfiOdds : odds.yrfiOdds
-  const betEdge = recommendedBet === "NRFI" ? nrfiEdge : yrfiEdge
-  const betProb = recommendedBet === "NRFI" ? nrfiProb : yrfiProb
-
-  return {
+  const base = {
     impliedNrfiProb: impliedNrfi,
     impliedYrfiProb: impliedYrfi,
     nrfiEdge,
     yrfiEdge,
     nrfiOdds: odds.nrfiOdds,
     yrfiOdds: odds.yrfiOdds,
-    recommendedBet,
-    kellyFraction:
-      recommendedBet !== "NO_BET" ? kellyFraction(betEdge, betOdds) : 0,
-    expectedValue:
-      recommendedBet !== "NO_BET" ? expectedValue(betProb, betOdds) : 0,
+  }
+
+  if (nrfiEdge >= MIN_KELLY_EDGE) {
+    return {
+      ...base,
+      recommendedBet: "NRFI",
+      kellyFraction: kellyFraction(nrfiEdge, odds.nrfiOdds),
+      expectedValue: expectedValue(nrfiProb, odds.nrfiOdds),
+    }
+  }
+
+  if (yrfiEdge >= MIN_KELLY_EDGE) {
+    return {
+      ...base,
+      recommendedBet: "YRFI",
+      kellyFraction: kellyFraction(yrfiEdge, odds.yrfiOdds),
+      expectedValue: expectedValue(yrfiProb, odds.yrfiOdds),
+    }
+  }
+
+  return {
+    ...base,
+    recommendedBet: "NO_BET",
+    kellyFraction: 0,
+    expectedValue: 0,
   }
 }
 
@@ -468,8 +478,10 @@ function outlierNote(
   homeHalf: HalfInningModelBreakdown,
   awayHalf: HalfInningModelBreakdown
 ): string | undefined {
-  const checkHalf = (bd: HalfInningModelBreakdown, label: string): string | undefined => {
-    const probs = {
+  const notes: string[] = []
+
+  const checkHalf = (bd: HalfInningModelBreakdown, label: string): void => {
+    const probs: Record<string, number> = {
       Poisson: bd.poissonNrfi,
       ZIP:     bd.zipNrfi,
       Markov:  bd.markovNrfi,
@@ -479,12 +491,16 @@ function outlierNote(
     const mean = values.reduce((a, b) => a + b, 0) / values.length
     for (const [name, p] of Object.entries(probs)) {
       if (Math.abs(p - mean) > 0.08) {
-        return `${name} model diverges ${p > mean ? "bullish" : "bearish"} for NRFI (${label} half)`
+        notes.push(
+          `${name} model diverges ${p > mean ? "bullish" : "bearish"} for NRFI (${label} half)`
+        )
       }
     }
-    return undefined
   }
-  return checkHalf(homeHalf, "home") ?? checkHalf(awayHalf, "away")
+
+  checkHalf(homeHalf, "home")
+  checkHalf(awayHalf, "away")
+  return notes.length > 0 ? notes.join("; ") : undefined
 }
 
 // ─── Main Engine ──────────────────────────────────────────────────────────────
@@ -493,11 +509,20 @@ export function computeNRFIPrediction(
   game: Game,
   pitchers: Map<string, Pitcher>,
   teams: Map<string, Team>
-): NRFIPrediction {
-  const homePitcher = pitchers.get(game.homePitcherId)!
-  const awayPitcher = pitchers.get(game.awayPitcherId)!
-  const homeTeam = teams.get(game.homeTeamId)!
-  const awayTeam = teams.get(game.awayTeamId)!
+): NRFIPrediction | null {
+  const homePitcher = pitchers.get(game.homePitcherId)
+  const awayPitcher = pitchers.get(game.awayPitcherId)
+  const homeTeam = teams.get(game.homeTeamId)
+  const awayTeam = teams.get(game.awayTeamId)
+
+  if (!homePitcher || !awayPitcher || !homeTeam || !awayTeam) {
+    console.error(
+      `[nrfi-engine] Missing data for game ${game.id}: ` +
+      `homePitcher=${!!homePitcher} awayPitcher=${!!awayPitcher} ` +
+      `homeTeam=${!!homeTeam} awayTeam=${!!awayTeam}`
+    )
+    return null
+  }
 
   const weatherMult = computeWeatherMultiplier(game.weather)
   const recentMult = computeRecentFormMultiplier(homePitcher, awayPitcher)
@@ -541,8 +566,10 @@ export function computeNRFIPrediction(
   }
 
   // ── Multi-model ensemble ──────────────────────────────────────────────────
+  // homeHalfRaw / awayHalfRaw are HalfInningEnsembleResult (internal nrfi-models type).
+  // They are mapped to HalfInningModelBreakdown (UI-facing types.ts type) below.
   // "home half inning" = away team batting vs home pitcher
-  const homeHalfRaw = computeHalfInningEnsemble(
+  const homeHalfRaw: HalfInningEnsembleResult = computeHalfInningEnsemble(
     homePitcher,
     awayTeam.firstInning.offenseFactor,
     game.parkFactor,
@@ -551,7 +578,7 @@ export function computeNRFIPrediction(
     homeMabreInputs
   )
   // "away half inning" = home team batting vs away pitcher
-  const awayHalfRaw = computeHalfInningEnsemble(
+  const awayHalfRaw: HalfInningEnsembleResult = computeHalfInningEnsemble(
     awayPitcher,
     homeTeam.firstInning.offenseFactor,
     game.parkFactor,
@@ -646,11 +673,16 @@ export function computeNRFIPrediction(
   }
 }
 
-/** Compute predictions for all games in a slate */
+/** Compute predictions for all games in a slate, skipping any game with missing data. */
 export function computeAllPredictions(
   games: Game[],
   pitchers: Map<string, Pitcher>,
   teams: Map<string, Team>
 ): NRFIPrediction[] {
-  return games.map((g) => computeNRFIPrediction(g, pitchers, teams))
+  const results: NRFIPrediction[] = []
+  for (const game of games) {
+    const pred = computeNRFIPrediction(game, pitchers, teams)
+    if (pred !== null) results.push(pred)
+  }
+  return results
 }

@@ -37,10 +37,18 @@ function isFinal(status: { abstractGameState: string; detailedState: string }): 
   )
 }
 
-function getDatesInRange(from: string, to: string): string[] {
-  const dates: string[] = []
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Returns an array of YYYY-MM-DD strings for [from, to] inclusive, capped at 30.
+ * Returns null if either date string is invalid, so the caller can return a 400.
+ */
+function getDatesInRange(from: string, to: string): string[] | null {
+  if (!DATE_PATTERN.test(from) || !DATE_PATTERN.test(to)) return null
   const cur = new Date(from + "T12:00:00Z")
   const end = new Date(to + "T12:00:00Z")
+  if (isNaN(cur.getTime()) || isNaN(end.getTime())) return null
+  const dates: string[] = []
   while (cur <= end && dates.length < 30) {
     dates.push(cur.toISOString().split("T")[0])
     cur.setUTCDate(cur.getUTCDate() + 1)
@@ -62,6 +70,13 @@ export async function GET(request: Request) {
     }
 
     const dates = getDatesInRange(from, to)
+    if (dates === null) {
+      return NextResponse.json(
+        { error: "Invalid date format. Both 'from' and 'to' must be YYYY-MM-DD." },
+        { status: 400 }
+      )
+    }
+
     const allPredictions: TrackedPrediction[] = []
     let datesWithGames = 0
 

@@ -17,11 +17,20 @@ interface OddsEvent {
 export type { OddsEvent }
 
 export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
+  if (!API_KEY) {
+    console.warn("[odds] THE_ODDS_API_KEY is not set — skipping odds fetch")
+    return []
+  }
+  // Build URL separately so the key never appears in logged error messages.
+  const url =
+    `${BASE_URL}/sports/baseball_mlb/odds` +
+    `?regions=us&markets=batter_first_inning_scored&oddsFormat=american&apiKey=${API_KEY}`
   try {
-    const url = `${BASE_URL}/sports/baseball_mlb/odds?apiKey=${API_KEY}&regions=us&markets=batter_first_inning_scored&oddsFormat=american`
     const res = await fetch(url, { next: { revalidate: 60 } })
     if (!res.ok) {
-      console.error(`[odds] HTTP ${res.status}`)
+      // Log status and remaining quota header only — never log the full URL.
+      const remaining = res.headers.get("x-requests-remaining") ?? "unknown"
+      console.error(`[odds] HTTP ${res.status} — requests remaining: ${remaining}`)
       return []
     }
     const data = await res.json()

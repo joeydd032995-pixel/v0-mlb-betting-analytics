@@ -12,6 +12,7 @@
 
 import type {
   ConfidenceLevel,
+  HalfInningModelBreakdown,
   ModelAccuracy,
   NRFIPrediction,
   Game,
@@ -120,6 +121,26 @@ export interface ExtendedModelAccuracy extends ModelAccuracy {
 
 const STORE_KEY = "nrfi_predictions_v1"
 
+// ─── Schema validation ────────────────────────────────────────────────────────
+
+/**
+ * Runtime guard: verifies that a parsed JSON object has the minimum required
+ * fields of TrackedPrediction. Filters out entries written by older versions
+ * of the app that may be missing required numeric fields.
+ */
+function isValidTrackedPrediction(p: unknown): p is TrackedPrediction {
+  if (typeof p !== "object" || p === null) return false
+  const pred = p as Record<string, unknown>
+  return (
+    typeof pred.id === "string" &&
+    typeof pred.date === "string" &&
+    typeof pred.nrfiProbability === "number" &&
+    typeof pred.yrfiProbability === "number" &&
+    typeof pred.status === "string" &&
+    (pred.status === "pending" || pred.status === "complete")
+  )
+}
+
 // ─── CRUD helpers ─────────────────────────────────────────────────────────────
 
 export function loadTrackedPredictions(): TrackedPrediction[] {
@@ -127,7 +148,9 @@ export function loadTrackedPredictions(): TrackedPrediction[] {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (!raw) return []
-    return JSON.parse(raw) as TrackedPrediction[]
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isValidTrackedPrediction)
   } catch {
     return []
   }
@@ -140,6 +163,27 @@ function persist(predictions: TrackedPrediction[]): void {
   } catch (err) {
     console.error("[prediction-store] persist error:", err)
   }
+}
+
+// ─── Per-model half-inning probability helper ─────────────────────────────────
+
+/**
+ * Extracts a specific model's NRFI probability from a half-inning breakdown,
+ * with an explicit fallback chain so it is always clear which value is used.
+ *
+ *  1. The model's own value (e.g. zipNrfi)
+ *  2. Poisson value for that half (consistent baseline)
+ *  3. The pre-computed half-inning Poisson fallback from the top-level prediction
+ */
+function halfNrfiProb(
+  half: HalfInningModelBreakdown | undefined,
+  modelKey: "zipNrfi" | "markovNrfi",
+  poissonFallback: number
+): number {
+  if (half === undefined) return poissonFallback
+  const modelValue = half[modelKey]
+  if (modelValue !== undefined) return modelValue
+  return half.poissonNrfi ?? poissonFallback
 }
 
 // ─── Build a TrackedPrediction from live API data ─────────────────────────────
@@ -162,12 +206,14 @@ export function buildTrackedPrediction(
 
   // Derive per-model full-inning NRFI from half-inning values
   // (home half = away bats; away half = home bats — both must score 0)
-  const poissonNrfi  = (hh?.poissonNrfi  ?? pred.homeScores0Prob) *
-                       (ah?.poissonNrfi  ?? pred.awayScores0Prob)
-  const zipNrfi      = (hh?.zipNrfi      ?? hh?.poissonNrfi ?? pred.homeScores0Prob) *
-                       (ah?.zipNrfi      ?? ah?.poissonNrfi ?? pred.awayScores0Prob)
-  const markovNrfi   = (hh?.markovNrfi   ?? hh?.poissonNrfi ?? pred.homeScores0Prob) *
-                       (ah?.markovNrfi   ?? ah?.poissonNrfi ?? pred.awayScores0Prob)
+  const homePoissonFallback = hh?.poissonNrfi ?? pred.homeScores0Prob
+  const awayPoissonFallback = ah?.poissonNrfi ?? pred.awayScores0Prob
+
+  const poissonNrfi = homePoissonFallback * awayPoissonFallback
+  const zipNrfi     = halfNrfiProb(hh, "zipNrfi",    pred.homeScores0Prob) *
+                      halfNrfiProb(ah, "zipNrfi",    pred.awayScores0Prob)
+  const markovNrfi  = halfNrfiProb(hh, "markovNrfi", pred.homeScores0Prob) *
+                      halfNrfiProb(ah, "markovNrfi", pred.awayScores0Prob)
 
   return {
     id:           game.id,

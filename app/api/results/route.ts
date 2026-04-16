@@ -53,17 +53,13 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
 
-    // Resolve date — default to ET today
+    // Resolve date — default to ET today.
+    // en-CA produces YYYY-MM-DD directly; no regex transform needed.
     let date = searchParams.get("date") ?? ""
     if (!date) {
-      date = new Intl.DateTimeFormat("en-US", {
+      date = new Intl.DateTimeFormat("en-CA", {
         timeZone: "America/New_York",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      })
-        .format(new Date())
-        .replace(/(\d+)\/(\d+)\/(\d+)/, "$3-$1-$2")
+      }).format(new Date())
     }
 
     const games = await fetchGamesByDate(date)

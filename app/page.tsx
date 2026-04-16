@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GamePredictionCard } from "@/components/game-prediction-card"
 import { PredictionHeader } from "@/components/prediction-header"
@@ -48,6 +48,7 @@ function FilterBar({
     filters.confidenceLevel !== "all" ||
     filters.recommendation !== "all" ||
     filters.league !== "all" ||
+    filters.minEdge !== defaultFilters.minEdge ||
     filters.showValueOnly ||
     filters.sortBy !== "time"
 
@@ -79,7 +80,7 @@ function FilterBar({
                 : "border-border/50 bg-muted/20 text-muted-foreground hover:bg-muted/40"
             )}
           >
-            {s === "probability" ? "probability" : s === "confidence" ? "confidence" : s === "edge" ? "edge" : "time"}
+            {s}
           </button>
         ))}
         {hasActive && (
@@ -225,15 +226,13 @@ export default function HomePage() {
     setTrackedPredictions(stored)
     setTrackingAccuracy(computeExtendedAccuracy(stored))
 
-    const hasPending = stored.some((p) => p.status === "pending")
-    if (hasPending) {
-      // Collect ALL dates with pending predictions (full season coverage)
-      const allPendingDates = [...new Set(
-        stored.filter((p) => p.status === "pending").map((p) => p.date)
-      )]
-      syncResults(allPendingDates, stored)
+    const pendingDates = [...new Set(
+      stored.filter((p) => p.status === "pending").map((p) => p.date)
+    )]
+    if (pendingDates.length > 0) {
+      syncResults(pendingDates, stored)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncResults])
 
   useEffect(() => {
     fetch("/api/predictions")
@@ -246,13 +245,20 @@ export default function HomePage() {
         setLiveData(d)
         setLoading(false)
 
-        // Auto-save today's predictions to the tracking store
+        // Auto-save today's predictions to the tracking store.
+        // Use gameId lookup instead of index position so prediction → game mapping
+        // is correct even if order ever diverges.
         if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
-          const pitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
-          const teamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
-          const incoming   = (d.predictions as NRFIPrediction[]).map((pred, i) =>
-            buildTrackedPrediction(pred, d.games[i] as Game, pitcherMap, teamMap, d.date)
+          const fetchPitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
+          const fetchTeamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
+          const gameById        = new Map<string, Game>(
+            (d.games as Game[]).map((g) => [g.id, g])
           )
+          const incoming = (d.predictions as NRFIPrediction[]).flatMap((pred) => {
+            const game = gameById.get(pred.gameId)
+            if (!game) return []
+            return [buildTrackedPrediction(pred, game, fetchPitcherMap, fetchTeamMap, d.date)]
+          })
           const updated = upsertPredictions(incoming)
           setTrackedPredictions(updated)
           setTrackingAccuracy(computeExtendedAccuracy(updated))
@@ -293,12 +299,15 @@ export default function HomePage() {
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
   const [backfilling, setBackfilling] = useState(false)
 
-  const syncResults = async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
+  // syncResults reads from localStorage directly (via autoRecordResults → loadTrackedPredictions)
+  // so it does not capture trackedPredictions from the closure. This gives it a stable
+  // identity with an empty dependency array, safe to call from mount effects.
+  const syncResults = useCallback(async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
     setSyncing(true)
     try {
-      // Use basePredictions when provided (e.g. on mount before state is set)
-      // to avoid reading stale closure state
-      const baseData = basePredictions ?? trackedPredictions
+      // Read fresh from localStorage when basePredictions is not provided so we
+      // never act on stale React state.
+      const baseData = basePredictions ?? loadTrackedPredictions()
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
       const pendingDates = new Set<string>(
         baseData
@@ -316,7 +325,6 @@ export default function HomePage() {
       const targetDates = dates ?? [...pendingDates]
 
       let totalRecorded = 0
-      let latestPredictions = trackedPredictions
 
       for (const date of targetDates) {
         const res = await fetch(`/api/results?date=${date}`)
@@ -324,16 +332,15 @@ export default function HomePage() {
         const data = await res.json()
         if (!data.results) continue
 
-        const { predictions: updated, recorded } = autoRecordResults(data.results)
-        if (recorded > 0) {
-          latestPredictions = updated
-          totalRecorded += recorded
-        }
+        const { recorded } = autoRecordResults(data.results)
+        totalRecorded += recorded
       }
 
       if (totalRecorded > 0) {
-        setTrackedPredictions(latestPredictions)
-        setTrackingAccuracy(computeExtendedAccuracy(latestPredictions))
+        // Read the freshly-persisted state from localStorage after all updates
+        const latest = loadTrackedPredictions()
+        setTrackedPredictions(latest)
+        setTrackingAccuracy(computeExtendedAccuracy(latest))
         setLastSyncInfo(`${totalRecorded} result${totalRecorded !== 1 ? "s" : ""} recorded`)
       } else {
         setLastSyncInfo("No new results")
@@ -343,7 +350,7 @@ export default function HomePage() {
     } finally {
       setSyncing(false)
     }
-  }
+  }, []) // no state captured — reads localStorage directly
 
   // Backfill historical predictions from season start to yesterday
   const backfillSeason = async () => {
@@ -443,7 +450,7 @@ export default function HomePage() {
     }
 
     return items
-  }, [predictions, filters])
+  }, [predictions, todayGames, teamMap, pitcherMap, filters])
 
   return (
     <div className="min-h-screen bg-background">
