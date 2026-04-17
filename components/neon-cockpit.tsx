@@ -54,7 +54,7 @@ export function NeonCockpit({
   const ringTextColor = isNrfi ? "text-[#4ade80]" : "text-[#fb7185]"
   const ringGlow = isNrfi
     ? isStrong
-      ? "neon-glow-emerald"
+      ? "neon-glow-emerald-strong"
       : "neon-glow-emerald"
     : "neon-glow-crimson"
 

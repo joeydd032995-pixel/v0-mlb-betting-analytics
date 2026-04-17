@@ -1,10 +1,24 @@
 // app/layout.tsx
 import type React from "react"
 import type { Metadata } from "next"
+import { Inter, IBM_Plex_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ClerkProvider } from "@clerk/nextjs"
 import { Toaster } from "sonner"
 import "./globals.css"
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+})
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-plex-mono",
+})
 
 export const metadata: Metadata = {
   title: "NRFI/YRFI Prediction Engine — MLB",
@@ -38,7 +52,10 @@ export default function RootLayout({
     // afterSignOutUrl tells Clerk where to redirect after the user logs out
     // (can also be set via NEXT_PUBLIC_CLERK_AFTER_SIGN_OUT_URL env var).
     <ClerkProvider afterSignOutUrl="/">
-      <html lang="en" className="dark bg-background">
+      <html
+        lang="en"
+        className={`dark bg-background ${inter.variable} ${plexMono.variable}`}
+      >
         <body className="font-sans antialiased">
           {children}
 

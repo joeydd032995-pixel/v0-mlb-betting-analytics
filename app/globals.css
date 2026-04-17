@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -76,8 +75,8 @@
 }
 
 @theme inline {
-  --font-sans: "Inter", "Geist", "Geist Fallback", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --font-sans: var(--font-inter), "Geist", "Geist Fallback", system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -122,6 +121,7 @@
   }
   body {
     @apply bg-background text-foreground;
+
     font-family: var(--font-sans);
   }
 }
@@ -141,6 +141,9 @@
   }
   .neon-glow-emerald {
     filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.55)) drop-shadow(0 0 28px rgba(34, 197, 94, 0.25));
+  }
+  .neon-glow-emerald-strong {
+    filter: drop-shadow(0 0 14px rgba(34, 197, 94, 0.75)) drop-shadow(0 0 36px rgba(34, 197, 94, 0.35));
   }
   .neon-glow-crimson {
     filter: drop-shadow(0 0 14px rgba(244, 63, 94, 0.75)) drop-shadow(0 0 36px rgba(244, 63, 94, 0.35));

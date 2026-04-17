@@ -117,15 +117,23 @@ export default function HomeplateMetricsPage() {
       if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
         const pitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
         const teamMap = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
-        const incoming = d.predictions.map((pred, i) =>
-          buildTrackedPrediction(pred, d.games[i], pitcherMap, teamMap, d.date),
-        )
+        const gameMap = new Map<string, Game>(d.games.map((g) => [g.id, g]))
+        const incoming = d.predictions
+          .map((pred) => {
+            const game = gameMap.get(pred.gameId)
+            if (!game) return null
+            return buildTrackedPrediction(pred, game, pitcherMap, teamMap, d.date)
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null)
         const merged = upsertPredictions(incoming)
         setTrackedPredictions(merged)
         setTrackingAccuracy(computeExtendedAccuracy(merged))
       }
 
-      if (d.games.length > 0 && !selectedGameId) {
+      if (
+        d.games.length > 0 &&
+        (!selectedGameId || !d.games.some((g) => g.id === selectedGameId))
+      ) {
         setSelectedGameId(d.games[0].id)
       }
     } catch (e: unknown) {
