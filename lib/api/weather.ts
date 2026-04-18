@@ -10,13 +10,13 @@ interface OWMResponse {
   weather: Array<{ id: number; main: string }>
 }
 
-const DOME_WEATHER: Weather = {
+const DOME_WEATHER = {
   temperature: 72,
   windSpeed: 0,
   windDirection: "calm",
   conditions: "dome",
   humidity: 50,
-}
+} as const satisfies Weather
 
 function mapWindDirection(degrees: number, speedMph: number, venue: string): WindDirection {
   if (speedMph < 3) return "calm"
@@ -44,6 +44,7 @@ function mapConditions(weatherId: number): WeatherCondition {
   if (weatherId === 800) return "clear"
   if (weatherId >= 801 && weatherId <= 803) return "cloudy"
   if (weatherId === 804) return "overcast"
+  if (weatherId >= 200 && weatherId < 300) return "light-rain"  // thunderstorm
   if (weatherId >= 500 && weatherId < 600) return "light-rain"
   return "cloudy"
 }

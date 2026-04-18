@@ -52,7 +52,7 @@ export interface TrackedPrediction {
   zipNrfi: number
   /** Markov Chain P(NRFI) */
   markovNrfi: number
-  /** 60%/40%-blended Ensemble P(NRFI) */
+  /** Four-model ensemble P(NRFI): Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20% */
   ensembleNrfi: number
   /** 0–1 model agreement score */
   modelConsensus: number
@@ -476,7 +476,7 @@ export function computeExtendedAccuracy(
     monthMap.set(key, m)
   }
   const monthlyData = [...monthMap.entries()].sort().map(([key, d]) => ({
-    month: new Date(key + "-01").toLocaleDateString("en-US", {
+    month: new Date(key + "-01T12:00:00Z").toLocaleDateString("en-US", {
       month: "short",
       year: "2-digit",
     }),

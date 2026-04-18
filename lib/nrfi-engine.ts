@@ -134,8 +134,7 @@ function buildFactors(
   homePitcher: Pitcher,
   awayPitcher: Pitcher,
   homeTeam: Team,
-  awayTeam: Team,
-  weatherMult: number
+  awayTeam: Team
 ): PredictionFactor[] {
   const factors: PredictionFactor[] = []
 
@@ -635,9 +634,7 @@ export function computeNRFIPrediction(
     recentFormMultiplier: recentMult,
   }
 
-  const factors = buildFactors(
-    game, homePitcher, awayPitcher, homeTeam, awayTeam, weatherMult
-  )
+  const factors = buildFactors(game, homePitcher, awayPitcher, homeTeam, awayTeam)
 
   const valueAnalysis = game.odds
     ? computeValueAnalysis(nrfiProb, game.odds)
