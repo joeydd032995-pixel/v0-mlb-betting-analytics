@@ -228,7 +228,7 @@ export function buildTrackedPrediction(
 
     nrfiProbability: pred.nrfiProbability,
     yrfiProbability: pred.yrfiProbability,
-    prediction:      pred.nrfiProbability >= 0.5 ? "NRFI" : "YRFI",
+    prediction:      pred.nrfiProbability >= 0.34 ? "NRFI" : "YRFI",
     confidence:      pred.confidence,
     confidenceScore: pred.confidenceScore,
 

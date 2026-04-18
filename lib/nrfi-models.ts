@@ -15,8 +15,8 @@ import type { Pitcher, Team } from "./types"
 
 // ─── League Constants ─────────────────────────────────────────────────────────
 
-/** ~62% of MLB first innings produce zero runs */
-export const LEAGUE_AVG_NRFI = 0.62
+/** ~51.6% of MLB first innings produce zero runs (2024–2025 recalibrated) */
+export const LEAGUE_AVG_NRFI = 0.516
 /** 2024 MLB league averages (from config.ts) */
 const LEAGUE_K_RATE = 0.225
 const LEAGUE_BB_RATE = 0.085
@@ -294,7 +294,7 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
         stateProb[o][r] = next[o][r]
 
     const remaining = stateProb.flat().reduce((a, b) => a + b, 0)
-    if (remaining < 1e-6) break
+    if (remaining < 1e-5) break
   }
 
   return {
@@ -362,7 +362,7 @@ export function computeZIPModel(
   const nrfiProb = omega + (1 - omega) * Math.exp(-lambda)
 
   return {
-    omega: Math.max(0.05, Math.min(0.65, omega)),
+    omega: Math.max(0.08, Math.min(0.60, omega)),
     lambda: Math.max(0.05, lambda),
     nrfiProb: Math.max(0.1, Math.min(0.98, nrfiProb)),
   }
@@ -463,7 +463,7 @@ export function computeMAPREHalfInning(
 
   // ── Additive deltas (each clamped [−0.10, +0.15]) ─────────────────────────
   const clampD = (v: number) => Math.max(-0.10, Math.min(0.15, v))
-  const delta_HFA  = clampD(isHomePitcher       ? -0.045 : 0)
+  const delta_HFA  = clampD(isHomePitcher       ? -0.030 : 0)
   const delta_rest = clampD(awayShortRestOrTravel ?  0.032 : 0)
 
   // ── Adjusted lambda ────────────────────────────────────────────────────────
@@ -571,8 +571,8 @@ export function computeHalfInningEnsemble(
   // offense × park adjustment with 2024–2025 calibrated 1st-inning factors.
   const mapreResult = computeMAPREHalfInning(poissonLambda, mapreInputs)
 
-  // Step 6: Ensemble — Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
-  const weights = { poisson: 0.20, zip: 0.30, markov: 0.30, mapre: 0.20 }
+  // Step 6: Ensemble — Poisson 12%, ZIP 43%, Markov 33%, MAPRE 12%
+  const weights = { poisson: 0.12, zip: 0.43, markov: 0.33, mapre: 0.12 }
   const ensembleNrfi =
     weights.poisson * poissonNrfi +
     weights.zip     * zipResult.nrfiProb +
@@ -597,35 +597,27 @@ export function computeHalfInningEnsemble(
 /**
  * Final combined P(NRFI) from both half-inning ensemble results.
  *
- * Architecture:
- *  • Poisson/ZIP/Markov (80% weight total): product of per-half probabilities
- *  • MAPRE (20% weight): full-game probability computed with ρ correlation and
- *    optional Negative Binomial overdispersion (λ_total_adj > 0.8)
- *
- * This gives MAPRE's ρ cross-half correlation term the correct game-level scope
- * while keeping the per-half per-model architecture for the other three models.
+ * Architecture: weighted arithmetic mean of per-model game-level NRFI probabilities.
+ *  • Poisson (12%): P(home=0) × P(away=0), independence assumption
+ *  • ZIP (43%):     product of half-inning ZIP probabilities
+ *  • Markov (33%):  product of half-inning Markov probabilities
+ *  • MAPRE (12%):   full-game prob with ρ=0.06 cross-half correlation and
+ *                   optional Negative Binomial overdispersion (λ_total_adj > 0.8)
  */
 export function combineHalfInnings(
   homeBreakdown: HalfInningEnsembleResult,
   awayBreakdown: HalfInningEnsembleResult
 ): number {
-  // ── Three-model product (Poisson 20%, ZIP 30%, Markov 30% → sum 80%) ──────
-  // Normalize each half to sum-to-1 over the three models, then multiply halves.
-  const homeP3 =
-    0.20 * homeBreakdown.poissonNrfi +
-    0.30 * homeBreakdown.zipNrfi +
-    0.30 * homeBreakdown.markovNrfi
-  const awayP3 =
-    0.20 * awayBreakdown.poissonNrfi +
-    0.30 * awayBreakdown.zipNrfi +
-    0.30 * awayBreakdown.markovNrfi
-  const threeModelGame = (homeP3 / 0.80) * (awayP3 / 0.80)
+  // ── Per-model game-level NRFI probabilities (product of independent halves) ─
+  const poissonGame = homeBreakdown.poissonNrfi * awayBreakdown.poissonNrfi
+  const zipGame     = homeBreakdown.zipNrfi     * awayBreakdown.zipNrfi
+  const markovGame  = homeBreakdown.markovNrfi  * awayBreakdown.markovNrfi
 
-  // ── Full MAPRE with ρ correlation (20% weight) ────────────────────────────
-  // λ_total combines both halves; ρ activates when both halves are high-run.
+  // ── Full MAPRE with ρ correlation (12% weight) ────────────────────────────
+  // λ_total combines both halves; ρ=0.06 activates when both halves are high-run.
   const lambdaTotal = homeBreakdown.mapreLambdaAdj + awayBreakdown.mapreLambdaAdj
   const rho = (homeBreakdown.mapreLambdaAdj > 0.60 && awayBreakdown.mapreLambdaAdj > 0.60)
-    ? 0.022
+    ? 0.06
     : 0
   const lambdaTotalAdj = lambdaTotal * (1 + rho)
 
@@ -635,6 +627,8 @@ export function combineHalfInnings(
     ? Math.pow(r / (r + lambdaTotalAdj), r)
     : Math.exp(-lambdaTotalAdj)
 
-  // ── Blend ─────────────────────────────────────────────────────────────────
-  return Math.max(0.05, Math.min(0.95, 0.80 * threeModelGame + 0.20 * mapreFullProb))
+  // ── Weighted arithmetic mean — Poisson 12%, ZIP 43%, Markov 33%, MAPRE 12% ─
+  return Math.max(0.05, Math.min(0.95,
+    0.12 * poissonGame + 0.43 * zipGame + 0.33 * markovGame + 0.12 * mapreFullProb
+  ))
 }
