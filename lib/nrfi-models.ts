@@ -23,8 +23,6 @@ const LEAGUE_BB_RATE = 0.085
 const LEAGUE_HR_RATE = 0.034      // ~3.4 HR per 100 PA
 const LEAGUE_AVG_OBP = 0.314
 const LEAGUE_HIT_RATE = LEAGUE_AVG_OBP - LEAGUE_BB_RATE   // ≈ 0.229
-const LEAGUE_SLG = 0.411
-const LEAGUE_OPS = LEAGUE_AVG_OBP + LEAGUE_SLG             // ≈ 0.725
 
 // ─── 1. Bayesian Hierarchical Shrinkage ───────────────────────────────────────
 
@@ -105,7 +103,6 @@ export function computePAOutcomes(
 ): PAOutcomes {
   // Pitcher event rates (derived from first-inning stats)
   const pitcherBB = pitcher.firstInning.bbRate
-  const pitcherK  = pitcher.firstInning.kRate
   const pitcherHR = Math.min(0.07, pitcher.firstInning.hrPer9 / 9)
 
   // Hits per PA from WHIP: WHIP / IP_per_inning ≈ (BB+H) per PA
@@ -326,11 +323,6 @@ export interface ZIPResult {
  *   - ω (omega): certain-zero probability, driven by pitcher K% and temperature
  *   - λ (lambda): Poisson scoring rate for the "non-zero" regime, driven by
  *                 offense quality and park factor
- *
- * Coefficients calibrated to produce:
- *   average kRate (22.5%), 72°F, offFactor=1.0, park=1.0 → ω≈0.28, λ≈0.42
- *   → P(NRFI) ≈ 0.28 + 0.72·e^(−0.42) ≈ 0.28 + 0.47 ≈ 0.75... too high
- *   → Need to adjust calibration
  *
  * Recalibrated so that at "average" inputs both half-innings produce combined
  * P(NRFI) ≈ 0.62 (target: overall league NRFI rate).

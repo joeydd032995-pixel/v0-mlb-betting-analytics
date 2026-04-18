@@ -31,7 +31,6 @@ const defaultFilters: FilterOptions = {
   confidenceLevel: "all",
   recommendation: "all",
   league: "all",
-  minEdge: 0,
   sortBy: "time",
   showValueOnly: false,
 }
@@ -48,7 +47,6 @@ function FilterBar({
     filters.confidenceLevel !== "all" ||
     filters.recommendation !== "all" ||
     filters.league !== "all" ||
-    filters.minEdge !== defaultFilters.minEdge ||
     filters.showValueOnly ||
     filters.sortBy !== "time"
 
@@ -353,9 +351,9 @@ export default function HomePage() {
   }, []) // no state captured — reads localStorage directly
 
   // Backfill historical predictions from season start to yesterday
-  const backfillSeason = async () => {
+  const backfillSeason = useCallback(async () => {
     setBackfilling(true)
-    setLastSyncInfo(null)
+    setLastSyncInfo("Importing…")
     try {
       // 2026 MLB season started ~March 20; go back 30 days from today to cover the full season
       const toDate = new Date()
@@ -387,7 +385,7 @@ export default function HomePage() {
     } finally {
       setBackfilling(false)
     }
-  }
+  }, []) // no state captured — constructs dates inline and calls upsertPredictions directly
 
   // Apply filters and sort
   const filtered = useMemo(() => {

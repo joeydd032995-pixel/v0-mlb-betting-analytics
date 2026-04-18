@@ -292,6 +292,15 @@ export function upsertPredictions(incoming: TrackedPrediction[]): TrackedPredict
   return sorted
 }
 
+// ─── Profit / loss helper ─────────────────────────────────────────────────────
+
+function computeProfitLoss(p: TrackedPrediction, correct: boolean): number | undefined {
+  const odds = p.prediction === "NRFI" ? p.nrfiOdds : p.yrfiOdds
+  if (odds == null) return undefined
+  if (!correct) return -1
+  return odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+}
+
 // ─── Record actual result ─────────────────────────────────────────────────────
 
 export function recordResult(
@@ -307,29 +316,13 @@ export function recordResult(
       homeRuns === 0 && awayRuns === 0 ? "NRFI" : "YRFI"
     const correct = actualResult === p.prediction
 
-    // Flat-stake P/L on the recommended bet
-    let profitLoss: number | undefined
-    if (p.prediction === "NRFI" && p.nrfiOdds != null) {
-      profitLoss = correct
-        ? p.nrfiOdds > 0
-          ? p.nrfiOdds / 100
-          : 100 / Math.abs(p.nrfiOdds)
-        : -1
-    } else if (p.prediction === "YRFI" && p.yrfiOdds != null) {
-      profitLoss = correct
-        ? p.yrfiOdds > 0
-          ? p.yrfiOdds / 100
-          : 100 / Math.abs(p.yrfiOdds)
-        : -1
-    }
-
     return {
       ...p,
       status: "complete" as const,
       actualResult,
       correct,
       runsFirstInning: { home: homeRuns, away: awayRuns },
-      profitLoss,
+      profitLoss: computeProfitLoss(p, correct),
     }
   })
 
@@ -376,21 +369,6 @@ export function autoRecordResults(
       homeRuns === 0 && awayRuns === 0 ? "NRFI" : "YRFI"
     const correct = actualResult === p.prediction
 
-    let profitLoss: number | undefined
-    if (p.prediction === "NRFI" && p.nrfiOdds != null) {
-      profitLoss = correct
-        ? p.nrfiOdds > 0
-          ? p.nrfiOdds / 100
-          : 100 / Math.abs(p.nrfiOdds)
-        : -1
-    } else if (p.prediction === "YRFI" && p.yrfiOdds != null) {
-      profitLoss = correct
-        ? p.yrfiOdds > 0
-          ? p.yrfiOdds / 100
-          : 100 / Math.abs(p.yrfiOdds)
-        : -1
-    }
-
     recorded++
     return {
       ...p,
@@ -398,7 +376,7 @@ export function autoRecordResults(
       actualResult,
       correct,
       runsFirstInning: { home: homeRuns, away: awayRuns },
-      profitLoss,
+      profitLoss: computeProfitLoss(p, correct),
     }
   })
 

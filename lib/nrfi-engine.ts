@@ -7,7 +7,7 @@
  *  3. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
  *  4. Markov Chain (24 states)     — state-based base-out inning simulation
  *
- * Ensemble weights: Poisson 25%, ZIP 35%, Markov 40%
+ * Ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
  * P(NRFI) = P(home scores 0) × P(away scores 0)  (per-ensemble)
  */
 
@@ -39,6 +39,9 @@ import { impliedProbability } from "./utils/odds"
 const MIN_KELLY_EDGE = 0.03
 /** Fractional Kelly multiplier */
 const KELLY_FRACTION = 0.25
+/** Below this temperature (°F) run scoring is suppressed — used in both
+ *  the weather multiplier and the factor-card cold-weather threshold. */
+const COLD_TEMP_THRESHOLD_F = 50
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,8 +88,8 @@ export function computeWeatherMultiplier(weather: Weather): number {
   }
 
   // Temperature effect  (cold suppresses run scoring; heat slightly increases it)
-  if (weather.temperature < 50) {
-    multiplier -= (50 - weather.temperature) * 0.003
+  if (weather.temperature < COLD_TEMP_THRESHOLD_F) {
+    multiplier -= (COLD_TEMP_THRESHOLD_F - weather.temperature) * 0.003
   } else if (weather.temperature > 85) {
     multiplier += (weather.temperature - 85) * 0.002
   }
@@ -268,7 +271,7 @@ function buildFactors(
         value: `${game.weather.windSpeed} mph in`,
       })
     }
-    if (game.weather.temperature <= 48) {
+    if (game.weather.temperature < COLD_TEMP_THRESHOLD_F) {
       factors.push({
         name: "Cold Game-Time Temps",
         impact: "positive",

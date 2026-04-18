@@ -246,7 +246,6 @@ export interface FilterOptions {
   confidenceLevel: "all" | "High" | "Medium" | "Low"
   recommendation: "all" | "NRFI" | "YRFI" | "toss-up"
   league: "all" | "AL" | "NL"
-  minEdge: number
   sortBy: "probability" | "confidence" | "edge" | "time"
   showValueOnly: boolean
 }
