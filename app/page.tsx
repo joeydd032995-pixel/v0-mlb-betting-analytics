@@ -537,15 +537,16 @@ export default function HomePage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }) => (
-                  <GamePredictionCard
-                    key={game.id}
-                    game={game}
-                    prediction={pred}
-                    homeTeam={homeTeam}
-                    awayTeam={awayTeam}
-                    homePitcher={homePitcher}
-                    awayPitcher={awayPitcher}
-                  />
+                  <div key={game.id} id={`game-${game.id}`}>
+                    <GamePredictionCard
+                      game={game}
+                      prediction={pred}
+                      homeTeam={homeTeam}
+                      awayTeam={awayTeam}
+                      homePitcher={homePitcher}
+                      awayPitcher={awayPitcher}
+                    />
+                  </div>
                 ))}
               </div>
             )}
