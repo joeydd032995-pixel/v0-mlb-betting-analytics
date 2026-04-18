@@ -23,8 +23,6 @@ const LEAGUE_BB_RATE = 0.085
 const LEAGUE_HR_RATE = 0.034      // ~3.4 HR per 100 PA
 const LEAGUE_AVG_OBP = 0.314
 const LEAGUE_HIT_RATE = LEAGUE_AVG_OBP - LEAGUE_BB_RATE   // ≈ 0.229
-const LEAGUE_SLG = 0.411
-const LEAGUE_OPS = LEAGUE_AVG_OBP + LEAGUE_SLG             // ≈ 0.725
 
 // ─── 1. Bayesian Hierarchical Shrinkage ───────────────────────────────────────
 
@@ -105,7 +103,6 @@ export function computePAOutcomes(
 ): PAOutcomes {
   // Pitcher event rates (derived from first-inning stats)
   const pitcherBB = pitcher.firstInning.bbRate
-  const pitcherK  = pitcher.firstInning.kRate
   const pitcherHR = Math.min(0.07, pitcher.firstInning.hrPer9 / 9)
 
   // Hits per PA from WHIP: WHIP / IP_per_inning ≈ (BB+H) per PA
@@ -203,8 +200,12 @@ function applyHR(runners: number): [0, number] {
 export interface MarkovResult {
   /** P(NRFI) — probability of 0 runs in this half-inning */
   nrfiProb: number
-  /** Expected runs scored (for diagnostics) */
-  expectedRuns: number
+  /**
+   * Sum of P(branch) × runs for the first run-scoring event on each branch.
+   * NOTE: branches are discarded once a run scores (they are irrelevant to NRFI),
+   * so this deliberately undercounts total expected runs. Use for diagnostics only.
+   */
+  runScoredBranchWeight: number
 }
 
 /**
@@ -226,8 +227,8 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
   ]
   stateProb[0][0] = 1.0   // Start: 0 outs, bases empty, P=1
 
-  let nrfiAccum = 0        // Accumulates P(3 outs, 0 runs)
-  let expectedRuns = 0
+  let nrfiAccum = 0              // Accumulates P(3 outs, 0 runs)
+  let runScoredBranchWeight = 0  // See MarkovResult.runScoredBranchWeight
 
   for (let iter = 0; iter < 30; iter++) {
     const next: number[][] = [
@@ -254,7 +255,7 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
         if (wRuns === 0) {
           next[outs][wR] += p * pa.walk
         } else {
-          expectedRuns += p * pa.walk * wRuns
+          runScoredBranchWeight += p * pa.walk * wRuns
         }
 
         // ─ Single ─
@@ -262,7 +263,7 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
         if (sRuns === 0) {
           next[outs][sR] += p * pa.single
         } else {
-          expectedRuns += p * pa.single * sRuns
+          runScoredBranchWeight += p * pa.single * sRuns
         }
 
         // ─ Double ─
@@ -270,7 +271,7 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
         if (dRuns === 0) {
           next[outs][dR] += p * pa.double
         } else {
-          expectedRuns += p * pa.double * dRuns
+          runScoredBranchWeight += p * pa.double * dRuns
         }
 
         // ─ Triple ─
@@ -279,12 +280,12 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
           // Batter on 3rd, no runs scored yet — NRFI still possible
           next[outs][tR] += p * pa.triple
         } else {
-          expectedRuns += p * pa.triple * tRuns
+          runScoredBranchWeight += p * pa.triple * tRuns
         }
 
         // ─ HR — always scores, branch eliminated from NRFI ─
         const [, hRuns] = applyHR(runners)
-        expectedRuns += p * pa.hr * hRuns
+        runScoredBranchWeight += p * pa.hr * hRuns
       }
     }
 
@@ -298,7 +299,7 @@ export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
 
   return {
     nrfiProb: Math.max(0.1, Math.min(0.98, nrfiAccum)),
-    expectedRuns,
+    runScoredBranchWeight,
   }
 }
 
@@ -322,11 +323,6 @@ export interface ZIPResult {
  *   - ω (omega): certain-zero probability, driven by pitcher K% and temperature
  *   - λ (lambda): Poisson scoring rate for the "non-zero" regime, driven by
  *                 offense quality and park factor
- *
- * Coefficients calibrated to produce:
- *   average kRate (22.5%), 72°F, offFactor=1.0, park=1.0 → ω≈0.28, λ≈0.42
- *   → P(NRFI) ≈ 0.28 + 0.72·e^(−0.42) ≈ 0.28 + 0.47 ≈ 0.75... too high
- *   → Need to adjust calibration
  *
  * Recalibrated so that at "average" inputs both half-innings produce combined
  * P(NRFI) ≈ 0.62 (target: overall league NRFI rate).
@@ -473,8 +469,7 @@ export function computeMAPREHalfInning(
   // ── Adjusted lambda ────────────────────────────────────────────────────────
   let lambdaAdj = baseLambda * M_sOPS * M_BAbip * M_HR * M_pitchMix
                 + delta_HFA + delta_rest
-  lambdaAdj = Math.max(lambdaAdj, 0.35)   // small-sample floor
-  lambdaAdj = Math.max(lambdaAdj, 0)      // prevent negative
+  lambdaAdj = Math.max(lambdaAdj, 0.35)   // small-sample floor (already > 0)
 
   return {
     lambdaAdj,
@@ -484,7 +479,11 @@ export function computeMAPREHalfInning(
 
 // ─── Ensemble ─────────────────────────────────────────────────────────────────
 
-export interface ModelBreakdown {
+/**
+ * Internal per-half-inning result from the four-model ensemble.
+ * Named distinctly from the UI-facing ModelBreakdown in lib/types.ts.
+ */
+export interface HalfInningEnsembleResult {
   /** Raw Poisson P(NRFI) for this half-inning (before ensemble) */
   poissonNrfi: number
   /** ZIP model P(NRFI) for this half-inning */
@@ -509,9 +508,10 @@ export interface ModelBreakdown {
   paOutcomes: PAOutcomes
 }
 
-export interface HalfInningBreakdown {
-  home: ModelBreakdown
-  away: ModelBreakdown
+/** Both half-inning ensemble results for a single game. */
+export interface HalfInningPair {
+  home: HalfInningEnsembleResult
+  away: HalfInningEnsembleResult
 }
 
 /**
@@ -531,7 +531,7 @@ export function computeHalfInningEnsemble(
   temperatureF: number,
   umpireWideness: number = 0,
   mapreInputs?: MAPREInputs
-): ModelBreakdown {
+): HalfInningEnsembleResult {
   // Step 1: Bayesian shrinkage on the pitcher's NRFI rate
   const { shrunkenRate, dataWeight } = bayesianShrinkage(
     pitcher.firstInning.nrfiRate,
@@ -606,8 +606,8 @@ export function computeHalfInningEnsemble(
  * while keeping the per-half per-model architecture for the other three models.
  */
 export function combineHalfInnings(
-  homeBreakdown: ModelBreakdown,
-  awayBreakdown: ModelBreakdown
+  homeBreakdown: HalfInningEnsembleResult,
+  awayBreakdown: HalfInningEnsembleResult
 ): number {
   // ── Three-model product (Poisson 20%, ZIP 30%, Markov 30% → sum 80%) ──────
   // Normalize each half to sum-to-1 over the three models, then multiply halves.

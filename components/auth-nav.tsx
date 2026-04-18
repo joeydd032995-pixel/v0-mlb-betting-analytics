@@ -1,20 +1,25 @@
 // components/auth-nav.tsx
-// Top-nav auth controls — rendered inside the main dashboard header.
+// Global navigation + auth controls — rendered in the site header.
 //
-// Uses Clerk's <SignedIn>, <SignedOut>, and <UserButton> components:
-//   • SignedOut: shows "Sign In" + "Sign Up" links (guests only)
-//   • SignedIn:  shows the Clerk UserButton avatar (logged-in users only)
-//
-// This is a client component because Clerk's auth components rely on
-// browser-side context to hydrate the session cookie.
+// Navigation: Dashboard | Grid | Accuracy | History | Insights | Glossary
+// Auth: Sign In / Sign Up for guests, Clerk UserButton for members
+// Mobile: Hamburger menu via Radix Dialog
 
 "use client"
 
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs"
 import { dark } from "@clerk/themes"
-import { LogIn, UserPlus } from "lucide-react"
+import { LogIn, UserPlus, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { useState } from "react"
+import { cn } from "@/lib/utils"
 
 // Clerk UserButton appearance — keeps the avatar consistent with the dark theme.
 const userButtonAppearance = {
@@ -45,10 +50,98 @@ const userButtonAppearance = {
   },
 } as const
 
-export function AuthNav() {
+const NAV_ITEMS = [
+  { href: "/", label: "Dashboard" },
+  { href: "/grid", label: "Grid" },
+  { href: "/accuracy", label: "Accuracy" },
+  { href: "/history", label: "History" },
+  { href: "/insights", label: "Insights" },
+  { href: "/odds", label: "Odds & EV" },
+  { href: "/weather", label: "Weather" },
+  { href: "/resources", label: "Resources" },
+  { href: "/community", label: "Community" },
+  { href: "/weekly-recap", label: "Weekly" },
+  { href: "/glossary", label: "Glossary" },
+]
+
+function NavLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
+  const isActive = pathname === href
   return (
-    <div className="flex items-center gap-1.5">
-      {/* ── Guest state ─────────────────────────────────────────────────── */}
+    <Link
+      href={href}
+      className={cn(
+        "text-sm font-medium transition-colors px-3 py-2 rounded-md relative",
+        isActive
+          ? "text-primary"
+          : "text-muted-foreground hover:text-foreground"
+      )}
+    >
+      {label}
+      {isActive && (
+        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+      )}
+    </Link>
+  )
+}
+
+export function AuthNav() {
+  const pathname = usePathname()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  return (
+    <div className="flex items-center gap-4">
+      {/* ── Desktop nav ─────────────────────────────────────────────────────── */}
+      <nav className="hidden md:flex items-center gap-1">
+        {NAV_ITEMS.map((item) => (
+          <NavLink key={item.href} {...item} pathname={pathname} />
+        ))}
+      </nav>
+
+      {/* ── Mobile hamburger ────────────────────────────────────────────────── */}
+      <Dialog open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <DialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="md:hidden h-7 w-7 px-0 text-muted-foreground hover:text-foreground"
+          >
+            <Menu className="h-4 w-4" />
+            <span className="sr-only">Toggle menu</span>
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="w-[80vw] max-w-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold">Navigation</h2>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
+          </div>
+          <nav className="space-y-1">
+            {NAV_ITEMS.map((item) => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
+                    "block px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  )}
+                >
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Auth controls ───────────────────────────────────────────────────── */}
       <SignedOut>
         <Button
           asChild
@@ -74,12 +167,6 @@ export function AuthNav() {
         </Button>
       </SignedOut>
 
-      {/* ── Authenticated state ─────────────────────────────────────────── */}
-      {/*
-        UserButton renders the signed-in user's avatar with a dropdown that
-        includes: manage account, sign out, and (when you add it) billing.
-        afterSignOutUrl sends the user back to the public dashboard.
-      */}
       <SignedIn>
         <UserButton
           afterSignOutUrl="/"

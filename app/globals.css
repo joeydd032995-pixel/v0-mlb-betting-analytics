@@ -174,3 +174,21 @@
     scroll-behavior: auto !important;
   }
 }
+
+@layer utilities {
+  .glow-cyan {
+    @apply shadow-[0_0_15px_rgba(34,211,238,0.5)] ring-1 ring-cyan-400/30;
+  }
+
+  .glow-green {
+    @apply shadow-[0_0_15px_rgba(74,222,128,0.5)] ring-1 ring-green-400/30;
+  }
+
+  .glow-red {
+    @apply shadow-[0_0_15px_rgba(248,113,113,0.5)] ring-1 ring-red-400/30;
+  }
+
+  .glow-gold {
+    @apply shadow-[0_0_15px_rgba(250,204,21,0.5)] ring-1 ring-yellow-400/30;
+  }
+}

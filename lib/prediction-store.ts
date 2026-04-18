@@ -12,6 +12,7 @@
 
 import type {
   ConfidenceLevel,
+  HalfInningModelBreakdown,
   ModelAccuracy,
   NRFIPrediction,
   Game,
@@ -51,7 +52,7 @@ export interface TrackedPrediction {
   zipNrfi: number
   /** Markov Chain P(NRFI) */
   markovNrfi: number
-  /** 60%/40%-blended Ensemble P(NRFI) */
+  /** Four-model ensemble P(NRFI): Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20% */
   ensembleNrfi: number
   /** 0–1 model agreement score */
   modelConsensus: number
@@ -120,6 +121,26 @@ export interface ExtendedModelAccuracy extends ModelAccuracy {
 
 const STORE_KEY = "nrfi_predictions_v1"
 
+// ─── Schema validation ────────────────────────────────────────────────────────
+
+/**
+ * Runtime guard: verifies that a parsed JSON object has the minimum required
+ * fields of TrackedPrediction. Filters out entries written by older versions
+ * of the app that may be missing required numeric fields.
+ */
+function isValidTrackedPrediction(p: unknown): p is TrackedPrediction {
+  if (typeof p !== "object" || p === null) return false
+  const pred = p as Record<string, unknown>
+  return (
+    typeof pred.id === "string" &&
+    typeof pred.date === "string" &&
+    typeof pred.nrfiProbability === "number" &&
+    typeof pred.yrfiProbability === "number" &&
+    typeof pred.status === "string" &&
+    (pred.status === "pending" || pred.status === "complete")
+  )
+}
+
 // ─── CRUD helpers ─────────────────────────────────────────────────────────────
 
 export function loadTrackedPredictions(): TrackedPrediction[] {
@@ -127,7 +148,9 @@ export function loadTrackedPredictions(): TrackedPrediction[] {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (!raw) return []
-    return JSON.parse(raw) as TrackedPrediction[]
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isValidTrackedPrediction)
   } catch {
     return []
   }
@@ -140,6 +163,27 @@ function persist(predictions: TrackedPrediction[]): void {
   } catch (err) {
     console.error("[prediction-store] persist error:", err)
   }
+}
+
+// ─── Per-model half-inning probability helper ─────────────────────────────────
+
+/**
+ * Extracts a specific model's NRFI probability from a half-inning breakdown,
+ * with an explicit fallback chain so it is always clear which value is used.
+ *
+ *  1. The model's own value (e.g. zipNrfi)
+ *  2. Poisson value for that half (consistent baseline)
+ *  3. The pre-computed half-inning Poisson fallback from the top-level prediction
+ */
+function halfNrfiProb(
+  half: HalfInningModelBreakdown | undefined,
+  modelKey: "zipNrfi" | "markovNrfi",
+  poissonFallback: number
+): number {
+  if (half === undefined) return poissonFallback
+  const modelValue = half[modelKey]
+  if (modelValue !== undefined) return modelValue
+  return half.poissonNrfi ?? poissonFallback
 }
 
 // ─── Build a TrackedPrediction from live API data ─────────────────────────────
@@ -162,12 +206,14 @@ export function buildTrackedPrediction(
 
   // Derive per-model full-inning NRFI from half-inning values
   // (home half = away bats; away half = home bats — both must score 0)
-  const poissonNrfi  = (hh?.poissonNrfi  ?? pred.homeScores0Prob) *
-                       (ah?.poissonNrfi  ?? pred.awayScores0Prob)
-  const zipNrfi      = (hh?.zipNrfi      ?? hh?.poissonNrfi ?? pred.homeScores0Prob) *
-                       (ah?.zipNrfi      ?? ah?.poissonNrfi ?? pred.awayScores0Prob)
-  const markovNrfi   = (hh?.markovNrfi   ?? hh?.poissonNrfi ?? pred.homeScores0Prob) *
-                       (ah?.markovNrfi   ?? ah?.poissonNrfi ?? pred.awayScores0Prob)
+  const homePoissonFallback = hh?.poissonNrfi ?? pred.homeScores0Prob
+  const awayPoissonFallback = ah?.poissonNrfi ?? pred.awayScores0Prob
+
+  const poissonNrfi = homePoissonFallback * awayPoissonFallback
+  const zipNrfi     = halfNrfiProb(hh, "zipNrfi",    pred.homeScores0Prob) *
+                      halfNrfiProb(ah, "zipNrfi",    pred.awayScores0Prob)
+  const markovNrfi  = halfNrfiProb(hh, "markovNrfi", pred.homeScores0Prob) *
+                      halfNrfiProb(ah, "markovNrfi", pred.awayScores0Prob)
 
   return {
     id:           game.id,
@@ -233,7 +279,8 @@ export function upsertPredictions(incoming: TrackedPrediction[]): TrackedPredict
       map.set(pred.id, pred)
     } else if (prev.status === "pending") {
       // Refresh prediction data (model may have updated) but keep pending status
-      map.set(pred.id, { ...pred, status: "pending" })
+      // and the original save timestamp so the history sort order is stable.
+      map.set(pred.id, { ...pred, status: "pending", savedAt: prev.savedAt })
     }
     // If complete, leave it untouched
   }
@@ -243,6 +290,15 @@ export function upsertPredictions(incoming: TrackedPrediction[]): TrackedPredict
   )
   persist(sorted)
   return sorted
+}
+
+// ─── Profit / loss helper ─────────────────────────────────────────────────────
+
+function computeProfitLoss(p: TrackedPrediction, correct: boolean): number | undefined {
+  const odds = p.prediction === "NRFI" ? p.nrfiOdds : p.yrfiOdds
+  if (odds == null) return undefined
+  if (!correct) return -1
+  return odds > 0 ? odds / 100 : 100 / Math.abs(odds)
 }
 
 // ─── Record actual result ─────────────────────────────────────────────────────
@@ -260,29 +316,13 @@ export function recordResult(
       homeRuns === 0 && awayRuns === 0 ? "NRFI" : "YRFI"
     const correct = actualResult === p.prediction
 
-    // Flat-stake P/L on the recommended bet
-    let profitLoss: number | undefined
-    if (p.prediction === "NRFI" && p.nrfiOdds != null) {
-      profitLoss = correct
-        ? p.nrfiOdds > 0
-          ? p.nrfiOdds / 100
-          : 100 / Math.abs(p.nrfiOdds)
-        : -1
-    } else if (p.prediction === "YRFI" && p.yrfiOdds != null) {
-      profitLoss = correct
-        ? p.yrfiOdds > 0
-          ? p.yrfiOdds / 100
-          : 100 / Math.abs(p.yrfiOdds)
-        : -1
-    }
-
     return {
       ...p,
       status: "complete" as const,
       actualResult,
       correct,
       runsFirstInning: { home: homeRuns, away: awayRuns },
-      profitLoss,
+      profitLoss: computeProfitLoss(p, correct),
     }
   })
 
@@ -329,21 +369,6 @@ export function autoRecordResults(
       homeRuns === 0 && awayRuns === 0 ? "NRFI" : "YRFI"
     const correct = actualResult === p.prediction
 
-    let profitLoss: number | undefined
-    if (p.prediction === "NRFI" && p.nrfiOdds != null) {
-      profitLoss = correct
-        ? p.nrfiOdds > 0
-          ? p.nrfiOdds / 100
-          : 100 / Math.abs(p.nrfiOdds)
-        : -1
-    } else if (p.prediction === "YRFI" && p.yrfiOdds != null) {
-      profitLoss = correct
-        ? p.yrfiOdds > 0
-          ? p.yrfiOdds / 100
-          : 100 / Math.abs(p.yrfiOdds)
-        : -1
-    }
-
     recorded++
     return {
       ...p,
@@ -351,7 +376,7 @@ export function autoRecordResults(
       actualResult,
       correct,
       runsFirstInning: { home: homeRuns, away: awayRuns },
-      profitLoss,
+      profitLoss: computeProfitLoss(p, correct),
     }
   })
 
@@ -451,7 +476,7 @@ export function computeExtendedAccuracy(
     monthMap.set(key, m)
   }
   const monthlyData = [...monthMap.entries()].sort().map(([key, d]) => ({
-    month: new Date(key + "-01").toLocaleDateString("en-US", {
+    month: new Date(key + "-01T12:00:00Z").toLocaleDateString("en-US", {
       month: "short",
       year: "2-digit",
     }),

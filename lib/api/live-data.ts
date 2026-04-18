@@ -6,6 +6,8 @@ import { fetchVenueWeather } from "./weather"
 import type { Game, Pitcher, Team, Weather, GameOdds } from "../types"
 import { MLB_TEAMS, getTeamByName } from "../constants/mlb-teams"
 import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
+import { PitchingStatsCalculator } from "../advanced-stats"
+import type { PitchingStats } from "../advanced-stats"
 
 // ─── Estimation helpers ───────────────────────────────────────────────────────
 
@@ -27,22 +29,75 @@ function estimateOffenseFactor(ops: number): number {
   return Math.min(1.35, Math.max(0.65, ops / 0.720))
 }
 
+// ─── PitchingStats shape builder ─────────────────────────────────────────────
+
+/**
+ * Converts MLB Stats API pitcher data into the PitchingStats shape required
+ * by PitchingStatsCalculator. Fields not available from this API (batted ball
+ * data, Statcast) are zeroed out — PitchingStatsCalculator handles them
+ * gracefully (e.g. xFIP uses league HR/FB when flyBalls === 0).
+ */
+function buildPitchingStatsShape(
+  apiStats: MLBPitcherSeasonStats,
+  pitcherId: string,
+  teamId: string
+): PitchingStats {
+  const ip = apiStats.inningsPitched
+  // Estimate ER from ERA since the API does not return earned runs directly.
+  const estimatedER = ip > 0 ? Math.round((apiStats.era * ip) / 9) : 0
+  // Estimate batters faced (BF ≈ IP × 4.3).
+  const estimatedBF = Math.max(1, Math.round(ip * 4.3))
+  // Estimate fly balls from HR using league HR/FB ≈ 12.8%.
+  const estimatedFlyBalls = Math.round(apiStats.homeRuns / 0.128)
+
+  return {
+    IP: ip,
+    BF: estimatedBF,
+    H: apiStats.hits,
+    ER: estimatedER,
+    HR: apiStats.homeRuns,
+    BB: apiStats.baseOnBalls,
+    HBP: 0,           // not provided by this API endpoint
+    K: apiStats.strikeOuts,
+    groundBalls: 0,   // Statcast only
+    flyBalls: estimatedFlyBalls,
+    lineDrives: 0,    // Statcast only
+    popUps: 0,        // Statcast only
+    exitVelocityAllowed: [],   // Statcast only
+    launchAnglesAllowed: [],   // Statcast only
+    season: new Date().getFullYear(),
+    playerId: pitcherId,
+    teamId,
+  }
+}
+
 // ─── Odds matching ────────────────────────────────────────────────────────────
 
+/**
+ * Match an odds event to a game by comparing the last word of each team name.
+ * E.g. "New York Yankees" → "yankees". Returns null if either name is empty
+ * or no match is found.
+ */
 function matchOddsEvent(
   homeTeamName: string,
   awayTeamName: string,
   events: OddsEvent[]
 ): OddsEvent | null {
+  const lastWord = (name: string): string => {
+    const words = name.trim().split(/\s+/)
+    return words[words.length - 1]?.toLowerCase() ?? ""
+  }
+
+  const homeKey = lastWord(homeTeamName)
+  const awayKey = lastWord(awayTeamName)
+
+  if (!homeKey || !awayKey) return null
+
   return (
     events.find(
       (e) =>
-        e.home_team
-          .toLowerCase()
-          .includes(homeTeamName.split(" ").pop()!.toLowerCase()) &&
-        e.away_team
-          .toLowerCase()
-          .includes(awayTeamName.split(" ").pop()!.toLowerCase())
+        e.home_team.toLowerCase().includes(homeKey) &&
+        e.away_team.toLowerCase().includes(awayKey)
     ) ?? null
   )
 }
@@ -53,7 +108,8 @@ function resolveTeamId(apiName: string): string {
   const team = getTeamByName(apiName)
   // Fall back to a slugified version of the last word in the name
   if (!team) {
-    const fallback = apiName.split(" ").pop()?.toLowerCase().slice(0, 3) ?? "unk"
+    const words = apiName.trim().split(/\s+/)
+    const fallback = words[words.length - 1]?.toLowerCase().slice(0, 3) ?? "unk"
     return fallback
   }
   return team.id
@@ -127,7 +183,6 @@ function mapPitcher(
 ): Pitcher {
   const defaultEra = 4.0
   const defaultWhip = 1.28
-  const defaultStartCount = 0
   const defaultKRate = 0.225
   const defaultBbRate = 0.085
 
@@ -139,7 +194,7 @@ function mapPitcher(
       name: pitcherName,
       teamId,
       throws: "R",
-      age: 28,
+      age: 0,
       firstInning: {
         era: defaultEra,
         whip: defaultWhip,
@@ -150,15 +205,15 @@ function mapPitcher(
         nrfiRate,
         avgRunsAllowed: 1 - nrfiRate,
         firstBatterOBP: (defaultWhip / (1 + defaultWhip)) * 0.85,
-        last5Results: buildLast5(pitcherId, nrfiRate),
-        last5RunsAllowed: [0, 1, 0, 1, 0],
-        startCount: defaultStartCount,
-        homeNrfiRate: nrfiRate + 0.02,
-        awayNrfiRate: nrfiRate - 0.02,
+        last5Results: [],           // no real data available
+        last5RunsAllowed: [],       // no real data available
+        startCount: 0,
+        homeNrfiRate: nrfiRate,     // no home/away split data available
+        awayNrfiRate: nrfiRate,
       },
       overall: {
         era: defaultEra,
-        fip: defaultEra,
+        fip: defaultEra,            // no stats to compute FIP from
         xfip: defaultEra,
         whip: defaultWhip,
         kPer9: defaultKRate * 27,
@@ -176,7 +231,7 @@ function mapPitcher(
   const startCount = apiStats.gamesStarted
   const innings = apiStats.inningsPitched
 
-  // K% and BB% per batter faced (approx: BF ≈ IP * 4.3)
+  // K% and BB% per batter faced (approx: BF ≈ IP × 4.3)
   const bf = Math.max(1, innings * 4.3)
   const kRate = apiStats.strikeOuts / bf
   const bbRate = apiStats.baseOnBalls / bf
@@ -186,12 +241,18 @@ function mapPitcher(
   const nrfiRate = estimateNrfiRate(era)
   const firstBatterOBP = (whip / (1 + whip)) * 0.85
 
+  // Compute FIP and xFIP using PitchingStatsCalculator with available data.
+  // xFIP normalises HR using league HR/FB rate; we estimate flyBalls from HR count.
+  const pitchingShape = buildPitchingStatsShape(apiStats, pitcherId, teamId)
+  const fip  = innings > 0 ? PitchingStatsCalculator.calculateFIP(pitchingShape)  : era
+  const xfip = innings > 0 ? PitchingStatsCalculator.calculateXFIP(pitchingShape) : era
+
   return {
     id: pitcherId,
     name: apiStats.fullName,
     teamId,
     throws: "R",
-    age: 28,
+    age: 0,
     firstInning: {
       era,
       whip,
@@ -202,16 +263,16 @@ function mapPitcher(
       nrfiRate,
       avgRunsAllowed: 1 - nrfiRate,
       firstBatterOBP,
-      last5Results: buildLast5(pitcherId, nrfiRate),
-      last5RunsAllowed: [0, 1, 0, 1, 0],
+      last5Results: [],           // no real data available
+      last5RunsAllowed: [],       // no real data available
       startCount,
-      homeNrfiRate: nrfiRate + 0.02,
-      awayNrfiRate: nrfiRate - 0.02,
+      homeNrfiRate: nrfiRate,     // no home/away split data available
+      awayNrfiRate: nrfiRate,
     },
     overall: {
       era,
-      fip: era,
-      xfip: era,
+      fip:  Math.max(0, fip),
+      xfip: Math.max(0, xfip),
       whip,
       kPer9: kRate * 27,
       bbPer9: bbRate * 27,
@@ -220,15 +281,6 @@ function mapPitcher(
       losses: 0,
     },
   }
-}
-
-/** Deterministic last-5 results array seeded by pitcher ID */
-function buildLast5(pitcherId: string, nrfiRate: number): boolean[] {
-  return Array.from({ length: 5 }, (_, i) => {
-    const seed =
-      (pitcherId.charCodeAt(i % pitcherId.length) + i) % 100
-    return seed < nrfiRate * 100
-  })
 }
 
 // ─── mapTeam ──────────────────────────────────────────────────────────────────
@@ -240,12 +292,18 @@ function mapTeam(
   const staticInfo = MLB_TEAMS[teamId]
   const defaultOps = 0.720
 
-  // Use live OPS if available (flattened from splits[0].stat.ops)
-  const ops = (apiTeamStats?.ops && apiTeamStats.ops > 0) ? apiTeamStats.ops : defaultOps
+  // Use live OPS if available (flattened from splits[0].stat.ops).
+  // Note: the MLB Stats API provides only rate stats for teams (OPS, OBP, AVG, SLG),
+  // not per-event counting stats (H, BB, HR counts), so HittingStatsCalculator.calculateWOBA()
+  // cannot be used here. wOBA is approximated from OBP using a linear regression fit.
+  const ops = apiTeamStats?.ops && apiTeamStats.ops > 0 ? apiTeamStats.ops : defaultOps
+  const obp = apiTeamStats?.obp && apiTeamStats.obp > 0 ? apiTeamStats.obp : ops * 0.43
 
   const offenseFactor = estimateOffenseFactor(ops)
   const runsPerGame = offenseFactor * 0.48
   const yrfiRate = 1 - Math.exp(-runsPerGame)
+  // wOBA ≈ obp * 0.88: linear approximation from 2024 season regression
+  const woba = obp * 0.88
 
   return {
     id: teamId,
@@ -259,14 +317,14 @@ function mapTeam(
       runsPerGame,
       offenseFactor,
       ops,
-      woba: (apiTeamStats?.obp ?? ops * 0.43) * 0.88,
+      woba,
       kRate: 0.225,
       bbRate: 0.085,
       yrfiRate,
       homeYrfiRate: yrfiRate + 0.02,
       awayYrfiRate: yrfiRate - 0.02,
       last10YrfiRate: yrfiRate,
-      last5Results: buildLast5(teamId, 1 - yrfiRate),
+      last5Results: [],            // no real data available
       avgRunsVsRHP: runsPerGame,
       avgRunsVsLHP: runsPerGame * 1.05,
     },
@@ -343,7 +401,7 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       oddsEvents
     )
     const extractedOdds = oddsEvent ? extractNrfiOdds(oddsEvent) : null
-    const gameOdds: GameOdds | undefined = extractedOdds ?? undefined
+    const gameOdds = extractedOdds ?? undefined
 
     // Map the game
     const game = mapGame(apiGame, weather, gameOdds, date)

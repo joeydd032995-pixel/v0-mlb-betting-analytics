@@ -1,347 +1,547 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import {
-  RefreshCw,
-  Grid3X3,
-  List,
-  Activity,
-  DollarSign,
-  Target,
-  Flame,
-} from "lucide-react"
-import { PredictionHeader } from "@/components/prediction-header"
+import dynamic from "next/dynamic"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GamePredictionCard } from "@/components/game-prediction-card"
-import { NeonCockpit } from "@/components/neon-cockpit"
-import { AuthNav } from "@/components/auth-nav"
-import type { Game, NRFIPrediction, Pitcher, Team } from "@/lib/types"
+import { PredictionHeader } from "@/components/prediction-header"
+import { PitcherStats } from "@/components/pitcher-stats"
+import { TeamStats } from "@/components/team-stats"
+import { HistoryTable } from "@/components/history-table"
 import {
   buildTrackedPrediction,
   upsertPredictions,
   loadTrackedPredictions,
+  recordResult,
+  deletePrediction,
   autoRecordResults,
   computeExtendedAccuracy,
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
+import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 
-interface ApiResponse {
-  predictions: NRFIPrediction[]
-  games: Game[]
-  pitchersById: Record<string, Pitcher>
-  teamsById: Record<string, Team>
-  date: string
-  noGames?: boolean
+// Lazy-load onboarding modal to avoid SSR issues
+const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((m) => ({ default: m.OnboardingModal })), {
+  ssr: false,
+})
+
+// ─── Filter controls ──────────────────────────────────────────────────────────
+
+const defaultFilters: FilterOptions = {
+  confidenceLevel: "all",
+  recommendation: "all",
+  league: "all",
+  sortBy: "time",
+  showValueOnly: false,
 }
 
-function pct(n: number, d = 1) {
-  return `${(n * 100).toFixed(d)}%`
+function FilterBar({
+  filters,
+  onChange,
+}: {
+  filters: FilterOptions
+  onChange: (f: FilterOptions) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const hasActive =
+    filters.confidenceLevel !== "all" ||
+    filters.recommendation !== "all" ||
+    filters.league !== "all" ||
+    filters.showValueOnly ||
+    filters.sortBy !== "time"
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+            hasActive
+              ? "border-primary/50 bg-primary/10 text-primary"
+              : "border-border/50 bg-muted/30 text-muted-foreground hover:bg-muted/50"
+          )}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Filters
+          {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+        </button>
+        {/* Sort pills */}
+        {(["time", "probability", "confidence", "edge"] as FilterOptions["sortBy"][]).map((s) => (
+          <button
+            key={s}
+            onClick={() => onChange({ ...filters, sortBy: s })}
+            className={cn(
+              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors capitalize",
+              filters.sortBy === s
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border/50 bg-muted/20 text-muted-foreground hover:bg-muted/40"
+            )}
+          >
+            {s}
+          </button>
+        ))}
+        {hasActive && (
+          <button
+            onClick={() => onChange(defaultFilters)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="flex flex-wrap gap-3 rounded-lg border border-border/40 bg-muted/10 p-3">
+          {/* Confidence */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Confidence</p>
+            <div className="flex gap-1">
+              {(["all", "High", "Medium", "Low"] as FilterOptions["confidenceLevel"][]).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...filters, confidenceLevel: v })}
+                  className={cn(
+                    "rounded border px-2.5 py-1 text-xs font-medium transition-colors",
+                    filters.confidenceLevel === v
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border/40 text-muted-foreground hover:bg-muted/30"
+                  )}
+                >
+                  {v === "all" ? "All" : v}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Recommendation */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Recommendation</p>
+            <div className="flex flex-wrap gap-1">
+              {(["all", "NRFI", "YRFI", "toss-up"] as FilterOptions["recommendation"][]).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...filters, recommendation: v })}
+                  className={cn(
+                    "rounded border px-2.5 py-1 text-xs font-medium transition-colors",
+                    filters.recommendation === v
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border/40 text-muted-foreground hover:bg-muted/30"
+                  )}
+                >
+                  {v === "all" ? "All" : v.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* League */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">League</p>
+            <div className="flex gap-1">
+              {(["all", "AL", "NL"] as FilterOptions["league"][]).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => onChange({ ...filters, league: v })}
+                  className={cn(
+                    "rounded border px-2.5 py-1 text-xs font-medium transition-colors",
+                    filters.league === v
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border/40 text-muted-foreground hover:bg-muted/30"
+                  )}
+                >
+                  {v === "all" ? "All" : v}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Value only */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Value Bets</p>
+            <button
+              onClick={() => onChange({ ...filters, showValueOnly: !filters.showValueOnly })}
+              className={cn(
+                "rounded border px-2.5 py-1 text-xs font-medium transition-colors",
+                filters.showValueOnly
+                  ? "border-violet-500/50 bg-violet-500/10 text-violet-300"
+                  : "border-border/40 text-muted-foreground hover:bg-muted/30"
+              )}
+            >
+              Value Only
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
-export default function HomeplateMetricsPage() {
-  const [liveData, setLiveData] = useState<ApiResponse | null>(null)
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
-  const [isGridMode, setIsGridMode] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
-  // ── Auth welcome toast (parity with prior behavior) ────────────────────────
+export default function HomePage() {
+  const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
+
+  // ── Auth state (Clerk) ───────────────────────────────────────────────────────
   const { isLoaded: authLoaded, isSignedIn } = useAuth()
+
+  // Show a one-time welcome toast the first time a user arrives while signed in.
+  // sessionStorage is cleared when the browser tab closes, so signing in again
+  // in a new session will show the toast again — which is intentional.
   useEffect(() => {
     if (!authLoaded || !isSignedIn) return
-    const KEY = "nrfi_welcome_shown"
-    if (!sessionStorage.getItem(KEY)) {
+    const TOAST_KEY = "nrfi_welcome_shown"
+    if (!sessionStorage.getItem(TOAST_KEY)) {
       toast.success("Signed in successfully", {
-        description: "Welcome to HomeplateMetrics — Neon Terminal",
+        description: "Welcome to the NRFI/YRFI Prediction Engine!",
         duration: 4000,
       })
-      sessionStorage.setItem(KEY, "1")
+      sessionStorage.setItem(TOAST_KEY, "1")
     }
   }, [authLoaded, isSignedIn])
 
-  // ── Prediction tracking store ──────────────────────────────────────────────
+  // ── Onboarding modal state ───────────────────────────────────────────────────
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  useEffect(() => {
+    // Check localStorage only on client-side mount
+    if (typeof window !== "undefined") {
+      const onboarded = localStorage.getItem("hpm_onboarded")
+      if (!onboarded) {
+        setShowOnboarding(true)
+      }
+    }
+  }, [])
+
+  // ── Live data state ──────────────────────────────────────────────────────────
+  const [liveData, setLiveData] = useState<{
+    predictions: NRFIPrediction[]
+    games: Game[]
+    pitchersById: Record<string, Pitcher>
+    teamsById: Record<string, Team>
+    date: string
+    noGames?: boolean
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // ── Prediction tracking store ────────────────────────────────────────────────
   const [trackedPredictions, setTrackedPredictions] = useState<TrackedPrediction[]>([])
   const [trackingAccuracy, setTrackingAccuracy] = useState<ExtendedModelAccuracy>(() =>
-    computeExtendedAccuracy([]),
+    computeExtendedAccuracy([])
   )
 
+  // ── Results sync state (declared before syncResults so useCallback can close over setters) ──
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
+
+  // syncResults reads from localStorage directly (via autoRecordResults → loadTrackedPredictions)
+  // so it does not capture trackedPredictions from the closure. This gives it a stable
+  // identity with an empty dependency array, safe to call from mount effects.
+  // Declared before the mount useEffect so the dep array [syncResults] does not
+  // violate the const temporal dead zone.
+  const syncResults = useCallback(async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
+    setSyncing(true)
+    try {
+      // Read fresh from localStorage when basePredictions is not provided so we
+      // never act on stale React state.
+      const baseData = basePredictions ?? loadTrackedPredictions()
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      const pendingDates = new Set<string>(
+        baseData
+          .filter((p) => p.status === "pending")
+          .map((p) => p.date)
+      )
+      pendingDates.add(today)
+      // Also check yesterday in case games ended after midnight ET
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      pendingDates.add(
+        new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(yesterday)
+      )
+
+      const targetDates = dates ?? [...pendingDates]
+
+      let totalRecorded = 0
+
+      for (const date of targetDates) {
+        const res = await fetch(`/api/results?date=${date}`)
+        if (!res.ok) continue
+        const data = await res.json()
+        if (!data.results) continue
+
+        const { recorded } = autoRecordResults(data.results)
+        totalRecorded += recorded
+      }
+
+      if (totalRecorded > 0) {
+        // Read the freshly-persisted state from localStorage after all updates
+        const latest = loadTrackedPredictions()
+        setTrackedPredictions(latest)
+        setTrackingAccuracy(computeExtendedAccuracy(latest))
+        setLastSyncInfo(`${totalRecorded} result${totalRecorded !== 1 ? "s" : ""} recorded`)
+      } else {
+        setLastSyncInfo("No new results")
+      }
+    } catch {
+      setLastSyncInfo("Sync failed")
+    } finally {
+      setSyncing(false)
+    }
+  }, []) // no state captured — reads localStorage directly
+
+  // Load from localStorage on mount, then immediately sync all pending predictions
+  // across the full season so accuracy stats are up to date on every refresh.
+  // Note: basePredictions is passed to syncResults to avoid the stale-state race
+  // condition where trackedPredictions is still [] when the effect fires.
   useEffect(() => {
     const stored = loadTrackedPredictions()
     setTrackedPredictions(stored)
     setTrackingAccuracy(computeExtendedAccuracy(stored))
 
-    // Auto-sync pending results on mount
-    const pendingDates = [
-      ...new Set(stored.filter((p) => p.status === "pending").map((p) => p.date)),
-    ]
+    const pendingDates = [...new Set(
+      stored.filter((p) => p.status === "pending").map((p) => p.date)
+    )]
     if (pendingDates.length > 0) {
-      void syncResults(pendingDates)
+      syncResults(pendingDates, stored)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function syncResults(dates: string[]) {
-    try {
-      let latest = loadTrackedPredictions()
-      for (const date of dates) {
-        const res = await fetch(`/api/results?date=${date}`)
-        if (!res.ok) continue
-        const data = await res.json()
-        if (!data.results) continue
-        const { predictions: updated, recorded } = autoRecordResults(data.results)
-        if (recorded > 0) latest = updated
-      }
-      setTrackedPredictions(latest)
-      setTrackingAccuracy(computeExtendedAccuracy(latest))
-    } catch {
-      /* non-fatal */
-    }
-  }
-
-  // ── Live data loader — reuses /api/predictions (revalidate 300) ────────────
-  async function loadGames(manual = false) {
-    if (manual) setRefreshing(true)
-    else setIsLoading(true)
-    try {
-      const r = await fetch("/api/predictions")
-      const d: ApiResponse & { error?: string } = await r.json()
-      if (!r.ok) throw new Error(d?.error ?? `API returned ${r.status}`)
-      setLiveData(d)
-      setError(null)
-
-      // Auto-save today's predictions into the tracking store
-      if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
-        const pitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
-        const teamMap = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
-        const incoming = d.predictions.map((pred, i) =>
-          buildTrackedPrediction(pred, d.games[i], pitcherMap, teamMap, d.date),
-        )
-        const merged = upsertPredictions(incoming)
-        setTrackedPredictions(merged)
-        setTrackingAccuracy(computeExtendedAccuracy(merged))
-      }
-
-      if (d.games.length > 0 && !selectedGameId) {
-        setSelectedGameId(d.games[0].id)
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unknown error")
-    } finally {
-      setIsLoading(false)
-      setRefreshing(false)
-    }
-  }
+  }, [syncResults])
 
   useEffect(() => {
-    void loadGames()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    fetch("/api/predictions")
+      .then(async (r) => {
+        const d = await r.json()
+        if (!r.ok) throw new Error(d?.error ?? `API returned ${r.status}`)
+        return d
+      })
+      .then((d) => {
+        setLiveData(d)
+        setLoading(false)
 
-  // ── Derived maps / view models ─────────────────────────────────────────────
-  const games = liveData?.games ?? []
-  const predictions = liveData?.predictions ?? []
+        // Auto-save today's predictions to the tracking store.
+        // Use gameId lookup instead of index position so prediction → game mapping
+        // is correct even if order ever diverges.
+        if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
+          const fetchPitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
+          const fetchTeamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
+          const gameById        = new Map<string, Game>(
+            (d.games as Game[]).map((g) => [g.id, g])
+          )
+          const incoming = (d.predictions as NRFIPrediction[]).flatMap((pred) => {
+            const game = gameById.get(pred.gameId)
+            if (!game) return []
+            return [buildTrackedPrediction(pred, game, fetchPitcherMap, fetchTeamMap, d.date)]
+          })
+          const updated = upsertPredictions(incoming)
+          setTrackedPredictions(updated)
+          setTrackingAccuracy(computeExtendedAccuracy(updated))
+        }
+      })
+      .catch((e: Error) => {
+        setError(e.message)
+        setLoading(false)
+      })
+  }, [])
 
   const pitcherMap = useMemo(
     () => new Map(Object.entries(liveData?.pitchersById ?? {})),
-    [liveData],
+    [liveData]
   )
   const teamMap = useMemo(
     () => new Map(Object.entries(liveData?.teamsById ?? {})),
-    [liveData],
+    [liveData]
   )
+  const predictions = liveData?.predictions ?? []
+  const todayGames = liveData?.games ?? []
 
-  const predictionByGameId = useMemo(() => {
-    const m = new Map<string, NRFIPrediction>()
-    predictions.forEach((p) => m.set(p.gameId, p))
-    return m
-  }, [predictions])
-
-  const selectedGame = games.find((g) => g.id === selectedGameId) ?? null
-  const selectedPred = selectedGame ? predictionByGameId.get(selectedGame.id) ?? null : null
-  const selectedHomeTeam = selectedGame ? teamMap.get(selectedGame.homeTeamId) ?? null : null
-  const selectedAwayTeam = selectedGame ? teamMap.get(selectedGame.awayTeamId) ?? null : null
-  const selectedHomePitcher = selectedGame
-    ? pitcherMap.get(selectedGame.homePitcherId) ?? null
-    : null
-  const selectedAwayPitcher = selectedGame
-    ? pitcherMap.get(selectedGame.awayPitcherId) ?? null
-    : null
-
-  function handleLockIn() {
-    if (!selectedPred?.valueAnalysis || selectedPred.valueAnalysis.recommendedBet === "NO_BET") {
-      toast.error("No value edge on this matchup")
-      return
-    }
-    const va = selectedPred.valueAnalysis
-    toast.success(`Locked: ${va.recommendedBet}`, {
-      description: `Kelly ${pct(va.kellyFraction)} · Edge +${(
-        (va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100
-      ).toFixed(1)}%`,
-    })
+  // ── Store callbacks ──────────────────────────────────────────────────────────
+  const handleRecordResult = (id: string, homeRuns: number, awayRuns: number) => {
+    const updated = recordResult(id, homeRuns, awayRuns)
+    setTrackedPredictions(updated)
+    setTrackingAccuracy(computeExtendedAccuracy(updated))
   }
 
+  const handleDeletePrediction = (id: string) => {
+    const updated = deletePrediction(id)
+    setTrackedPredictions(updated)
+    setTrackingAccuracy(computeExtendedAccuracy(updated))
+  }
+
+  // Backfill historical predictions from season start to yesterday
+  const backfillSeason = useCallback(async () => {
+    setBackfilling(true)
+    setLastSyncInfo("Importing…")
+    try {
+      // 2026 MLB season started ~March 20; go back 30 days from today to cover the full season
+      const toDate = new Date()
+      toDate.setDate(toDate.getDate() - 1) // yesterday (games are complete)
+      const to = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(toDate)
+      const fromDate = new Date()
+      fromDate.setDate(fromDate.getDate() - 30)
+      const from = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(fromDate)
+
+      const res = await fetch(`/api/backfill?from=${from}&to=${to}`)
+      if (!res.ok) throw new Error(`Backfill API error ${res.status}`)
+      const data = await res.json()
+
+      if (data.predictions && data.predictions.length > 0) {
+        const merged = upsertPredictions(data.predictions)
+        setTrackedPredictions(merged)
+        setTrackingAccuracy(computeExtendedAccuracy(merged))
+        const completed = (data.predictions as TrackedPrediction[]).filter(
+          (p) => p.status === "complete"
+        ).length
+        setLastSyncInfo(
+          `Imported ${completed} completed result${completed !== 1 ? "s" : ""} across ${data.datesProcessed} day${data.datesProcessed !== 1 ? "s" : ""}`
+        )
+      } else {
+        setLastSyncInfo("No historical data found")
+      }
+    } catch {
+      setLastSyncInfo("Backfill failed")
+    } finally {
+      setBackfilling(false)
+    }
+  }, []) // no state captured — constructs dates inline and calls upsertPredictions directly
+
+  // Apply filters and sort
+  const filtered = useMemo(() => {
+    // Look up by gameId so prediction → game pairing is correct regardless of order.
+    const gameById = new Map<string, Game>(todayGames.map((g) => [g.id, g]))
+    let items = predictions.flatMap((pred) => {
+      const game = gameById.get(pred.gameId)
+      if (!game) return []
+      const homeTeam = teamMap.get(game.homeTeamId)
+      const awayTeam = teamMap.get(game.awayTeamId)
+      const homePitcher = pitcherMap.get(game.homePitcherId)
+      const awayPitcher = pitcherMap.get(game.awayPitcherId)
+      if (!homeTeam || !awayTeam || !homePitcher || !awayPitcher) return []
+      return [{ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }]
+    })
+
+    if (filters.confidenceLevel !== "all") {
+      items = items.filter((x) => x.pred.confidence === filters.confidenceLevel)
+    }
+    if (filters.recommendation !== "all") {
+      items = items.filter((x) => {
+        if (filters.recommendation === "NRFI") {
+          return x.pred.recommendation === "STRONG_NRFI" || x.pred.recommendation === "LEAN_NRFI"
+        }
+        if (filters.recommendation === "YRFI") {
+          return x.pred.recommendation === "STRONG_YRFI" || x.pred.recommendation === "LEAN_YRFI"
+        }
+        return x.pred.recommendation === "TOSS_UP"
+      })
+    }
+    if (filters.league !== "all") {
+      items = items.filter(
+        (x) => x.homeTeam.league === filters.league || x.awayTeam.league === filters.league
+      )
+    }
+    if (filters.showValueOnly) {
+      items = items.filter(
+        (x) => x.pred.valueAnalysis && x.pred.valueAnalysis.recommendedBet !== "NO_BET"
+      )
+    }
+
+    // Sort
+    switch (filters.sortBy) {
+      case "probability":
+        items.sort((a, b) => Math.abs(b.pred.nrfiProbability - 0.5) - Math.abs(a.pred.nrfiProbability - 0.5))
+        break
+      case "confidence":
+        items.sort((a, b) => b.pred.confidenceScore - a.pred.confidenceScore)
+        break
+      case "edge":
+        items.sort((a, b) => {
+          const eA = a.pred.valueAnalysis
+            ? Math.max(Math.abs(a.pred.valueAnalysis.nrfiEdge), Math.abs(a.pred.valueAnalysis.yrfiEdge))
+            : 0
+          const eB = b.pred.valueAnalysis
+            ? Math.max(Math.abs(b.pred.valueAnalysis.nrfiEdge), Math.abs(b.pred.valueAnalysis.yrfiEdge))
+            : 0
+          return eB - eA
+        })
+        break
+      default:
+        // time — already in game order
+        break
+    }
+
+    return items
+  }, [predictions, todayGames, teamMap, pitcherMap, filters])
+
   return (
-    <div className="neon-bg min-h-screen overflow-hidden bg-gradient-to-br from-[#0a0a0a] to-[#111827] font-sans text-[#f8fafc]">
-      {/* ─── Top Command Bar ─────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-50 border-b border-[#1f2937] bg-[#111827]/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center justify-between gap-y-3 px-6 py-4">
-          <div className="flex items-center gap-x-3">
-            <span className="bg-gradient-to-r from-[#a78bfa] to-[#c4b5fd] bg-clip-text text-3xl font-bold tracking-tighter text-transparent">
-              HomeplateMetrics
-            </span>
-            <span className="text-sm font-medium text-[#94a3b8]">Neon Terminal</span>
-          </div>
+    <div className="min-h-screen bg-background">
+      {/* Main content */}
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
+        {/* Stats header */}
+        <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} />
 
-          {/* Compact global KPIs — full reuse of existing header */}
-          <div className="hidden flex-1 px-6 xl:block">
-            <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} />
-          </div>
-
-          <div className="flex items-center gap-x-3">
-            <button
-              onClick={() => setIsGridMode((v) => !v)}
-              aria-pressed={isGridMode}
-              className="flex cursor-pointer items-center gap-x-2 rounded-2xl bg-[#1f2937] px-5 py-2.5 text-sm font-medium transition-all duration-200 hover:bg-[#374151] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22d3ee] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] active:scale-95"
-            >
-              {isGridMode ? <List className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />}
-              {isGridMode ? "Detail View" : "Grid View"}
-            </button>
-            <button
-              onClick={() => loadGames(true)}
-              aria-label="Refresh predictions"
-              className="cursor-pointer rounded-2xl p-3 transition-all duration-200 hover:bg-[#374151] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22d3ee] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-            >
-              <RefreshCw className={cn("h-5 w-5 text-[#22d3ee]", refreshing && "animate-spin")} />
-            </button>
-            <AuthNav />
-          </div>
-        </div>
-
-        {/* KPI header inlined on narrower viewports */}
-        <div className="mx-auto max-w-screen-2xl px-6 pb-4 xl:hidden">
-          <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} />
-        </div>
-      </div>
-
-      {/* ─── Main grid ───────────────────────────────────────────────────── */}
-      <div className="mx-auto flex max-w-screen-2xl min-h-[calc(100vh-73px)] flex-col lg:h-[calc(100vh-73px)] lg:flex-row">
-        {/* Ultra-slim sidebar (master game list) */}
-        <aside className="w-full shrink-0 border-b border-[#1f2937] bg-[#0a0a0a]/95 p-4 lg:w-72 lg:border-b-0 lg:border-r lg:overflow-y-auto">
-          <div className="mb-4 flex items-center justify-between px-2">
-            <div className="text-xs uppercase tracking-widest text-[#94a3b8]">
+        {/* Tabs */}
+        <Tabs defaultValue="games">
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="games" className="flex items-center gap-1.5">
+              <Activity className="h-3.5 w-3.5" />
               Today&apos;s Games
-            </div>
-            <span className="rounded-full border border-[#1f2937] bg-[#111827]/70 px-2 py-0.5 text-[10px] font-medium text-[#94a3b8]">
-              {games.length}
-            </span>
-          </div>
+            </TabsTrigger>
+            <TabsTrigger value="pitchers" className="flex items-center gap-1.5">
+              <LineChart className="h-3.5 w-3.5" />
+              Pitchers
+            </TabsTrigger>
+            <TabsTrigger value="teams" className="flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5" />
+              Teams
+            </TabsTrigger>
+            <TabsTrigger value="history" className="flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5" />
+              History
+            </TabsTrigger>
+          </TabsList>
 
-          {isLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-[72px] animate-pulse rounded-3xl border border-[#1f2937] bg-[#111827]/40"
-                />
-              ))}
-            </div>
-          ) : error ? (
-            <p className="px-2 text-sm text-[#fb7185]">Failed to load: {error}</p>
-          ) : games.length === 0 ? (
-            <p className="px-2 text-sm text-[#94a3b8]">No games scheduled today.</p>
-          ) : (
-            games.map((game) => {
-              const pred = predictionByGameId.get(game.id)
-              const homeTeam = teamMap.get(game.homeTeamId)
-              const awayTeam = teamMap.get(game.awayTeamId)
-              if (!pred || !homeTeam || !awayTeam) return null
+          {/* ── Games Tab ── */}
+          <TabsContent value="games" className="mt-4 space-y-4">
+            <FilterBar filters={filters} onChange={setFilters} />
 
-              const nrfiPct = Math.round(pred.nrfiProbability * 100)
-              const isNrfi = pred.nrfiProbability >= 0.5
-              const displayPct = isNrfi ? nrfiPct : 100 - nrfiPct
-              const va = pred.valueAnalysis
-              const edge =
-                va && va.recommendedBet !== "NO_BET"
-                  ? (va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100
-                  : 0
-              const edgeColor =
-                va?.recommendedBet === "YRFI"
-                  ? "bg-[#f43f5e]/12 text-[#fb7185]"
-                  : "bg-[#22c55e]/12 text-[#4ade80]"
-              const isSelected = selectedGameId === game.id
-
-              return (
+            {loading ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="rounded-lg border border-border/30 bg-muted/20 h-64 animate-pulse" />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 py-12 text-center space-y-2 px-4">
+                <p className="text-sm font-semibold text-destructive">Failed to load live predictions</p>
+                <p className="text-xs text-muted-foreground">{error}</p>
+                <p className="text-xs text-muted-foreground">
+                  Check{" "}
+                  <a href="/api/debug" target="_blank" className="underline text-primary">
+                    /api/debug
+                  </a>{" "}
+                  to diagnose the API connection.
+                </p>
+              </div>
+            ) : liveData?.noGames ? (
+              <div className="rounded-lg border border-border/40 bg-muted/10 py-16 text-center space-y-1">
+                <p className="text-sm font-medium text-foreground">No games scheduled today</p>
+                <p className="text-xs text-muted-foreground">Check back on the next scheduled game day.</p>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="rounded-lg border border-border/40 bg-muted/10 py-16 text-center">
+                <p className="text-sm text-muted-foreground">No games match the current filters.</p>
                 <button
-                  key={game.id}
-                  onClick={() => setSelectedGameId(game.id)}
-                  className={cn(
-                    "group mb-3 flex w-full cursor-pointer items-center justify-between rounded-3xl border border-transparent p-4 text-left transition-all duration-200 hover:bg-[#1f2937]",
-                    isSelected
-                      ? "bg-[#1f2937] ring-1 ring-[#a78bfa] neon-ring-purple"
-                      : "hover:border-[#1f2937]",
-                  )}
+                  onClick={() => setFilters(defaultFilters)}
+                  className="mt-2 text-xs text-primary underline underline-offset-2"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-[#f8fafc]">
-                      {awayTeam.abbreviation}{" "}
-                      <span className="text-[#475569]">@</span>{" "}
-                      {homeTeam.abbreviation}
-                    </div>
-                    <div className="mt-0.5 text-xs text-[#94a3b8]">
-                      {game.time} {game.timeZone}
-                    </div>
-                  </div>
-                  <div className="ml-3 shrink-0 text-right">
-                    <div
-                      className={cn(
-                        "font-metric text-2xl font-semibold leading-none",
-                        isNrfi ? "text-[#4ade80]" : "text-[#fb7185]",
-                      )}
-                    >
-                      {displayPct}%
-                    </div>
-                    <div className="mt-0.5 text-[10px] uppercase tracking-wider text-[#94a3b8]">
-                      {isNrfi ? "NRFI" : "YRFI"}
-                    </div>
-                    {edge >= 3 && (
-                      <div
-                        className={cn(
-                          "mt-1 rounded-2xl px-2.5 py-0.5 text-[10px] font-semibold",
-                          edgeColor,
-                        )}
-                      >
-                        +{edge.toFixed(1)}% EDGE
-                      </div>
-                    )}
-                  </div>
+                  Clear filters
                 </button>
-              )
-            })
-          )}
-        </aside>
-
-        {/* Central area */}
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
-          {isLoading ? (
-            <div className="mx-auto h-80 max-w-5xl animate-pulse rounded-3xl border border-[#1f2937] bg-[#111827]/40" />
-          ) : isGridMode ? (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {games.map((game) => {
-                const pred = predictionByGameId.get(game.id)
-                const homeTeam = teamMap.get(game.homeTeamId)
-                const awayTeam = teamMap.get(game.awayTeamId)
-                const homePitcher = pitcherMap.get(game.homePitcherId)
-                const awayPitcher = pitcherMap.get(game.awayPitcherId)
-                if (!pred || !homeTeam || !awayTeam || !homePitcher || !awayPitcher) return null
-                return (
-                  <div
-                    key={game.id}
-                    className="[&_[data-slot=card]]:border-[#1f2937] [&_[data-slot=card]]:bg-[#0f172a]/60 [&_[data-slot=card]]:backdrop-blur"
-                  >
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }) => (
+                  <div key={game.id} id={`game-${game.id}`}>
                     <GamePredictionCard
                       game={game}
                       prediction={pred}
@@ -351,244 +551,105 @@ export default function HomeplateMetricsPage() {
                       awayPitcher={awayPitcher}
                     />
                   </div>
-                )
-              })}
-            </div>
-          ) : selectedGame &&
-            selectedPred &&
-            selectedHomeTeam &&
-            selectedAwayTeam &&
-            selectedHomePitcher &&
-            selectedAwayPitcher ? (
-            <NeonCockpit
-              game={selectedGame}
-              prediction={selectedPred}
-              homeTeam={selectedHomeTeam}
-              awayTeam={selectedAwayTeam}
-              homePitcher={selectedHomePitcher}
-              awayPitcher={selectedAwayPitcher}
-              onLockIn={handleLockIn}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-[#94a3b8]">
-              Select a game from the sidebar to begin
-            </div>
-          )}
-        </main>
-
-        {/* Right contextual panel */}
-        <aside className="w-full shrink-0 border-t border-[#1f2937] bg-[#0a0a0a]/95 p-6 lg:w-80 lg:border-t-0 lg:border-l lg:overflow-y-auto">
-          <div className="mb-4 flex items-center gap-2 text-xs uppercase tracking-widest text-[#94a3b8]">
-            <Activity className="h-3 w-3 text-[#22d3ee] neon-glow-cyan" />
-            Contextual Insights
-          </div>
-
-          {selectedGame &&
-          selectedPred &&
-          selectedHomeTeam &&
-          selectedAwayTeam &&
-          selectedHomePitcher &&
-          selectedAwayPitcher ? (
-            <div className="space-y-5">
-              <CompactPitcherCard
-                label={`${selectedAwayTeam.abbreviation} Starter`}
-                pitcher={selectedAwayPitcher}
-              />
-              <CompactPitcherCard
-                label={`${selectedHomeTeam.abbreviation} Starter`}
-                pitcher={selectedHomePitcher}
-              />
-              <CompactTeamCard
-                label={`${selectedAwayTeam.abbreviation} Offense`}
-                team={selectedAwayTeam}
-              />
-              <CompactTeamCard
-                label={`${selectedHomeTeam.abbreviation} Offense`}
-                team={selectedHomeTeam}
-              />
-              {selectedPred.valueAnalysis &&
-                selectedPred.valueAnalysis.recommendedBet !== "NO_BET" && (
-                  <ValueHint va={selectedPred.valueAnalysis} />
-                )}
-            </div>
-          ) : (
-            <p className="text-sm text-[#94a3b8]">Select a game to see pitcher and team context.</p>
-          )}
-        </aside>
-      </div>
-    </div>
-  )
-}
-
-// ─── Compact right-panel cards (reuse existing data; no new types) ──────────
-
-function CompactPitcherCard({ label, pitcher }: { label: string; pitcher: Pitcher }) {
-  const fi = pitcher.firstInning
-  const nrfiPct = Math.round(fi.nrfiRate * 100)
-  const tier =
-    fi.nrfiRate >= 0.74
-      ? "text-[#4ade80]"
-      : fi.nrfiRate >= 0.66
-        ? "text-[#22d3ee]"
-        : fi.nrfiRate >= 0.6
-          ? "text-[#facc15]"
-          : "text-[#fb7185]"
-  const barColor =
-    fi.nrfiRate >= 0.74
-      ? "bg-[#22c55e]"
-      : fi.nrfiRate >= 0.66
-        ? "bg-[#06b6d4]"
-        : fi.nrfiRate >= 0.6
-          ? "bg-[#facc15]"
-          : "bg-[#f43f5e]"
-
-  return (
-    <div className="rounded-2xl border border-[#1f2937] bg-[#111827]/60 p-4 backdrop-blur">
-      <div className="mb-1 text-[10px] uppercase tracking-widest text-[#94a3b8]">{label}</div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-[#f8fafc]">{pitcher.name}</p>
-          <p className="text-[11px] text-[#94a3b8]">
-            {pitcher.throws}HP · Age {pitcher.age} · {fi.startCount} GS
-          </p>
-        </div>
-        <span className={cn("font-metric text-xl font-semibold", tier)}>{nrfiPct}%</span>
-      </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#0a0a0a]">
-        <div className={cn("h-full rounded-full", barColor)} style={{ width: `${nrfiPct}%` }} />
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-        <Stat label="1st ERA" value={fi.era.toFixed(2)} />
-        <Stat label="WHIP" value={fi.whip.toFixed(2)} />
-        <Stat label="K%" value={`${(fi.kRate * 100).toFixed(0)}%`} />
-      </div>
-      <div className="mt-3 flex items-center gap-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-[#94a3b8]">Last 5</span>
-        <div className="flex gap-1">
-          {fi.last5Results.map((r, i) => (
-            <span
-              key={i}
-              className={cn(
-                "inline-block h-2 w-2 rounded-full",
-                r ? "bg-[#22c55e] neon-glow-emerald" : "bg-[#f43f5e] neon-glow-crimson",
-              )}
-              title={r ? "NRFI" : "YRFI"}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CompactTeamCard({ label, team }: { label: string; team: Team }) {
-  const fi = team.firstInning
-  const yrfiPct = Math.round(fi.yrfiRate * 100)
-  const tier =
-    fi.yrfiRate >= 0.44
-      ? "text-[#fb7185]"
-      : fi.yrfiRate >= 0.38
-        ? "text-[#facc15]"
-        : fi.yrfiRate >= 0.32
-          ? "text-[#22d3ee]"
-          : "text-[#4ade80]"
-  const barColor =
-    fi.yrfiRate >= 0.44
-      ? "bg-[#f43f5e]"
-      : fi.yrfiRate >= 0.38
-        ? "bg-[#facc15]"
-        : fi.yrfiRate >= 0.32
-          ? "bg-[#06b6d4]"
-          : "bg-[#22c55e]"
-  const fillPct = Math.min((fi.yrfiRate / 0.55) * 100, 100)
-
-  return (
-    <div className="rounded-2xl border border-[#1f2937] bg-[#111827]/60 p-4 backdrop-blur">
-      <div className="mb-1 text-[10px] uppercase tracking-widest text-[#94a3b8]">{label}</div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-[#f8fafc]">
-            {team.city} {team.name}
-          </p>
-          <p className="text-[11px] text-[#94a3b8]">
-            {team.league} {team.division} · {fi.runsPerGame.toFixed(2)} R/G 1st
-          </p>
-        </div>
-        <div className="text-right">
-          <span className={cn("font-metric text-xl font-semibold", tier)}>{yrfiPct}%</span>
-          <div className="text-[10px] uppercase tracking-wider text-[#94a3b8]">YRFI</div>
-        </div>
-      </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#0a0a0a]">
-        <div className={cn("h-full rounded-full", barColor)} style={{ width: `${fillPct}%` }} />
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-        <Stat label="OPS" value={fi.ops.toFixed(3)} />
-        <Stat label="wOBA" value={fi.woba.toFixed(3)} />
-        <Stat label="L10" value={`${Math.round(fi.last10YrfiRate * 100)}%`} />
-      </div>
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-[#1f2937] bg-[#0a0a0a]/60 px-2 py-1.5">
-      <div className="text-[9px] uppercase tracking-wider text-[#94a3b8]">{label}</div>
-      <div className="font-metric text-sm font-semibold text-[#f8fafc]">{value}</div>
-    </div>
-  )
-}
-
-function ValueHint({ va }: { va: NonNullable<NRFIPrediction["valueAnalysis"]> }) {
-  const isYrfi = va.recommendedBet === "YRFI"
-  const edge = isYrfi ? va.yrfiEdge : va.nrfiEdge
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border p-4 backdrop-blur",
-        isYrfi
-          ? "border-[#f43f5e]/40 bg-[#f43f5e]/10 neon-glow-crimson"
-          : "border-[#22c55e]/40 bg-[#22c55e]/10 neon-glow-emerald",
-      )}
-    >
-      <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-[#f8fafc]">
-        <Flame className={cn("h-3 w-3", isYrfi ? "text-[#fb7185]" : "text-[#4ade80]")} />
-        Value Edge · {va.recommendedBet}
-      </div>
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
-        <div>
-          <div className="text-[9px] uppercase tracking-wider text-[#94a3b8]">Edge</div>
-          <div className="font-metric text-sm font-semibold text-[#f8fafc]">
-            +{(edge * 100).toFixed(1)}%
-          </div>
-        </div>
-        <div>
-          <div className="text-[9px] uppercase tracking-wider text-[#94a3b8]">Kelly</div>
-          <div className="font-metric text-sm font-semibold text-[#facc15]">
-            {(va.kellyFraction * 100).toFixed(1)}%
-          </div>
-        </div>
-        <div>
-          <div className="text-[9px] uppercase tracking-wider text-[#94a3b8]">EV</div>
-          <div
-            className={cn(
-              "font-metric text-sm font-semibold",
-              va.expectedValue >= 0 ? "text-[#4ade80]" : "text-[#fb7185]",
+                ))}
+              </div>
             )}
-          >
-            {va.expectedValue >= 0 ? "+" : ""}
-            {(va.expectedValue * 100).toFixed(1)}%
-          </div>
-        </div>
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-[10px] text-[#94a3b8]">
-        <Target className="h-3 w-3 text-[#22d3ee]" />
-        NRFI {va.nrfiOdds > 0 ? "+" : ""}
-        {va.nrfiOdds} · YRFI {va.yrfiOdds > 0 ? "+" : ""}
-        {va.yrfiOdds}
-        <DollarSign className="ml-auto h-3 w-3 text-[#facc15]" />
-      </div>
+
+            {/* Model explanation */}
+            <div className="rounded-lg border border-border/30 bg-muted/10 p-4 text-xs text-muted-foreground space-y-1">
+              <p className="font-semibold text-foreground/80">How the model works</p>
+              <p>
+                The engine uses a <strong className="text-foreground/70">Poisson scoring model</strong>: for each half-inning, expected runs (λ) are
+                derived from the pitcher&apos;s historical first-inning NRFI rate via λ = −ln(NRFI Rate), then adjusted
+                multiplicatively for the opposing lineup&apos;s first-inning offensive factor, park factor, and weather.
+              </p>
+              <p>
+                P(NRFI) = P(home scores 0) × P(away scores 0) = e<sup>−λ<sub>home</sub></sup> × e<sup>−λ<sub>away</sub></sup>
+              </p>
+              <p>
+                Value bets are identified when the model&apos;s implied probability exceeds the bookmaker&apos;s
+                by ≥3%. Kelly Criterion (25% fractional) sizes the recommended wager.
+              </p>
+            </div>
+          </TabsContent>
+
+          {/* ── Pitchers Tab ── */}
+          <TabsContent value="pitchers" className="mt-4">
+            <div className="mb-4">
+              <h2 className="text-base font-semibold text-foreground">Pitcher Rankings — First Inning</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Sorted by NRFI rate. All metrics apply to the first inning only.
+              </p>
+            </div>
+            <PitcherStats pitchers={[...pitcherMap.values()]} teams={teamMap} />
+          </TabsContent>
+
+          {/* ── Teams Tab ── */}
+          <TabsContent value="teams" className="mt-4">
+            <div className="mb-4">
+              <h2 className="text-base font-semibold text-foreground">Team First-Inning Offense</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Sorted by YRFI rate — how often each team scores in the first inning.
+              </p>
+            </div>
+            <TeamStats teams={[...teamMap.values()]} />
+          </TabsContent>
+
+          {/* ── History Tab ── */}
+          <TabsContent value="history" className="mt-4">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Historical Predictions</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Predictions are auto-saved daily. 1st-inning results are fetched automatically
+                  from the MLB Stats API once games end.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {lastSyncInfo && (
+                  <span className="text-xs text-muted-foreground">{lastSyncInfo}</span>
+                )}
+                <button
+                  onClick={backfillSeason}
+                  disabled={backfilling || syncing}
+                  title="Retroactively import predictions and results for the past 30 days to populate season accuracy stats"
+                  className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                >
+                  <DatabaseZap className={cn("h-3 w-3", backfilling && "animate-pulse")} />
+                  {backfilling ? "Importing…" : "Import Season Data"}
+                </button>
+                <button
+                  onClick={() => syncResults()}
+                  disabled={syncing || backfilling}
+                  className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
+                  {syncing ? "Syncing…" : "Sync Results"}
+                </button>
+                <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-xs text-muted-foreground">
+                  {trackingAccuracy.totalTracked} tracked
+                </span>
+              </div>
+            </div>
+            <HistoryTable
+              predictions={trackedPredictions}
+              accuracy={trackingAccuracy}
+              onRecordResult={handleRecordResult}
+              onDelete={handleDeletePrediction}
+            />
+          </TabsContent>
+        </Tabs>
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-12 border-t border-border/30 px-4 py-6 text-center">
+        <p className="text-xs text-muted-foreground">
+          NRFI/YRFI Prediction Engine · Statistical model for informational purposes only · Not financial advice
+        </p>
+      </footer>
+
+      {/* Onboarding modal (lazy-loaded) */}
+      {typeof window !== "undefined" && <OnboardingModal open={showOnboarding} onOpenChange={setShowOnboarding} />}
     </div>
   )
 }

@@ -10,13 +10,13 @@ interface OWMResponse {
   weather: Array<{ id: number; main: string }>
 }
 
-const DOME_WEATHER: Weather = {
+const DOME_WEATHER = {
   temperature: 72,
   windSpeed: 0,
   windDirection: "calm",
   conditions: "dome",
   humidity: 50,
-}
+} as const satisfies Weather
 
 function mapWindDirection(degrees: number, speedMph: number, venue: string): WindDirection {
   if (speedMph < 3) return "calm"
@@ -24,13 +24,19 @@ function mapWindDirection(degrees: number, speedMph: number, venue: string): Win
   const orientation = STADIUM_ORIENTATION[venue] ?? "unknown"
 
   if (orientation === "out-to-cf") {
-    // wind blowing from home plate toward CF = "out" when degrees roughly 315–45
-    if ((degrees >= 315 || degrees <= 45)) return "out"
+    // Wind from behind home plate blows toward CF = "out"
+    if (degrees >= 315 || degrees <= 45) return "out"
     if (degrees >= 135 && degrees <= 225) return "in"
     return "crosswind"
   }
 
-  // For unknown orientation, default to crosswind
+  if (orientation === "in-to-cf") {
+    // Reversed: wind from behind home plate blows toward home = "in"
+    if (degrees >= 315 || degrees <= 45) return "in"
+    if (degrees >= 135 && degrees <= 225) return "out"
+    return "crosswind"
+  }
+
   return "crosswind"
 }
 
@@ -38,6 +44,7 @@ function mapConditions(weatherId: number): WeatherCondition {
   if (weatherId === 800) return "clear"
   if (weatherId >= 801 && weatherId <= 803) return "cloudy"
   if (weatherId === 804) return "overcast"
+  if (weatherId >= 200 && weatherId < 300) return "light-rain"  // thunderstorm
   if (weatherId >= 500 && weatherId < 600) return "light-rain"
   return "cloudy"
 }
@@ -48,6 +55,11 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
 
   const coords = STADIUM_COORDS[venue]
   if (!coords) return DOME_WEATHER
+
+  if (!API_KEY) {
+    console.warn("[weather] OPENWEATHER_API_KEY is not set — using dome defaults")
+    return DOME_WEATHER
+  }
 
   try {
     const url = `${BASE_URL}?lat=${coords.lat}&lon=${coords.lon}&appid=${API_KEY}&units=imperial`

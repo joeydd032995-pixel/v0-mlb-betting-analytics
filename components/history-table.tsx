@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import { CheckCircle2, XCircle, ClipboardList, ChevronDown, ChevronRight, Trash2 } from "lucide-react"
+import { CheckCircle2, XCircle, ClipboardList, ChevronDown, ChevronRight, Trash2, Download } from "lucide-react"
 import type { TrackedPrediction, ExtendedModelAccuracy, PerModelAccuracy } from "@/lib/prediction-store"
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   accuracy: ExtendedModelAccuracy
   onRecordResult: (id: string, homeRuns: number, awayRuns: number) => void
   onDelete: (id: string) => void
+  dateRange?: { from: Date; to: Date }
+  onExportCSV?: () => void
 }
 
 function pct(n: number, d = 1) {
@@ -25,6 +27,57 @@ function formatOdds(n?: number) {
 function formatPnL(pnl?: number) {
   if (pnl == null) return "—"
   return pnl > 0 ? `+${pnl.toFixed(2)}u` : `${pnl.toFixed(2)}u`
+}
+
+function exportToCSV(predictions: TrackedPrediction[]): void {
+  if (predictions.length === 0) return
+
+  // Prepare CSV headers
+  const headers = [
+    "Date",
+    "Matchup",
+    "Prediction",
+    "NRFI%",
+    "Confidence",
+    "Status",
+    "Actual Result",
+    "1st Inning Runs",
+    "Correct",
+    "Odds",
+    "Profit/Loss",
+  ]
+
+  // Prepare rows
+  const rows = predictions.map((p) => [
+    p.date,
+    `${p.awayTeam} @ ${p.homeTeam}`,
+    p.prediction,
+    `${(p.nrfiProbability * 100).toFixed(1)}%`,
+    p.confidence,
+    p.status,
+    p.actualResult || "—",
+    p.runsFirstInning ? `${p.runsFirstInning.away}-${p.runsFirstInning.home}` : "—",
+    p.correct ? "YES" : p.status === "pending" ? "—" : "NO",
+    p.prediction === "NRFI" && p.nrfiOdds ? formatOdds(p.nrfiOdds) : p.prediction === "YRFI" && p.yrfiOdds ? formatOdds(p.yrfiOdds) : "—",
+    formatPnL(p.profitLoss),
+  ])
+
+  // Build CSV content
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+  ].join("\n")
+
+  // Create blob and download
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+  const link = document.createElement("a")
+  const url = URL.createObjectURL(blob)
+  link.setAttribute("href", url)
+  link.setAttribute("download", `nrfi_predictions_${new Date().toISOString().split("T")[0]}.csv`)
+  link.style.visibility = "hidden"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 function ConfBadge({ level }: { level: TrackedPrediction["confidence"] }) {
@@ -396,12 +449,38 @@ function CompletedRow({ pred, onDelete }: { pred: TrackedPrediction; onDelete: (
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete }: Props) {
-  const pending   = predictions.filter((p) => p.status === "pending")
-  const completed = predictions.filter((p) => p.status === "complete")
+export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, dateRange, onExportCSV }: Props) {
+  // Filter by date range if provided
+  const filtered = dateRange
+    ? predictions.filter((p) => {
+        const pDate = new Date(p.date)
+        return pDate >= dateRange.from && pDate <= dateRange.to
+      })
+    : predictions
+
+  const pending   = filtered.filter((p) => p.status === "pending")
+  const completed = filtered.filter((p) => p.status === "complete")
 
   return (
     <div className="space-y-6">
+      {/* ── Header with export button ── */}
+      {onExportCSV && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {dateRange && `Filtered by date: ${dateRange.from.toLocaleDateString()} — ${dateRange.to.toLocaleDateString()}`}
+          </p>
+          <button
+            onClick={() => {
+              exportToCSV(filtered)
+            }}
+            className="flex items-center gap-1.5 rounded-md border border-border/30 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </button>
+        </div>
+      )}
+
       {/* ── Summary stats ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
