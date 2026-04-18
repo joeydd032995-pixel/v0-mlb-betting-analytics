@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database } from "lucide-react"
+import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database, Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ─── Performance API types ────────────────────────────────────────────────────
@@ -62,10 +62,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   const [selectedFactor, setSelectedFactor] = useState<string>("pitcher")
 
   // ── Performance tab state ──────────────────────────────────────────────
-  const [perfData,    setPerfData]    = useState<PerformanceData | null>(null)
-  const [perfLoading, setPerfLoading] = useState(false)
-  const [syncYear,    setSyncYear]    = useState<number | null>(null)
+  const [perfData,     setPerfData]     = useState<PerformanceData | null>(null)
+  const [perfLoading,  setPerfLoading]  = useState(false)
+  const [syncYear,     setSyncYear]     = useState<number | null>(null)
   const [syncProgress, setSyncProgress] = useState<string>("")
+  const [syncTotal,    setSyncTotal]    = useState<number>(0)
+  const [syncDone,     setSyncDone]     = useState<number>(0)
 
   const loadPerformance = useCallback(async () => {
     setPerfLoading(true)
@@ -84,8 +86,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
 
   async function syncSeason(year: number, months: number[]) {
     setSyncYear(year)
+    setSyncTotal(months.length)
     for (let i = 0; i < months.length; i++) {
       const m = months[i]
+      setSyncDone(i)
       setSyncProgress(`Syncing ${new Date(year, m - 1, 1).toLocaleString("en-US", { month: "short" })} ${year}… (${i + 1}/${months.length})`)
       try {
         await fetch(`/api/historical-sync?year=${year}&month=${m}`)
@@ -93,7 +97,57 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     }
     setSyncYear(null)
     setSyncProgress("")
+    setSyncTotal(0)
+    setSyncDone(0)
     await loadPerformance()
+  }
+
+  async function syncAll() {
+    const now = new Date()
+    const curYear  = now.getFullYear()
+    const curMonth = now.getMonth() + 1
+
+    // All (year, month) pairs from MLB opening month 2024 through today
+    const pairs: { year: number; month: number }[] = []
+    for (let y = 2024; y <= curYear; y++) {
+      const startM = 3                                  // MLB seasons open in March
+      const endM   = y < curYear ? 10 : curMonth       // past seasons end in Oct
+      for (let m = startM; m <= endM; m++) {
+        pairs.push({ year: y, month: m })
+      }
+    }
+
+    setSyncYear(-1)  // -1 = "all years" sentinel
+    setSyncTotal(pairs.length)
+    for (let i = 0; i < pairs.length; i++) {
+      const { year, month } = pairs[i]
+      setSyncDone(i)
+      const label = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" })
+      setSyncProgress(`Syncing ${label} ${year}… (${i + 1}/${pairs.length})`)
+      try {
+        await fetch(`/api/historical-sync?year=${year}&month=${month}`)
+      } catch { /* non-fatal – continue */ }
+    }
+    setSyncYear(null)
+    setSyncProgress("")
+    setSyncTotal(0)
+    setSyncDone(0)
+    await loadPerformance()
+  }
+
+  async function exportData() {
+    try {
+      const res  = await fetch("/api/export-data")
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement("a")
+      a.href     = url
+      a.download = `nrfi-data-${new Date().toISOString().split("T")[0]}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error("[ModelInsights] export error:", e)
+    }
   }
 
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`
@@ -523,22 +577,50 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               </div>
             )}
             {syncProgress && (
-              <div className="flex items-center gap-2 text-xs text-amber-400">
-                <RefreshCw className="h-3 w-3 animate-spin" />
-                {syncProgress}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-xs text-amber-400">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  {syncProgress}
+                </div>
+                {syncTotal > 0 && (
+                  <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 transition-all duration-500"
+                      style={{ width: `${(syncDone / syncTotal) * 100}%` }}
+                    />
+                  </div>
+                )}
               </div>
             )}
             <div className="flex flex-wrap gap-2">
+              {/* Sync All — one click to pull everything from 2024 to now */}
+              <button
+                disabled={syncYear !== null}
+                onClick={syncAll}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  syncYear === -1
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
+                    : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                {syncYear === -1
+                  ? <><RefreshCw className="h-3 w-3 animate-spin" />Syncing…</>
+                  : <>Sync All (2024–Now)</>
+                }
+              </button>
+
+              <span className="self-center text-border/60 text-xs select-none">or by year:</span>
+
               {[
-                { label: "2024 Season", year: 2024 },
-                { label: "2025 Season", year: 2025 },
-                { label: "2026 YTD",    year: 2026 },
+                { label: "2024", year: 2024 },
+                { label: "2025", year: 2025 },
+                { label: "2026", year: 2026 },
               ].map(({ label, year }) => (
                 <button
                   key={year}
                   disabled={syncYear !== null}
                   onClick={() => {
-                    // Compute months client-side only (avoids SSR/CSR Date mismatch)
                     const months =
                       year === 2024 ? [3,4,5,6,7,8,9] :
                       year === 2025 ? [3,4,5,6,7,8,9,10] :
@@ -549,7 +631,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                     "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
                     syncYear === year
                       ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
-                      : "border-border/40 bg-card/50 text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                      : "border-border/40 bg-card/50 text-muted-foreground hover:border-sky-500/40 hover:text-sky-400 disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
                   {syncYear === year && <RefreshCw className="h-3 w-3 animate-spin" />}
@@ -564,6 +646,17 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 <RefreshCw className={cn("h-3 w-3", perfLoading && "animate-spin")} />
                 Refresh
               </button>
+
+              {perfData?.hasData && (
+                <button
+                  disabled={syncYear !== null}
+                  onClick={exportData}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-400 transition-colors hover:bg-sky-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="h-3 w-3" />
+                  Export CSV
+                </button>
+              )}
             </div>
           </CardContent>
         </Card>
