@@ -7,7 +7,7 @@
  *  3. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
  *  4. Markov Chain (24 states)     — state-based base-out inning simulation
  *
- * Ensemble weights: Poisson 25%, ZIP 35%, Markov 40%
+ * Ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
  * P(NRFI) = P(home scores 0) × P(away scores 0)  (per-ensemble)
  */
 
@@ -39,6 +39,9 @@ import { impliedProbability } from "./utils/odds"
 const MIN_KELLY_EDGE = 0.03
 /** Fractional Kelly multiplier */
 const KELLY_FRACTION = 0.25
+/** Below this temperature (°F) run scoring is suppressed — used in both
+ *  the weather multiplier and the factor-card cold-weather threshold. */
+const COLD_TEMP_THRESHOLD_F = 50
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,8 +88,8 @@ export function computeWeatherMultiplier(weather: Weather): number {
   }
 
   // Temperature effect  (cold suppresses run scoring; heat slightly increases it)
-  if (weather.temperature < 50) {
-    multiplier -= (50 - weather.temperature) * 0.003
+  if (weather.temperature < COLD_TEMP_THRESHOLD_F) {
+    multiplier -= (COLD_TEMP_THRESHOLD_F - weather.temperature) * 0.003
   } else if (weather.temperature > 85) {
     multiplier += (weather.temperature - 85) * 0.002
   }
@@ -99,28 +102,9 @@ export function computeWeatherMultiplier(weather: Weather): number {
 
 // ─── Recent Form Multiplier ───────────────────────────────────────────────────
 
-/**
- * Returns a multiplier based on each pitcher's last 5 starts.
- * Combines home and away pitcher tendencies into a single adjustment.
- * > 1.0 means pitchers have been getting hit (bad for NRFI); < 1.0 = dominating.
- */
-function computeRecentFormMultiplier(homePitcher: Pitcher, awayPitcher: Pitcher): number {
-  const recentNrfi = (p: Pitcher) => {
-    const results = p.firstInning.last5Results
-    if (!results.length) return p.firstInning.nrfiRate
-    return results.filter(Boolean).length / results.length
-  }
-
-  const homeRecent = recentNrfi(homePitcher)
-  const awayRecent = recentNrfi(awayPitcher)
-  const avgRecent = (homeRecent + awayRecent) / 2
-  const avgSeason = (homePitcher.firstInning.nrfiRate + awayPitcher.firstInning.nrfiRate) / 2
-
-  // Blended 70% season / 30% recent
-  const blended = 0.7 * avgSeason + 0.3 * avgRecent
-  // Multiplier: if recent is better than season, lower λ (better for NRFI)
-  return avgSeason > 0 ? blended / avgSeason : 1.0
-}
+// last5Results is always [] — the MLB Stats API does not return per-start
+// first-inning breakdowns. Stub preserved for future wiring; always returns 1.0.
+const computeRecentFormMultiplier = (_home: Pitcher, _away: Pitcher): number => 1.0
 
 // ─── Lambda Computation ───────────────────────────────────────────────────────
 
@@ -150,8 +134,7 @@ function buildFactors(
   homePitcher: Pitcher,
   awayPitcher: Pitcher,
   homeTeam: Team,
-  awayTeam: Team,
-  weatherMult: number
+  awayTeam: Team
 ): PredictionFactor[] {
   const factors: PredictionFactor[] = []
 
@@ -287,7 +270,7 @@ function buildFactors(
         value: `${game.weather.windSpeed} mph in`,
       })
     }
-    if (game.weather.temperature <= 48) {
+    if (game.weather.temperature < COLD_TEMP_THRESHOLD_F) {
       factors.push({
         name: "Cold Game-Time Temps",
         impact: "positive",
@@ -314,27 +297,31 @@ function buildFactors(
     })
   }
 
-  // Recent form
-  const last5Home = hp.last5Results.filter(Boolean).length
-  const last5Away = ap.last5Results.filter(Boolean).length
-  if (last5Home >= 4 && last5Away >= 4) {
-    factors.push({
-      name: "Both Pitchers in Peak Form",
-      impact: "positive",
-      magnitude: "moderate",
-      description: `${homePitcher.name} (${last5Home}/5 NRFI) and ${awayPitcher.name} (${last5Away}/5 NRFI) are both locked in.`,
-      value: `${last5Home + last5Away}/10 recent NRFI`,
-    })
-  } else if (last5Home <= 1 || last5Away <= 1) {
-    const bad = last5Home <= 1 ? homePitcher.name : awayPitcher.name
-    const val = last5Home <= 1 ? last5Home : last5Away
-    factors.push({
-      name: `${bad} — Struggling Recently`,
-      impact: "negative",
-      magnitude: "moderate",
-      description: `Only ${val}/5 NRFI in last 5 starts — command issues warrant concern.`,
-      value: `${val}/5 recent NRFI`,
-    })
+  // Recent form — only emit a factor when real data is available (last5Results populated).
+  // last5Results is [] when the MLB Stats API doesn't provide per-start breakdowns, so
+  // checking array length prevents a false "0/5 NRFI" factor from firing on every game.
+  if (hp.last5Results.length >= 5 && ap.last5Results.length >= 5) {
+    const last5Home = hp.last5Results.filter(Boolean).length
+    const last5Away = ap.last5Results.filter(Boolean).length
+    if (last5Home >= 4 && last5Away >= 4) {
+      factors.push({
+        name: "Both Pitchers in Peak Form",
+        impact: "positive",
+        magnitude: "moderate",
+        description: `${homePitcher.name} (${last5Home}/5 NRFI) and ${awayPitcher.name} (${last5Away}/5 NRFI) are both locked in.`,
+        value: `${last5Home + last5Away}/10 recent NRFI`,
+      })
+    } else if (last5Home <= 1 || last5Away <= 1) {
+      const bad = last5Home <= 1 ? homePitcher.name : awayPitcher.name
+      const val = last5Home <= 1 ? last5Home : last5Away
+      factors.push({
+        name: `${bad} — Struggling Recently`,
+        impact: "negative",
+        magnitude: "moderate",
+        description: `Only ${val}/5 NRFI in last 5 starts — command issues warrant concern.`,
+        value: `${val}/5 recent NRFI`,
+      })
+    }
   }
 
   // First batter OBP
@@ -647,9 +634,7 @@ export function computeNRFIPrediction(
     recentFormMultiplier: recentMult,
   }
 
-  const factors = buildFactors(
-    game, homePitcher, awayPitcher, homeTeam, awayTeam, weatherMult
-  )
+  const factors = buildFactors(game, homePitcher, awayPitcher, homeTeam, awayTeam)
 
   const valueAnalysis = game.odds
     ? computeValueAnalysis(nrfiProb, game.odds)
