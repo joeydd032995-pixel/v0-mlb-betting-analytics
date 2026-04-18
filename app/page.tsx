@@ -1,5 +1,6 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GamePredictionCard } from "@/components/game-prediction-card"
@@ -23,6 +24,11 @@ import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
+
+// Lazy-load onboarding modal to avoid SSR issues
+const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((m) => ({ default: m.OnboardingModal })), {
+  ssr: false,
+})
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
 
@@ -197,6 +203,18 @@ export default function HomePage() {
       sessionStorage.setItem(TOAST_KEY, "1")
     }
   }, [authLoaded, isSignedIn])
+
+  // ── Onboarding modal state ───────────────────────────────────────────────────
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  useEffect(() => {
+    // Check localStorage only on client-side mount
+    if (typeof window !== "undefined") {
+      const onboarded = localStorage.getItem("hpm_onboarded")
+      if (!onboarded) {
+        setShowOnboarding(true)
+      }
+    }
+  }, [])
 
   // ── Live data state ──────────────────────────────────────────────────────────
   const [liveData, setLiveData] = useState<{
@@ -624,6 +642,9 @@ export default function HomePage() {
           NRFI/YRFI Prediction Engine · Statistical model for informational purposes only · Not financial advice
         </p>
       </footer>
+
+      {/* Onboarding modal (lazy-loaded) */}
+      {typeof window !== "undefined" && <OnboardingModal open={showOnboarding} onOpenChange={setShowOnboarding} />}
     </div>
   )
 }
