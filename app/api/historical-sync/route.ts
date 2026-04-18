@@ -186,6 +186,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const year  = parseInt(searchParams.get("year")  ?? "0")
   const month = parseInt(searchParams.get("month") ?? "0")
+  // skip=true (default) skips days that already have game results in the DB
+  const skipSynced = searchParams.get("skip") !== "false"
 
   if (!year || !month || month < 1 || month > 12) {
     return NextResponse.json(
@@ -204,6 +206,12 @@ export async function GET(request: Request) {
 
   for (const date of dates) {
     try {
+      // Skip days that already have data (fast path — avoids MLB API calls on re-runs)
+      if (skipSynced) {
+        const existing = await prisma.gameResult.count({ where: { date } })
+        if (existing > 0) { skipped += existing; continue }
+      }
+
       // 1. Schedule + filter to completed games
       const apiGames = await fetchGamesByDate(date)
       const finalGames = apiGames.filter(
