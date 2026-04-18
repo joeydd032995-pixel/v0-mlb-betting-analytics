@@ -14,11 +14,14 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
 // ---------------------------------------------------------------------------
 // Protected routes (paywall-ready — uncomment when adding premium features)
 // ---------------------------------------------------------------------------
-// const isProtectedRoute = createRouteMatcher([
-//   "/api/premium(.*)",    // future: gated prediction data
-//   "/api/admin(.*)",      // future: admin dashboard
-//   "/account(.*)",        // future: subscription management
-// ])
+const isProtectedRoute = createRouteMatcher([
+  "/dashboard(.*)",      // user dashboard with watchlist
+  "/bets(.*)",           // bet tracker
+  "/watchlist(.*)",      // game watchlist
+  "/api/premium(.*)",    // future: gated prediction data
+  "/api/admin(.*)",      // future: admin dashboard
+  "/account(.*)",        // future: subscription management
+])
 
 // ---------------------------------------------------------------------------
 // Public routes — always accessible, even without an account
@@ -31,18 +34,12 @@ const _isPublicRoute = createRouteMatcher([
   "/api/(.*)",           // all existing API routes stay open
 ])
 
-export default clerkMiddleware(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async (auth, _req) => {
-    // Paywall hook — protect premium routes when ready:
-    // if (isProtectedRoute(_req)) {
-    //   await auth.protect()
-    // }
-    //
-    // For now: do nothing — Clerk still sets up the auth session on every
-    // request so useAuth() / auth() return the correct user everywhere.
+export default clerkMiddleware(async (auth, req) => {
+  // Protect premium routes
+  if (isProtectedRoute(req)) {
+    await auth.protect()
   }
-)
+})
 
 export const config = {
   matcher: [
