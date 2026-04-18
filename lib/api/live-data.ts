@@ -1,5 +1,11 @@
-import { fetchGamesByDate, fetchPitcherStats, fetchTeamStats } from "./mlb-stats"
-import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats } from "./mlb-stats"
+import {
+  fetchGamesByDate,
+  fetchPitcherStats,
+  fetchTeamStats,
+  fetchPitcherLast5FirstInnings,
+  fetchTeamLast5FirstInnings,
+} from "./mlb-stats"
+import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats, FirstInningResult } from "./mlb-stats"
 import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
@@ -179,7 +185,8 @@ function mapPitcher(
   apiStats: MLBPitcherSeasonStats | null,
   pitcherId: string,
   teamId: string,
-  pitcherName: string
+  pitcherName: string,
+  last5: FirstInningResult[] = []
 ): Pitcher {
   const defaultEra = 4.0
   const defaultWhip = 1.28
@@ -205,8 +212,8 @@ function mapPitcher(
         nrfiRate,
         avgRunsAllowed: 1 - nrfiRate,
         firstBatterOBP: (defaultWhip / (1 + defaultWhip)) * 0.85,
-        last5Results: [],           // no real data available
-        last5RunsAllowed: [],       // no real data available
+        last5Results: last5.map((r) => r.nrfi),
+        last5RunsAllowed: last5.map((r) => r.runs),
         startCount: 0,
         homeNrfiRate: nrfiRate,     // no home/away split data available
         awayNrfiRate: nrfiRate,
@@ -287,7 +294,8 @@ function mapPitcher(
 
 function mapTeam(
   apiTeamStats: MLBTeamHittingStats | null,
-  teamId: string
+  teamId: string,
+  last5: FirstInningResult[] = []
 ): Team {
   const staticInfo = MLB_TEAMS[teamId]
   const defaultOps = 0.720
@@ -324,7 +332,7 @@ function mapTeam(
       homeYrfiRate: yrfiRate + 0.02,
       awayYrfiRate: yrfiRate - 0.02,
       last10YrfiRate: yrfiRate,
-      last5Results: [],            // no real data available
+      last5Results: last5.map((r) => r.nrfi),
       avgRunsVsRHP: runsPerGame,
       avgRunsVsLHP: runsPerGame * 1.05,
     },
@@ -361,14 +369,27 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
 
       const venue = apiGame.venue?.name ?? "Unknown Stadium"
 
-      const [homeTeamStats, awayTeamStats, homePitcherStats, awayPitcherStats, weather] =
-        await Promise.all([
-          fetchTeamStats(homeTeamApiId),
-          fetchTeamStats(awayTeamApiId),
-          homePitcherApiId ? fetchPitcherStats(homePitcherApiId) : Promise.resolve(null),
-          awayPitcherApiId ? fetchPitcherStats(awayPitcherApiId) : Promise.resolve(null),
-          fetchVenueWeather(venue),
-        ])
+      const [
+        homeTeamStats,
+        awayTeamStats,
+        homePitcherStats,
+        awayPitcherStats,
+        weather,
+        homePitcherLast5,
+        awayPitcherLast5,
+        homeTeamLast5,
+        awayTeamLast5,
+      ] = await Promise.all([
+        fetchTeamStats(homeTeamApiId),
+        fetchTeamStats(awayTeamApiId),
+        homePitcherApiId ? fetchPitcherStats(homePitcherApiId) : Promise.resolve(null),
+        awayPitcherApiId ? fetchPitcherStats(awayPitcherApiId) : Promise.resolve(null),
+        fetchVenueWeather(venue),
+        homePitcherApiId ? fetchPitcherLast5FirstInnings(homePitcherApiId) : Promise.resolve([]),
+        awayPitcherApiId ? fetchPitcherLast5FirstInnings(awayPitcherApiId) : Promise.resolve([]),
+        fetchTeamLast5FirstInnings(homeTeamApiId),
+        fetchTeamLast5FirstInnings(awayTeamApiId),
+      ])
 
       return {
         apiGame,
@@ -377,6 +398,10 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         homePitcherStats,
         awayPitcherStats,
         weather,
+        homePitcherLast5,
+        awayPitcherLast5,
+        homeTeamLast5,
+        awayTeamLast5,
       }
     })
   )
@@ -393,6 +418,10 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
     homePitcherStats,
     awayPitcherStats,
     weather,
+    homePitcherLast5,
+    awayPitcherLast5,
+    homeTeamLast5,
+    awayTeamLast5,
   } of perGameData) {
     // Resolve odds
     const oddsEvent = matchOddsEvent(
@@ -415,13 +444,15 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       homePitcherStats,
       game.homePitcherId,
       game.homeTeamId,
-      homePitcherName
+      homePitcherName,
+      homePitcherLast5
     )
     const awayPitcher = mapPitcher(
       awayPitcherStats,
       game.awayPitcherId,
       game.awayTeamId,
-      awayPitcherName
+      awayPitcherName,
+      awayPitcherLast5
     )
 
     pitchers.set(homePitcher.id, homePitcher)
@@ -429,10 +460,10 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
 
     // Map teams
     if (!teams.has(game.homeTeamId)) {
-      teams.set(game.homeTeamId, mapTeam(homeTeamStats, game.homeTeamId))
+      teams.set(game.homeTeamId, mapTeam(homeTeamStats, game.homeTeamId, homeTeamLast5))
     }
     if (!teams.has(game.awayTeamId)) {
-      teams.set(game.awayTeamId, mapTeam(awayTeamStats, game.awayTeamId))
+      teams.set(game.awayTeamId, mapTeam(awayTeamStats, game.awayTeamId, awayTeamLast5))
     }
   }
 

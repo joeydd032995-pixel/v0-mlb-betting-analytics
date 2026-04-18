@@ -143,6 +143,112 @@ export async function fetchGameLinescore(
   return ls
 }
 
+// ─── First-inning result type ─────────────────────────────────────────────────
+
+export interface FirstInningResult {
+  nrfi: boolean
+  runs: number
+}
+
+function extractFirstInningResult(
+  linescore: MLBLinescore,
+  isHome: boolean
+): FirstInningResult | null {
+  const inning1 = linescore.innings.find((i) => i.num === 1)
+  if (!inning1) return null
+  const runs = isHome ? (inning1.home.runs ?? 0) : (inning1.away.runs ?? 0)
+  return { runs, nrfi: runs === 0 }
+}
+
+/**
+ * Returns the first-inning NRFI/runs-allowed results for a pitcher's last N starts.
+ * Fetches the season game log to get gamePks, then fetches each linescore.
+ */
+export async function fetchPitcherLast5FirstInnings(
+  playerId: number,
+  limit = 5
+): Promise<FirstInningResult[]> {
+  type RawSplit = {
+    stat: { gamesStarted?: number }
+    team: { id: number }
+    game: { gamePk: number }
+    isHome?: boolean
+  }
+  type RawStatGroup = {
+    type: { displayName: string }
+    group: { displayName: string }
+    splits: RawSplit[]
+  }
+
+  const data = await mlbFetch<{ people: Array<{ stats?: RawStatGroup[] }> }>(
+    `/people/${playerId}?hydrate=stats(group=[pitching],type=[gameLog])&season=${SEASON}`,
+    3600
+  )
+
+  const splits =
+    data?.people?.[0]?.stats
+      ?.find(
+        (s) =>
+          s.type?.displayName?.toLowerCase() === "gamelog" &&
+          s.group?.displayName?.toLowerCase() === "pitching"
+      )
+      ?.splits ?? []
+
+  const starts = splits
+    .filter((s) => (s.stat.gamesStarted ?? 0) >= 1)
+    .slice(-limit)
+
+  if (starts.length === 0) return []
+
+  const linescores = await Promise.all(
+    starts.map((s) => fetchGameLinescore(s.game.gamePk))
+  )
+
+  return starts
+    .map((s, i) => {
+      const ls = linescores[i]
+      if (!ls) return null
+      return extractFirstInningResult(ls, s.isHome ?? false)
+    })
+    .filter((r): r is FirstInningResult => r !== null)
+}
+
+/**
+ * Returns the first-inning NRFI results for a team's last N completed games.
+ * Fetches the season schedule to get gamePks, then fetches each linescore.
+ */
+export async function fetchTeamLast5FirstInnings(
+  teamApiId: number,
+  limit = 5
+): Promise<FirstInningResult[]> {
+  const today = new Date().toISOString().split("T")[0]
+  const seasonStart = `${SEASON}-03-01`
+
+  const data = await mlbFetch<{ dates: Array<{ games: MLBGame[] }> }>(
+    `/schedule?sportId=1&teamId=${teamApiId}&startDate=${seasonStart}&endDate=${today}&gameType=R`,
+    3600
+  )
+
+  const completed = (data?.dates ?? [])
+    .flatMap((d) => d.games)
+    .filter((g) => g.status.abstractGameState === "Final")
+    .slice(-limit)
+
+  if (completed.length === 0) return []
+
+  const linescores = await Promise.all(
+    completed.map((g) => fetchGameLinescore(g.gamePk))
+  )
+
+  return completed
+    .map((g, i) => {
+      const ls = linescores[i]
+      if (!ls) return null
+      return extractFirstInningResult(ls, g.teams.home.team.id === teamApiId)
+    })
+    .filter((r): r is FirstInningResult => r !== null)
+}
+
 /**
  * Fetches a pitcher's current-season pitching stats via:
  *   /people/{id}?hydrate=stats(group=[pitching],type=[season])&season=YYYY
