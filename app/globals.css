@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -75,8 +76,8 @@
 }
 
 @theme inline {
-  --font-sans: "Geist", "Geist Fallback";
-  --font-mono: "Geist Mono", "Geist Mono Fallback";
+  --font-sans: "Inter", "Geist", "Geist Fallback", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -121,6 +122,56 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
+
+/* ─── Neon Terminal utilities ─────────────────────────────────────────── */
+@layer utilities {
+  .font-metric {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .neon-bg {
+    background-image:
+      radial-gradient(1200px 600px at 10% -10%, rgba(167, 139, 250, 0.06), transparent 60%),
+      radial-gradient(1000px 500px at 110% 10%, rgba(6, 182, 212, 0.05), transparent 60%),
+      linear-gradient(135deg, #0a0a0a 0%, #111827 100%);
+  }
+  .neon-glow-emerald {
+    filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.55)) drop-shadow(0 0 28px rgba(34, 197, 94, 0.25));
+  }
+  .neon-glow-crimson {
+    filter: drop-shadow(0 0 14px rgba(244, 63, 94, 0.75)) drop-shadow(0 0 36px rgba(244, 63, 94, 0.35));
+  }
+  .neon-glow-cyan {
+    filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.45)) drop-shadow(0 0 20px rgba(34, 211, 238, 0.2));
+  }
+  .neon-glow-amber {
+    filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.5)) drop-shadow(0 0 22px rgba(251, 146, 60, 0.25));
+  }
+  .neon-ring-cyan {
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.35),
+      0 0 24px rgba(34, 211, 238, 0.18);
+  }
+  .neon-ring-purple {
+    box-shadow:
+      0 0 0 1px rgba(167, 139, 250, 0.45),
+      0 0 24px rgba(167, 139, 250, 0.22);
+  }
+}
+
+/* Respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
