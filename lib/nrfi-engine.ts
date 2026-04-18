@@ -102,9 +102,34 @@ export function computeWeatherMultiplier(weather: Weather): number {
 
 // ─── Recent Form Multiplier ───────────────────────────────────────────────────
 
-// last5Results is always [] — the MLB Stats API does not return per-start
-// first-inning breakdowns. Stub preserved for future wiring; always returns 1.0.
-const computeRecentFormMultiplier = (_home: Pitcher, _away: Pitcher): number => 1.0
+/**
+ * Returns a lambda multiplier based on how each pitcher's recent first-inning
+ * results compare to their season NRFI rate.
+ *
+ * Positive deviation (doing better recently) → multiplier < 1 → fewer expected runs
+ * Negative deviation (struggling recently)   → multiplier > 1 → more expected runs
+ *
+ * Requires ≥3 results from a pitcher to include them; falls back to 1.0
+ * if neither pitcher has enough data.
+ *
+ * Clamped to [0.85, 1.15] so recent form nudges but never dominates season stats.
+ */
+function computeRecentFormMultiplier(home: Pitcher, away: Pitcher): number {
+  const recentRate = (results: boolean[]): number | null =>
+    results.length >= 3 ? results.filter(Boolean).length / results.length : null
+
+  const homeRecent = recentRate(home.firstInning.last5Results)
+  const awayRecent = recentRate(away.firstInning.last5Results)
+
+  const deviations: number[] = []
+  if (homeRecent !== null) deviations.push(homeRecent - home.firstInning.nrfiRate)
+  if (awayRecent !== null) deviations.push(awayRecent - away.firstInning.nrfiRate)
+
+  if (deviations.length === 0) return 1.0
+
+  const avg = deviations.reduce((a, b) => a + b, 0) / deviations.length
+  return Math.max(0.85, Math.min(1.15, 1.0 - 0.30 * avg))
+}
 
 // ─── Lambda Computation ───────────────────────────────────────────────────────
 
