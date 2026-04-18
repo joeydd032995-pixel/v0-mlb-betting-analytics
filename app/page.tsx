@@ -21,7 +21,6 @@ import {
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
-import { AuthNav } from "@/components/auth-nav"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 
@@ -454,33 +453,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top header */}
-      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-500/20 text-emerald-400">
-              <Activity className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold leading-none tracking-tight text-foreground sm:text-base">
-                NRFI/YRFI Prediction Engine
-              </h1>
-              <p className="text-xs text-muted-foreground">Advanced Poisson Model · 2026 MLB Season</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
-              {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-            </span>
-            <span className="rounded-full border border-border/50 bg-muted/30 px-2.5 py-0.5 text-muted-foreground">
-              {todayGames.length} games
-            </span>
-            {/* Auth controls — Sign In / Sign Up for guests, UserButton for members */}
-            <AuthNav />
-          </div>
-        </div>
-      </header>
-
       {/* Main content */}
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
         {/* Stats header */}

@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
 import { ClerkProvider } from "@clerk/nextjs"
 import { Toaster } from "sonner"
+import { SiteHeader } from "@/components/site-header"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({
     <ClerkProvider afterSignOutUrl="/">
       <html lang="en" className="dark bg-background">
         <body className="font-sans antialiased">
+          <SiteHeader />
           {children}
 
           {/* Sonner toast portal — styled to match the dark navy theme.
