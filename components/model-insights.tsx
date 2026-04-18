@@ -6,6 +6,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AlertCircle, CheckCircle2, TrendingUp, BarChart3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+function NrfiYrfiBar({ nrfi, color }: { nrfi: number; color: string }) {
+  const yrfi = 100 - nrfi
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs font-semibold">
+        <span className="text-emerald-400">NRFI {nrfi}%</span>
+        <span className="text-rose-400">YRFI {yrfi}%</span>
+      </div>
+      <div className="h-2 w-full rounded-full overflow-hidden bg-rose-500/20">
+        <div
+          className={cn("h-full rounded-full transition-all", color)}
+          style={{ width: `${nrfi}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 interface ModelInsightsProps {
   userId: string | null
 }
@@ -107,6 +125,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           </CardContent>
         </Card>
 
+        {/* Scenario note */}
+        <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">Sample scenario used below: </span>
+          Two solid starters (home pitcher 72% NRFI rate, away pitcher 68%), pitcher-friendly park (0.95), slightly below-avg offense (0.95), 68°F, neutral weather. Each model's NRFI % and YRFI % is shown for this scenario.
+        </div>
+
         {/* Pre-processing: Bayesian Shrinkage */}
         <Card>
           <CardHeader>
@@ -162,6 +186,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Example:</span> Pitcher with 68% NRFI rate (θ̂) vs average offense, neutral park, 72°F → λ = −ln(0.68) = 0.385 → P(no score) = e^(−0.385) = 68%
             </div>
+            <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-sky-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={64} color="bg-sky-500" />
+            </div>
           </CardContent>
         </Card>
 
@@ -188,6 +216,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Example:</span> Elite strikeout pitcher (K% = 0.33) on a cold 45°F night → ω ≈ 0.38 (38% chance of a pure lockdown inning regardless of offense). Even if runs are possible (62% chance), Poisson still needs to produce 0 → combined P(NRFI) much higher than base Poisson.
+            </div>
+            <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-violet-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={67} color="bg-violet-500" />
             </div>
           </CardContent>
         </Card>
@@ -217,6 +249,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Why this matters:</span> Unlike Poisson, Markov captures sequence effects — a leadoff walk followed by a strikeout is different from two groundouts. It's the most realistic model for first-inning dynamics.
+            </div>
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={65} color="bg-amber-500" />
             </div>
           </CardContent>
         </Card>
@@ -251,6 +287,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Negative Binomial:</span> When total λ exceeds 0.8, run counts have overdispersion (variance &gt; mean). NegBin with r=1.3 handles this better than Poisson, producing P(NRFI) = (r / (r + λ))^r.
             </div>
+            <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-rose-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={62} color="bg-rose-500" />
+            </div>
           </CardContent>
         </Card>
 
@@ -273,6 +313,77 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <p><span className="text-foreground font-medium">Hot streak</span> (deviation +0.20) → formMult = 0.94 → lambda shrinks → more NRFI-friendly</p>
               <p><span className="text-foreground font-medium">Struggling</span> (deviation −0.30) → formMult = 1.09 → lambda grows → more YRFI-friendly</p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Combined Output */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Combined Model Output</CardTitle>
+            <CardDescription>How the four models are weighted and blended into the final NRFI / YRFI %</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+
+            {/* Per-model contribution table */}
+            <div className="rounded-lg border border-border/30 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/30 bg-muted/30">
+                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Model</th>
+                    <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Weight</th>
+                    <th className="text-center px-3 py-2 font-semibold text-emerald-400">NRFI %</th>
+                    <th className="text-center px-3 py-2 font-semibold text-rose-400">YRFI %</th>
+                    <th className="text-right px-3 py-2 font-semibold text-muted-foreground">Weighted</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {[
+                    { model: "Poisson",  color: "text-sky-400",    weight: "20%", nrfi: 64, yrfi: 36, weighted: 12.8 },
+                    { model: "ZIP",      color: "text-violet-400", weight: "30%", nrfi: 67, yrfi: 33, weighted: 20.1 },
+                    { model: "Markov",   color: "text-amber-400",  weight: "30%", nrfi: 65, yrfi: 35, weighted: 19.5 },
+                    { model: "MAPRE",    color: "text-rose-400",   weight: "20%", nrfi: 62, yrfi: 38, weighted: 12.4 },
+                  ].map((row) => (
+                    <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
+                      <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
+                      <td className="px-3 py-2 text-center text-muted-foreground">{row.weight}</td>
+                      <td className="px-3 py-2 text-center font-semibold text-emerald-400">{row.nrfi}%</td>
+                      <td className="px-3 py-2 text-center font-semibold text-rose-400">{row.yrfi}%</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{row.weighted.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/20 border-t border-border/40">
+                    <td className="px-3 py-2 font-bold text-foreground" colSpan={2}>Ensemble (sum)</td>
+                    <td className="px-3 py-2 text-center font-bold text-emerald-400">64.8%</td>
+                    <td className="px-3 py-2 text-center font-bold text-rose-400">35.2%</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">64.8%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Final blend */}
+            <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2 text-xs">
+              <p className="font-semibold text-foreground mb-2">Final blend (60% ensemble + 40% base Poisson)</p>
+              <p className="font-mono text-muted-foreground">P(NRFI) = 0.60 × 64.8% + 0.40 × 64.0% = 38.9% + 25.6% = <span className="text-emerald-400 font-bold">64.5%</span></p>
+              <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 64.5% = <span className="text-rose-400 font-bold">35.5%</span></p>
+            </div>
+
+            {/* Final output bar */}
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+              <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Final NRFI / YRFI %</p>
+              <NrfiYrfiBar nrfi={65} color="bg-gradient-to-r from-emerald-500 to-emerald-400" />
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-400">64.5%</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">NRFI</p>
+                </div>
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-center">
+                  <p className="text-2xl font-bold text-rose-400">35.5%</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">YRFI</p>
+                </div>
+              </div>
+            </div>
+
           </CardContent>
         </Card>
 
