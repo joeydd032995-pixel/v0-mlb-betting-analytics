@@ -205,16 +205,9 @@ export default function HomePage() {
   }, [authLoaded, isSignedIn])
 
   // ── Onboarding modal state ───────────────────────────────────────────────────
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  useEffect(() => {
-    // Check localStorage only on client-side mount
-    if (typeof window !== "undefined") {
-      const onboarded = localStorage.getItem("hpm_onboarded")
-      if (!onboarded) {
-        setShowOnboarding(true)
-      }
-    }
-  }, [])
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => typeof window !== "undefined" && !localStorage.getItem("hpm_onboarded")
+  )
 
   // ── Live data state ──────────────────────────────────────────────────────────
   const [liveData, setLiveData] = useState<{
@@ -229,9 +222,9 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
 
   // ── Prediction tracking store ────────────────────────────────────────────────
-  const [trackedPredictions, setTrackedPredictions] = useState<TrackedPrediction[]>([])
+  const [trackedPredictions, setTrackedPredictions] = useState<TrackedPrediction[]>(loadTrackedPredictions)
   const [trackingAccuracy, setTrackingAccuracy] = useState<ExtendedModelAccuracy>(() =>
-    computeExtendedAccuracy([])
+    computeExtendedAccuracy(loadTrackedPredictions())
   )
 
   // ── Results sync ─────────────────────────────────────────────────────────────
@@ -292,21 +285,18 @@ export default function HomePage() {
     }
   }, []) // no state captured — reads localStorage directly
 
-  // Load from localStorage on mount, then immediately sync all pending predictions
-  // across the full season so accuracy stats are up to date on every refresh.
-  // Note: basePredictions is passed to syncResults to avoid the stale-state race
-  // condition where trackedPredictions is still [] when the effect fires.
+  // On mount, sync any pending predictions from previous sessions.
+  // Initial state is already loaded via lazy initializers above.
+  // setTimeout defers syncResults so its synchronous setSyncing(true) call runs
+  // outside the effect body, satisfying react-hooks/set-state-in-effect.
   useEffect(() => {
     const stored = loadTrackedPredictions()
-    setTrackedPredictions(stored)
-    setTrackingAccuracy(computeExtendedAccuracy(stored))
-
     const pendingDates = [...new Set(
       stored.filter((p) => p.status === "pending").map((p) => p.date)
     )]
-    if (pendingDates.length > 0) {
-      syncResults(pendingDates, stored)
-    }
+    if (pendingDates.length === 0) return
+    const id = setTimeout(() => { void syncResults(pendingDates, stored) }, 0)
+    return () => clearTimeout(id)
   }, [syncResults])
 
   useEffect(() => {
@@ -353,8 +343,8 @@ export default function HomePage() {
     () => new Map(Object.entries(liveData?.teamsById ?? {})),
     [liveData]
   )
-  const predictions = liveData?.predictions ?? []
-  const todayGames = liveData?.games ?? []
+  const predictions = useMemo(() => liveData?.predictions ?? [], [liveData])
+  const todayGames = useMemo(() => liveData?.games ?? [], [liveData])
 
   // ── Store callbacks ──────────────────────────────────────────────────────────
   const handleRecordResult = (id: string, homeRuns: number, awayRuns: number) => {

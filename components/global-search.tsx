@@ -4,7 +4,7 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dialog,
@@ -25,8 +25,6 @@ import { Loader2, Search } from "lucide-react"
 export function GlobalSearch() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [searching, setSearching] = useState(false)
   const [dataLoaded, setDataLoaded] = useState(false)
 
   const [games, setGames] = useState<Game[]>([])
@@ -63,11 +61,7 @@ export function GlobalSearch() {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault()
         setOpen((prev) => {
-          if (!prev) {
-            // Opening dialog, clear search
-            setQuery("")
-            setResults([])
-          }
+          if (!prev) setQuery("")
           return !prev
         })
       }
@@ -77,23 +71,12 @@ export function GlobalSearch() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [])
 
-  // Debounced search
-  useEffect(() => {
-    if (!query.trim() || !dataLoaded) {
-      setResults([])
-      return
-    }
-
-    setSearching(true)
-    const timer = setTimeout(() => {
-      const gameResults = searchGames(query, games, predictions, pitchersById)
-      const pitcherResults = searchPitchers(query, pitchers)
-      setResults([...gameResults, ...pitcherResults].slice(0, 10))
-      setSearching(false)
-    }, 100)
-
-    return () => clearTimeout(timer)
-  }, [query, games, predictions, pitchers, pitchersById, dataLoaded])
+  const results = useMemo(() => {
+    if (!query.trim() || !dataLoaded) return []
+    const gameResults = searchGames(query, games, predictions, pitchersById)
+    const pitcherResults = searchPitchers(query, pitchers)
+    return [...gameResults, ...pitcherResults].slice(0, 10)
+  }, [query, dataLoaded, games, predictions, pitchers, pitchersById])
 
   const handleSelect = (result: SearchResult) => {
     if (result.type === "game") {
@@ -106,7 +89,6 @@ export function GlobalSearch() {
     }
     setOpen(false)
     setQuery("")
-    setResults([])
   }
 
   return (
@@ -122,10 +104,6 @@ export function GlobalSearch() {
           />
           <CommandList>
             {!dataLoaded ? (
-              <div className="flex items-center justify-center py-6">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : searching ? (
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>

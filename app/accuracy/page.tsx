@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { AccuracyDashboard } from "@/components/accuracy-dashboard"
 import {
   loadTrackedPredictions,
@@ -10,16 +10,9 @@ import {
 import { BarChart3 } from "lucide-react"
 
 export default function AccuracyPage() {
-  const [accuracy, setAccuracy] = useState<ExtendedModelAccuracy | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    // Load tracked predictions from localStorage and compute accuracy
-    const predictions = loadTrackedPredictions()
-    const computed = computeExtendedAccuracy(predictions)
-    setAccuracy(computed)
-    setLoading(false)
-  }, [])
+  const [accuracy] = useState<ExtendedModelAccuracy>(() =>
+    computeExtendedAccuracy(loadTrackedPredictions())
+  )
 
   return (
     <div className="min-h-screen bg-background">
@@ -40,13 +33,7 @@ export default function AccuracyPage() {
         </div>
 
         {/* Dashboard */}
-        {loading ? (
-          <div className="rounded-lg border border-border/30 bg-card/50 p-8 text-center">
-            <p className="text-sm text-muted-foreground">Loading accuracy data...</p>
-          </div>
-        ) : accuracy ? (
-          <AccuracyDashboard accuracy={accuracy} />
-        ) : null}
+        <AccuracyDashboard accuracy={accuracy} />
       </main>
     </div>
   )

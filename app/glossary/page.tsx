@@ -3,6 +3,7 @@
 // Server component for SEO optimization.
 
 import { Metadata } from "next"
+import Link from "next/link"
 import { METRIC_GLOSSARY } from "@/lib/types"
 
 export const metadata: Metadata = {
@@ -72,12 +73,12 @@ export default function GlossaryPage() {
 
         {/* Back to dashboard link */}
         <div className="mt-8 text-center">
-          <a
+          <Link
             href="/"
             className="inline-block rounded-md border border-primary/50 bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
           >
             ← Back to Dashboard
-          </a>
+          </Link>
         </div>
       </main>
     </div>

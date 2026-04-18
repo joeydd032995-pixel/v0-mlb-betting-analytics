@@ -70,14 +70,14 @@ export function WeatherSimulator() {
   const parkFactor = stadium?.parkFactor || 1.0
   const estimatedNrfi = estimateNrfiChange(baseNrfi, weatherMult)
 
-  const windLabel = {
-    headwind: "Headwind (out)",
-    neutral: "No wind",
-    tailwind: "Tailwind (in)",
-  }[weather.windDirection as WindDirection]
-
   const weatherFactors = useMemo(
-    () => [
+    () => {
+      const windLabel = {
+        headwind: "Headwind (out)",
+        neutral: "No wind",
+        tailwind: "Tailwind (in)",
+      }[weather.windDirection as WindDirection]
+      return [
       {
         label: "Wind",
         value: `${weather.windSpeed} mph ${windLabel}`,
@@ -96,7 +96,8 @@ export function WeatherSimulator() {
         multiplier: getHumidityMultiplier(weather.humidity),
         icon: Droplets,
       },
-    ],
+      ]
+    },
     [weather]
   )
 

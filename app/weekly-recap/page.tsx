@@ -13,7 +13,7 @@ export default function WeeklyRecapPage() {
             <div>
               <h1 className="text-3xl font-bold text-foreground">Weekly Recap</h1>
               <p className="text-sm text-muted-foreground">
-                This week's model performance and insights
+                This week&apos;s model performance and insights
               </p>
             </div>
           </div>

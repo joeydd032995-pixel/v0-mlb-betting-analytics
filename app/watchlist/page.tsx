@@ -26,7 +26,7 @@ export default async function WatchlistPage() {
             <div>
               <h1 className="text-3xl font-bold text-foreground">My Watchlist</h1>
               <p className="text-sm text-muted-foreground">
-                Games you're tracking for betting decisions.
+                Games you&apos;re tracking for betting decisions.
               </p>
             </div>
           </div>

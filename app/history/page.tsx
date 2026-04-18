@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HistoryTable } from "@/components/history-table"
 import {
   loadTrackedPredictions,
@@ -10,28 +10,18 @@ import {
 } from "@/lib/prediction-store"
 import { Calendar } from "lucide-react"
 
+function defaultDateRange() {
+  const today = new Date()
+  const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000)
+  return { from: ninetyDaysAgo, to: today }
+}
+
 export default function HistoryPage() {
-  const [predictions, setPredictions] = useState<TrackedPrediction[]>([])
-  const [accuracy, setAccuracy] = useState<ExtendedModelAccuracy | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(null)
-
-  useEffect(() => {
-    // Load tracked predictions from localStorage
-    const loaded = loadTrackedPredictions()
-    setPredictions(loaded)
-    setAccuracy(computeExtendedAccuracy(loaded))
-
-    // Set default date range to last 90 days
-    const today = new Date()
-    const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000)
-    setDateRange({
-      from: ninetyDaysAgo,
-      to: today,
-    })
-
-    setLoading(false)
-  }, [])
+  const [predictions] = useState<TrackedPrediction[]>(loadTrackedPredictions)
+  const [accuracy] = useState<ExtendedModelAccuracy>(() =>
+    computeExtendedAccuracy(loadTrackedPredictions())
+  )
+  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(defaultDateRange)
 
   const handleDateRangeChange = (days: number | null) => {
     if (days === null) {
@@ -94,29 +84,18 @@ export default function HistoryPage() {
         </div>
 
         {/* History table */}
-        {loading ? (
-          <div className="rounded-lg border border-border/30 bg-card/50 p-8 text-center">
-            <p className="text-sm text-muted-foreground">Loading prediction history...</p>
-          </div>
-        ) : accuracy ? (
-          <HistoryTable
-            predictions={predictions}
-            accuracy={accuracy}
-            onRecordResult={(id, homeRuns, awayRuns) => {
-              // This would typically be handled by the parent component
-              // For now, we'll just show a placeholder
-              console.log(`Record result for ${id}: ${homeRuns}-${awayRuns}`)
-            }}
-            onDelete={(id) => {
-              // This would typically be handled by the parent component
-              console.log(`Delete prediction ${id}`)
-            }}
-            dateRange={dateRange || undefined}
-            onExportCSV={() => {
-              // Export is handled within HistoryTable
-            }}
-          />
-        ) : null}
+        <HistoryTable
+          predictions={predictions}
+          accuracy={accuracy}
+          onRecordResult={(id, homeRuns, awayRuns) => {
+            console.log(`Record result for ${id}: ${homeRuns}-${awayRuns}`)
+          }}
+          onDelete={(id) => {
+            console.log(`Delete prediction ${id}`)
+          }}
+          dateRange={dateRange || undefined}
+          onExportCSV={() => {}}
+        />
       </main>
     </div>
   )

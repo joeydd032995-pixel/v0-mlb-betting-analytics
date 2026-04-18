@@ -72,7 +72,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <div className="rounded-lg border border-border/30 bg-card/50 p-4">
                 <p className="font-mono text-sm text-muted-foreground mb-3">λ = −ln(pitcherNrfiRate) × offenseFactor × parkFactor × weatherMultiplier × formMultiplier</p>
                 <p className="text-sm text-muted-foreground">
-                  Each team's expected first-inning runs (λ) is calculated by starting with the pitcher's historical NRFI rate and adjusting for contextual factors.
+                  Each team&apos;s expected first-inning runs (λ) is calculated by starting with the pitcher&apos;s historical NRFI rate and adjusting for contextual factors.
                 </p>
               </div>
 
@@ -353,7 +353,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-400">•</span>
-                <span>Recent form (last 5 games) counts for 30% of pitcher's effective rate</span>
+                <span>Recent form (last 5 games) counts for 30% of pitcher&apos;s effective rate</span>
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-400">•</span>

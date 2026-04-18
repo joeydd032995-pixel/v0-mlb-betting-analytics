@@ -29,7 +29,7 @@ const steps = [
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground leading-relaxed">
           NRFI bets that <strong>neither team scores a run in the first inning</strong>.
-          It's a quick, high-value bet that settles in the first 30 minutes of the game.
+          It&apos;s a quick, high-value bet that settles in the first 30 minutes of the game.
         </p>
         <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 space-y-2">
           <p className="text-xs font-semibold text-emerald-400">Why bet NRFI?</p>
@@ -72,7 +72,7 @@ const steps = [
       <div className="space-y-4">
         <div className="space-y-3 text-sm">
           <div>
-            <p className="font-semibold text-foreground mb-1">📊 Today's Games</p>
+            <p className="font-semibold text-foreground mb-1">📊 Today&apos;s Games</p>
             <p className="text-xs text-muted-foreground">
               Card view of all matchups with NRFI/YRFI probability, recent form, and value bets.
             </p>
