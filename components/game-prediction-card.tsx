@@ -473,19 +473,135 @@ export function GamePredictionCard({
           )}
         </TabsContent>
 
-        {/* Historical Tab - placeholder */}
-        <TabsContent value="historical" className="mt-0 flex-1 border-t border-border/30 p-4">
-          <p className="text-xs text-muted-foreground italic">Historical matchup data coming soon</p>
+        {/* Historical Tab */}
+        <TabsContent value="historical" className="mt-0 flex-1 border-t border-border/30 p-4 space-y-3">
+          <div className="rounded-md bg-muted/30 p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Matchup History</p>
+            <p className="text-xs text-muted-foreground">
+              Head-to-head records between {awayTeam.abbreviation} and {homeTeam.abbreviation} from previous seasons coming soon.
+            </p>
+          </div>
+          <div className="rounded-md bg-muted/30 p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Recent Series</p>
+            <p className="text-xs text-muted-foreground">
+              Last 10 games between these teams and NRFI/YRFI results will appear here.
+            </p>
+          </div>
         </TabsContent>
 
-        {/* Pitchers Tab - placeholder */}
+        {/* Pitchers Tab */}
         <TabsContent value="pitchers" className="mt-0 flex-1 border-t border-border/30 p-4">
-          <p className="text-xs text-muted-foreground italic">Pitcher comparison coming soon</p>
+          <div className="space-y-3">
+            {/* Away pitcher */}
+            <div className="rounded-md border border-border/40 bg-muted/10 p-3">
+              <div className="mb-2">
+                <p className="text-sm font-bold text-foreground">{awayTeam.abbreviation}: {awayPitcher.name}</p>
+                <p className="text-xs text-muted-foreground">{awayPitcher.throws}HP · {awayPitcher.firstInning.startCount} starts</p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                <div>
+                  <p className="text-muted-foreground">NRFI Rate</p>
+                  <p className="font-semibold text-foreground">{pct(awayPitcher.firstInning.nrfiRate)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">K Rate</p>
+                  <p className="font-semibold text-foreground">{pct(awayPitcher.firstInning.kRate)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">BB Rate</p>
+                  <p className="font-semibold text-foreground">{pct(awayPitcher.firstInning.bbRate)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Era</p>
+                  <p className="font-semibold text-foreground">{awayPitcher.firstInning.era.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="mt-2 pt-2 border-t border-border/30">
+                <p className="text-xs text-muted-foreground mb-1">Last 5 games (NRFI)</p>
+                <div className="flex gap-1">
+                  {awayPitcher.firstInning.last5Results.map((r, i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        "h-5 w-5 rounded-sm text-[10px] font-bold flex items-center justify-center",
+                        r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                      )}
+                    >
+                      {r ? "N" : "Y"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Home pitcher */}
+            <div className="rounded-md border border-border/40 bg-muted/10 p-3">
+              <div className="mb-2">
+                <p className="text-sm font-bold text-foreground">{homeTeam.abbreviation}: {homePitcher.name}</p>
+                <p className="text-xs text-muted-foreground">{homePitcher.throws}HP · {homePitcher.firstInning.startCount} starts</p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                <div>
+                  <p className="text-muted-foreground">NRFI Rate</p>
+                  <p className="font-semibold text-foreground">{pct(homePitcher.firstInning.nrfiRate)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">K Rate</p>
+                  <p className="font-semibold text-foreground">{pct(homePitcher.firstInning.kRate)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">BB Rate</p>
+                  <p className="font-semibold text-foreground">{pct(homePitcher.firstInning.bbRate)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Era</p>
+                  <p className="font-semibold text-foreground">{homePitcher.firstInning.era.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="mt-2 pt-2 border-t border-border/30">
+                <p className="text-xs text-muted-foreground mb-1">Last 5 games (NRFI)</p>
+                <div className="flex gap-1">
+                  {homePitcher.firstInning.last5Results.map((r, i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        "h-5 w-5 rounded-sm text-[10px] font-bold flex items-center justify-center",
+                        r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                      )}
+                    >
+                      {r ? "N" : "Y"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </TabsContent>
 
-        {/* Accuracy Tab - placeholder */}
-        <TabsContent value="accuracy" className="mt-0 flex-1 border-t border-border/30 p-4">
-          <p className="text-xs text-muted-foreground italic">Game result and accuracy data coming soon</p>
+        {/* Accuracy Tab */}
+        <TabsContent value="accuracy" className="mt-0 flex-1 border-t border-border/30 p-4 space-y-3">
+          <div className="rounded-md border border-border/40 bg-muted/10 p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Game Result</p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{awayTeam.abbreviation} runs (1st inning)</span>
+                <span className="font-mono font-semibold text-foreground">—</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{homeTeam.abbreviation} runs (1st inning)</span>
+                <span className="font-mono font-semibold text-foreground">—</span>
+              </div>
+              <div className="flex items-center justify-between text-xs pt-2 border-t border-border/30">
+                <span className="text-muted-foreground">Prediction Accuracy</span>
+                <span className="font-semibold text-muted-foreground">Pending</span>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-md bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground italic">
+              Game result will be recorded after the first inning concludes. Accuracy metrics will be calculated automatically.
+            </p>
+          </div>
         </TabsContent>
       </Tabs>
     </Card>
