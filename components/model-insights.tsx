@@ -1,10 +1,58 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, CheckCircle2, TrendingUp, BarChart3 } from "lucide-react"
+import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+// ─── Performance API types ────────────────────────────────────────────────────
+
+interface ConfGroup { total: number; correct: number; accuracy: number }
+interface ModelStat  { accuracy: number; mae: number; total: number; correct: number }
+
+interface MonthRow {
+  key: string
+  label: string
+  totalGames: number
+  nrfiGames: number
+  nrfiRate: number
+  predictions: number
+  correctPredictions: number
+  accuracy: number | null
+}
+
+interface PerformanceData {
+  hasData: boolean
+  totalGames: number
+  nrfiGames: number
+  nrfiRate: number
+  totalPredictions: number
+  totalCorrect: number
+  accuracy: number
+  byConfidence: { High: ConfGroup | null; Medium: ConfGroup | null; Low: ConfGroup | null }
+  perModel: { Poisson: ModelStat; ZIP: ModelStat; Markov: ModelStat; Ensemble: ModelStat } | null
+  monthly: MonthRow[]
+  syncStatus: { totalGames: number; totalPredictions: number; latestDate: string | null }
+}
+
+function NrfiYrfiBar({ nrfi, color }: { nrfi: number; color: string }) {
+  const yrfi = 100 - nrfi
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs font-semibold">
+        <span className="text-emerald-400">NRFI {nrfi}%</span>
+        <span className="text-rose-400">YRFI {yrfi}%</span>
+      </div>
+      <div className="h-2 w-full rounded-full overflow-hidden bg-rose-500/20">
+        <div
+          className={cn("h-full rounded-full transition-all", color)}
+          style={{ width: `${nrfi}%` }}
+        />
+      </div>
+    </div>
+  )
+}
 
 interface ModelInsightsProps {
   userId: string | null
@@ -12,6 +60,43 @@ interface ModelInsightsProps {
 
 export function ModelInsights({ userId }: ModelInsightsProps) {
   const [selectedFactor, setSelectedFactor] = useState<string>("pitcher")
+
+  // ── Performance tab state ──────────────────────────────────────────────
+  const [perfData,    setPerfData]    = useState<PerformanceData | null>(null)
+  const [perfLoading, setPerfLoading] = useState(false)
+  const [syncYear,    setSyncYear]    = useState<number | null>(null)
+  const [syncProgress, setSyncProgress] = useState<string>("")
+
+  const loadPerformance = useCallback(async () => {
+    setPerfLoading(true)
+    try {
+      const res  = await fetch("/api/performance")
+      const data = await res.json()
+      setPerfData(data)
+    } catch (e) {
+      console.error("[ModelInsights] performance fetch error:", e)
+    } finally {
+      setPerfLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadPerformance() }, [loadPerformance])
+
+  async function syncSeason(year: number, months: number[]) {
+    setSyncYear(year)
+    for (let i = 0; i < months.length; i++) {
+      const m = months[i]
+      setSyncProgress(`Syncing ${new Date(year, m - 1, 1).toLocaleString("en-US", { month: "short" })} ${year}… (${i + 1}/${months.length})`)
+      try {
+        await fetch(`/api/historical-sync?year=${year}&month=${m}`)
+      } catch { /* non-fatal – continue */ }
+    }
+    setSyncYear(null)
+    setSyncProgress("")
+    await loadPerformance()
+  }
+
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`
 
   const factors = [
     {
@@ -107,6 +192,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           </CardContent>
         </Card>
 
+        {/* Scenario note */}
+        <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">Sample scenario used below: </span>
+          Two solid starters (home pitcher 72% NRFI rate, away pitcher 68%), pitcher-friendly park (0.95), slightly below-avg offense (0.95), 68°F, neutral weather. Each model's NRFI % and YRFI % is shown for this scenario.
+        </div>
+
         {/* Pre-processing: Bayesian Shrinkage */}
         <Card>
           <CardHeader>
@@ -162,6 +253,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Example:</span> Pitcher with 68% NRFI rate (θ̂) vs average offense, neutral park, 72°F → λ = −ln(0.68) = 0.385 → P(no score) = e^(−0.385) = 68%
             </div>
+            <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-sky-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={64} color="bg-sky-500" />
+            </div>
           </CardContent>
         </Card>
 
@@ -188,6 +283,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Example:</span> Elite strikeout pitcher (K% = 0.33) on a cold 45°F night → ω ≈ 0.38 (38% chance of a pure lockdown inning regardless of offense). Even if runs are possible (62% chance), Poisson still needs to produce 0 → combined P(NRFI) much higher than base Poisson.
+            </div>
+            <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-violet-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={67} color="bg-violet-500" />
             </div>
           </CardContent>
         </Card>
@@ -217,6 +316,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Why this matters:</span> Unlike Poisson, Markov captures sequence effects — a leadoff walk followed by a strikeout is different from two groundouts. It's the most realistic model for first-inning dynamics.
+            </div>
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={65} color="bg-amber-500" />
             </div>
           </CardContent>
         </Card>
@@ -251,6 +354,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Negative Binomial:</span> When total λ exceeds 0.8, run counts have overdispersion (variance &gt; mean). NegBin with r=1.3 handles this better than Poisson, producing P(NRFI) = (r / (r + λ))^r.
             </div>
+            <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-rose-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={62} color="bg-rose-500" />
+            </div>
           </CardContent>
         </Card>
 
@@ -273,6 +380,77 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <p><span className="text-foreground font-medium">Hot streak</span> (deviation +0.20) → formMult = 0.94 → lambda shrinks → more NRFI-friendly</p>
               <p><span className="text-foreground font-medium">Struggling</span> (deviation −0.30) → formMult = 1.09 → lambda grows → more YRFI-friendly</p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Combined Output */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Combined Model Output</CardTitle>
+            <CardDescription>How the four models are weighted and blended into the final NRFI / YRFI %</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+
+            {/* Per-model contribution table */}
+            <div className="rounded-lg border border-border/30 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/30 bg-muted/30">
+                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Model</th>
+                    <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Weight</th>
+                    <th className="text-center px-3 py-2 font-semibold text-emerald-400">NRFI %</th>
+                    <th className="text-center px-3 py-2 font-semibold text-rose-400">YRFI %</th>
+                    <th className="text-right px-3 py-2 font-semibold text-muted-foreground">Weighted</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {[
+                    { model: "Poisson",  color: "text-sky-400",    weight: "20%", nrfi: 64, yrfi: 36, weighted: 12.8 },
+                    { model: "ZIP",      color: "text-violet-400", weight: "30%", nrfi: 67, yrfi: 33, weighted: 20.1 },
+                    { model: "Markov",   color: "text-amber-400",  weight: "30%", nrfi: 65, yrfi: 35, weighted: 19.5 },
+                    { model: "MAPRE",    color: "text-rose-400",   weight: "20%", nrfi: 62, yrfi: 38, weighted: 12.4 },
+                  ].map((row) => (
+                    <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
+                      <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
+                      <td className="px-3 py-2 text-center text-muted-foreground">{row.weight}</td>
+                      <td className="px-3 py-2 text-center font-semibold text-emerald-400">{row.nrfi}%</td>
+                      <td className="px-3 py-2 text-center font-semibold text-rose-400">{row.yrfi}%</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{row.weighted.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/20 border-t border-border/40">
+                    <td className="px-3 py-2 font-bold text-foreground" colSpan={2}>Ensemble (sum)</td>
+                    <td className="px-3 py-2 text-center font-bold text-emerald-400">64.8%</td>
+                    <td className="px-3 py-2 text-center font-bold text-rose-400">35.2%</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">64.8%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Final blend */}
+            <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2 text-xs">
+              <p className="font-semibold text-foreground mb-2">Final blend (60% ensemble + 40% base Poisson)</p>
+              <p className="font-mono text-muted-foreground">P(NRFI) = 0.60 × 64.8% + 0.40 × 64.0% = 38.9% + 25.6% = <span className="text-emerald-400 font-bold">64.5%</span></p>
+              <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 64.5% = <span className="text-rose-400 font-bold">35.5%</span></p>
+            </div>
+
+            {/* Final output bar */}
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+              <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Final NRFI / YRFI %</p>
+              <NrfiYrfiBar nrfi={65} color="bg-gradient-to-r from-emerald-500 to-emerald-400" />
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-400">64.5%</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">NRFI</p>
+                </div>
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-center">
+                  <p className="text-2xl font-bold text-rose-400">35.5%</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">YRFI</p>
+                </div>
+              </div>
+            </div>
+
           </CardContent>
         </Card>
 
@@ -321,113 +499,286 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       </TabsContent>
 
       <TabsContent value="performance" className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-emerald-400" />
-                Overall Accuracy
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">All Predictions</p>
-                  <p className="text-3xl font-bold text-foreground">58.2%</p>
-                  <p className="text-xs text-muted-foreground mt-1">10,847 total predictions</p>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
-                  <div className="h-full w-[58.2%] bg-emerald-500" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-sky-400" />
-                High-Confidence Only
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Confidence ≥68</p>
-                  <p className="text-3xl font-bold text-foreground">64.1%</p>
-                  <p className="text-xs text-muted-foreground mt-1">3,642 predictions</p>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
-                  <div className="h-full w-[64.1%] bg-sky-500" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
+        {/* ── Data Sync panel ─────────────────────────────────────────── */}
         <Card>
           <CardHeader>
-            <CardTitle>Accuracy by Confidence Level</CardTitle>
-            <CardDescription>Model performance improves at higher confidence thresholds</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-muted-foreground" />
+              Historical Data Sync
+            </CardTitle>
+            <CardDescription>
+              Pulls first-inning results from the MLB Stats API into the database.
+              2024–2025 use current-season pitcher stats as proxy (backtested). 2026 is live.
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+          <CardContent className="space-y-4">
+            {perfData && (
+              <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalGames.toLocaleString()}</span> games in DB</span>
+                <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalPredictions.toLocaleString()}</span> predictions</span>
+                {perfData.syncStatus.latestDate && (
+                  <span>through <span className="font-semibold text-foreground">{perfData.syncStatus.latestDate}</span></span>
+                )}
+              </div>
+            )}
+            {syncProgress && (
+              <div className="flex items-center gap-2 text-xs text-amber-400">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                {syncProgress}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
               {[
-                { level: "High (≥68)", accuracy: 64.1, color: "emerald", count: 3642 },
-                { level: "Medium (45–67)", accuracy: 56.3, color: "amber", count: 4205 },
-                { level: "Low (<45)", accuracy: 51.8, color: "rose", count: 3000 },
-              ].map((item) => (
-                <div key={item.level} className="flex items-center gap-3">
-                  <div className="w-24">
-                    <p className="text-xs font-medium text-muted-foreground">{item.level}</p>
-                    <p className="text-xs text-muted-foreground">{item.count.toLocaleString()}</p>
-                  </div>
-                  <div className="flex-1">
-                    <div className="h-2 rounded-full bg-border/30 overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full transition-all",
-                          item.color === "emerald" && "bg-emerald-500",
-                          item.color === "amber" && "bg-amber-500",
-                          item.color === "rose" && "bg-rose-500"
-                        )}
-                        style={{ width: `${item.accuracy}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="w-12 text-right">
-                    <p className="text-sm font-semibold text-foreground">{item.accuracy.toFixed(1)}%</p>
-                  </div>
-                </div>
+                { label: "2024 Season", year: 2024, months: [3,4,5,6,7,8,9] },
+                { label: "2025 Season", year: 2025, months: [3,4,5,6,7,8,9,10] },
+                { label: "2026 YTD",    year: 2026, months: Array.from({ length: new Date().getMonth() + 1 }, (_, i) => i + 1) },
+              ].map(({ label, year, months }) => (
+                <button
+                  key={year}
+                  disabled={syncYear !== null}
+                  onClick={() => syncSeason(year, months)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                    syncYear === year
+                      ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
+                      : "border-border/40 bg-card/50 text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                >
+                  {syncYear === year && <RefreshCw className="h-3 w-3 animate-spin" />}
+                  {label}
+                </button>
               ))}
+              <button
+                disabled={perfLoading || syncYear !== null}
+                onClick={loadPerformance}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/40 bg-card/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={cn("h-3 w-3", perfLoading && "animate-spin")} />
+                Refresh
+              </button>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Monthly ROI</CardTitle>
-            <CardDescription>Using flat-stake Kelly Criterion sizing (25% fractional)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[
-                { month: "March 2026", roi: 12.3 },
-                { month: "February 2026", roi: 8.7 },
-                { month: "January 2026", roi: 5.4 },
-                { month: "December 2025", roi: -2.1 },
-                { month: "November 2025", roi: 15.2 },
-              ].map((item) => (
-                <div key={item.month} className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">{item.month}</p>
-                  <p className={cn("text-sm font-semibold", item.roi > 0 ? "text-emerald-400" : "text-rose-400")}>
-                    {item.roi > 0 ? "+" : ""}{item.roi.toFixed(1)}%
-                  </p>
-                </div>
-              ))}
+        {/* ── No data state ────────────────────────────────────────────── */}
+        {!perfLoading && perfData && !perfData.hasData && (
+          <div className="rounded-lg border border-border/30 bg-muted/10 p-8 text-center space-y-2">
+            <Database className="h-8 w-8 text-muted-foreground mx-auto" />
+            <p className="text-sm font-medium text-foreground">No data synced yet</p>
+            <p className="text-xs text-muted-foreground">Use the sync buttons above to load historical first-inning results from 2024 to today.</p>
+          </div>
+        )}
+
+        {/* ── Stat cards ───────────────────────────────────────────────── */}
+        {perfData?.hasData && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-emerald-400" />
+                    Historical NRFI Rate
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Actual first-inning NRFI</p>
+                    <p className="text-3xl font-bold text-emerald-400">{pct(perfData.nrfiRate)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{perfData.totalGames.toLocaleString()} games · {perfData.nrfiGames.toLocaleString()} NRFI</p>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
+                    <div className="h-full bg-emerald-500" style={{ width: pct(perfData.nrfiRate) }} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-sky-400" />
+                    Model Accuracy
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {perfData.totalPredictions > 0 ? (
+                    <>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">All predictions</p>
+                        <p className="text-3xl font-bold text-sky-400">{pct(perfData.accuracy)}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{perfData.totalPredictions.toLocaleString()} predictions · {perfData.totalCorrect.toLocaleString()} correct</p>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
+                        <div className="h-full bg-sky-500" style={{ width: pct(perfData.accuracy) }} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Sync data to see model accuracy.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-violet-400" />
+                    High-Confidence
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {perfData.byConfidence.High ? (
+                    <>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Confidence ≥68</p>
+                        <p className="text-3xl font-bold text-violet-400">{pct(perfData.byConfidence.High.accuracy)}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{perfData.byConfidence.High.total.toLocaleString()} predictions</p>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
+                        <div className="h-full bg-violet-500" style={{ width: pct(perfData.byConfidence.High.accuracy) }} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No high-confidence predictions yet.</p>
+                  )}
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
+
+            {/* Accuracy by confidence */}
+            {perfData.totalPredictions > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Accuracy by Confidence Level</CardTitle>
+                  <CardDescription>Higher-confidence predictions are more accurate</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(["High", "Medium", "Low"] as const).map((level) => {
+                    const d = perfData.byConfidence[level]
+                    const colors = { High: "emerald", Medium: "amber", Low: "rose" } as const
+                    const color  = colors[level]
+                    const acc    = d?.accuracy ?? 0
+                    return (
+                      <div key={level} className="flex items-center gap-3">
+                        <div className="w-28">
+                          <p className="text-xs font-medium text-muted-foreground">{level}</p>
+                          <p className="text-xs text-muted-foreground">{d ? d.total.toLocaleString() : "—"}</p>
+                        </div>
+                        <div className="flex-1">
+                          <div className="h-2 rounded-full bg-border/30 overflow-hidden">
+                            <div
+                              className={cn(
+                                "h-full transition-all",
+                                color === "emerald" && "bg-emerald-500",
+                                color === "amber"   && "bg-amber-500",
+                                color === "rose"    && "bg-rose-500",
+                              )}
+                              style={{ width: d ? pct(acc) : "0%" }}
+                            />
+                          </div>
+                        </div>
+                        <div className="w-12 text-right">
+                          <p className="text-sm font-semibold text-foreground">{d ? pct(acc) : "—"}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Per-model accuracy */}
+            {perfData.perModel && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Per-Model Accuracy</CardTitle>
+                  <CardDescription>How each model performs independently vs the final ensemble</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-lg border border-border/30 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/30 bg-muted/30">
+                          <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Model</th>
+                          <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Correct</th>
+                          <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Accuracy</th>
+                          <th className="text-right px-3 py-2 font-semibold text-muted-foreground">MAE</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {(["Poisson", "ZIP", "Markov", "Ensemble"] as const).map((name) => {
+                          const m = perfData.perModel![name]
+                          const colors = { Poisson: "text-sky-400", ZIP: "text-violet-400", Markov: "text-amber-400", Ensemble: "text-emerald-400" }
+                          return (
+                            <tr key={name} className="bg-card/30">
+                              <td className={cn("px-3 py-2 font-semibold", colors[name])}>{name}</td>
+                              <td className="px-3 py-2 text-center text-muted-foreground">{m?.correct ?? "—"}/{m?.total ?? "—"}</td>
+                              <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Monthly breakdown */}
+            {perfData.monthly.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Monthly Breakdown</CardTitle>
+                  <CardDescription>Actual NRFI rate and model accuracy per month (2024–present)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-lg border border-border/30 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/30 bg-muted/30">
+                          <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Month</th>
+                          <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Games</th>
+                          <th className="text-center px-3 py-2 font-semibold text-emerald-400">NRFI Rate</th>
+                          <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Predictions</th>
+                          <th className="text-right px-3 py-2 font-semibold text-sky-400">Model Acc.</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {[...perfData.monthly].reverse().map((row) => (
+                          <tr key={row.key} className="bg-card/30 hover:bg-card/50 transition-colors">
+                            <td className="px-3 py-2 text-muted-foreground">{row.label}</td>
+                            <td className="px-3 py-2 text-center text-muted-foreground">{row.totalGames}</td>
+                            <td className="px-3 py-2 text-center">
+                              <span className={cn("font-semibold", row.nrfiRate >= 0.62 ? "text-emerald-400" : "text-rose-400")}>
+                                {pct(row.nrfiRate)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center text-muted-foreground">{row.predictions || "—"}</td>
+                            <td className="px-3 py-2 text-right">
+                              {row.accuracy !== null ? (
+                                <span className={cn("font-semibold", row.accuracy >= 0.55 ? "text-sky-400" : "text-rose-400")}>
+                                  {pct(row.accuracy)}
+                                </span>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+
+        {perfLoading && !perfData && (
+          <div className="flex items-center justify-center py-12 text-muted-foreground text-sm gap-2">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Loading performance data…
+          </div>
+        )}
+
       </TabsContent>
 
       <TabsContent value="factors" className="space-y-6">

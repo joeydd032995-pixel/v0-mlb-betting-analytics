@@ -44,3 +44,49 @@ model Bankroll {
 
   @@map("bankroll")
 }
+
+model GameResult {
+  gamePk   Int      @id
+  date     String
+  season   Int
+  homeTeam String
+  awayTeam String
+  homeRuns Int
+  awayRuns Int
+  nrfi     Boolean
+  syncedAt DateTime @default(now())
+
+  @@index([date])
+  @@index([season])
+  @@map("game_results")
+}
+
+model ModelPrediction {
+  id              String   @id
+  date            String
+  season          Int
+  homeTeam        String
+  awayTeam        String
+  homePitcher     String   @default("")
+  awayPitcher     String   @default("")
+  nrfiProbability Float
+  prediction      String
+  confidence      String
+  confidenceScore Float
+  poissonNrfi     Float
+  zipNrfi         Float
+  markovNrfi      Float
+  ensembleNrfi    Float
+  modelConsensus  Float    @default(0.5)
+  actualResult    String?
+  correct         Boolean?
+  status          String   @default("pending")
+  backtested      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([date])
+  @@index([season])
+  @@index([status])
+  @@map("model_predictions")
+}
