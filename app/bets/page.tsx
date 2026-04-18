@@ -1,42 +1,20 @@
-"use client"
-
-import { useEffect, useState } from "react"
-import { useAuth } from "@clerk/nextjs"
-import { createBrowserClientSide, type Bet } from "@/lib/supabase"
-import { TrendingUp, TrendingDown, Clock, DollarSign } from "lucide-react"
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
+import { Clock, DollarSign } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { prisma } from "@/lib/prisma"
 
-export default function BetsPage() {
-  const { isLoaded, userId } = useAuth()
-  const [bets, setBets] = useState<Bet[]>([])
-  const [loading, setLoading] = useState(true)
+export default async function BetsPage() {
+  const { userId } = await auth()
 
-  useEffect(() => {
-    if (!isLoaded || !userId) {
-      setLoading(false)
-      return
-    }
+  if (!userId) {
+    redirect("/sign-in")
+  }
 
-    const fetchBets = async () => {
-      try {
-        const supabase = createBrowserClientSide()
-        const { data, error } = await supabase
-          .from("bets")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-
-        if (error) throw error
-        setBets(data || [])
-      } catch (error) {
-        console.error("Failed to fetch bets:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchBets()
-  }, [isLoaded, userId])
+  const bets = await prisma.bet.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+  })
 
   const pendingBets = bets.filter((b) => !b.result)
   const completedBets = bets.filter((b) => b.result)
@@ -45,30 +23,9 @@ export default function BetsPage() {
     ? (completedBets.filter((b) => b.pnl && b.pnl > 0).length / completedBets.length) * 100
     : 0
 
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-background">
-        <main className="mx-auto max-w-6xl px-4 py-6">
-          <p className="text-muted-foreground">Loading...</p>
-        </main>
-      </div>
-    )
-  }
-
-  if (!userId) {
-    return (
-      <div className="min-h-screen bg-background">
-        <main className="mx-auto max-w-6xl px-4 py-6">
-          <p className="text-muted-foreground">Please sign in to view your bets.</p>
-        </main>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        {/* Header */}
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/20 text-violet-400">
@@ -83,7 +40,6 @@ export default function BetsPage() {
           </div>
         </div>
 
-        {/* Stats cards */}
         {completedBets.length > 0 && (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-lg border border-border/30 bg-card/50 p-4">
@@ -115,7 +71,6 @@ export default function BetsPage() {
           </div>
         )}
 
-        {/* Pending bets */}
         {pendingBets.length > 0 && (
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Pending Bets ({pendingBets.length})</h2>
@@ -127,7 +82,7 @@ export default function BetsPage() {
                       <p className="text-sm font-medium text-foreground">{bet.prediction}</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         <Clock className="h-3 w-3 inline mr-1" />
-                        {new Date(bet.created_at).toLocaleDateString()}
+                        {bet.createdAt.toLocaleDateString()}
                       </p>
                     </div>
                     <div className="text-right">
@@ -141,7 +96,6 @@ export default function BetsPage() {
           </div>
         )}
 
-        {/* Completed bets */}
         {completedBets.length > 0 && (
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Completed Bets ({completedBets.length})</h2>
@@ -170,7 +124,7 @@ export default function BetsPage() {
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(bet.created_at).toLocaleDateString()}
+                        {bet.createdAt.toLocaleDateString()}
                       </p>
                     </div>
                     <div className="text-right">
@@ -189,7 +143,6 @@ export default function BetsPage() {
           </div>
         )}
 
-        {/* Empty state */}
         {bets.length === 0 && (
           <div className="rounded-lg border border-border/30 bg-card/50 p-12 text-center">
             <DollarSign className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />

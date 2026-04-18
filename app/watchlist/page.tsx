@@ -1,66 +1,23 @@
-"use client"
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
+import { Heart, Clock } from "lucide-react"
+import { prisma } from "@/lib/prisma"
 
-import { useEffect, useState } from "react"
-import { useAuth } from "@clerk/nextjs"
-import { createBrowserClientSide, type WatchlistItem } from "@/lib/supabase"
-import { Heart, Clock, TrendingUp } from "lucide-react"
-
-export default function WatchlistPage() {
-  const { isLoaded, userId } = useAuth()
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!isLoaded || !userId) {
-      setLoading(false)
-      return
-    }
-
-    const fetchWatchlist = async () => {
-      try {
-        const supabase = createBrowserClientSide()
-        const { data, error } = await supabase
-          .from("watchlist")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-
-        if (error) throw error
-        setWatchlist(data || [])
-      } catch (error) {
-        console.error("Failed to fetch watchlist:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchWatchlist()
-  }, [isLoaded, userId])
-
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-background">
-        <main className="mx-auto max-w-6xl px-4 py-6">
-          <p className="text-muted-foreground">Loading...</p>
-        </main>
-      </div>
-    )
-  }
+export default async function WatchlistPage() {
+  const { userId } = await auth()
 
   if (!userId) {
-    return (
-      <div className="min-h-screen bg-background">
-        <main className="mx-auto max-w-6xl px-4 py-6">
-          <p className="text-muted-foreground">Please sign in to view your watchlist.</p>
-        </main>
-      </div>
-    )
+    redirect("/sign-in")
   }
+
+  const watchlist = await prisma.watchlistItem.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+  })
 
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        {/* Header */}
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400">
@@ -75,12 +32,7 @@ export default function WatchlistPage() {
           </div>
         </div>
 
-        {/* Watchlist content */}
-        {loading ? (
-          <div className="rounded-lg border border-border/30 bg-card/50 p-8 text-center">
-            <p className="text-sm text-muted-foreground">Loading watchlist...</p>
-          </div>
-        ) : watchlist.length === 0 ? (
+        {watchlist.length === 0 ? (
           <div className="rounded-lg border border-border/30 bg-card/50 p-12 text-center">
             <Heart className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
             <p className="text-sm font-medium text-foreground">No games in your watchlist yet</p>
@@ -100,10 +52,10 @@ export default function WatchlistPage() {
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Game {item.game_id}</p>
+                    <p className="text-sm font-medium text-foreground">Game {item.gameId}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       <Clock className="h-3 w-3 inline mr-1" />
-                      Added {new Date(item.created_at).toLocaleDateString()}
+                      Added {item.createdAt.toLocaleDateString()}
                     </p>
                   </div>
                   <button className="rounded-md border border-border/30 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors">

@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  gameId    String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, gameId])
+  @@index([userId])
+  @@map("watchlist")
+}
+
+model Bet {
+  id        String   @id @default(cuid())
+  userId    String
+  gameId    String
+  amount    Float
+  odds      Float
+  prediction String   // "NRFI" or "YRFI"
+  result    String?  // "NRFI" or "YRFI" or null if pending
+  pnl       Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([gameId])
+  @@map("bets")
+}
+
+model Bankroll {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  startingBalance Float
+  currentBalance  Float
+  updatedAt       DateTime @updatedAt
+
+  @@map("bankroll")
+}

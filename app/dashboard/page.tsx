@@ -1,47 +1,47 @@
-"use client"
-
-import { useAuth, useUser } from "@clerk/nextjs"
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
 import Link from "next/link"
 import { Heart, DollarSign, TrendingUp, BarChart3 } from "lucide-react"
+import { prisma } from "@/lib/prisma"
 
-export default function DashboardPage() {
-  const { isLoaded, userId } = useAuth()
-  const { user } = useUser()
+export default async function DashboardPage() {
+  const { userId } = await auth()
 
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-background">
-        <main className="mx-auto max-w-6xl px-4 py-6">
-          <p className="text-muted-foreground">Loading...</p>
-        </main>
-      </div>
-    )
+  if (!userId) {
+    redirect("/sign-in")
   }
 
-  if (!userId || !user) {
-    return (
-      <div className="min-h-screen bg-background">
-        <main className="mx-auto max-w-6xl px-4 py-6">
-          <p className="text-muted-foreground">Please sign in to view your dashboard.</p>
-        </main>
-      </div>
-    )
-  }
+  const [bets, watchlist, bankroll] = await Promise.all([
+    prisma.bet.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.watchlistItem.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.bankroll.findUnique({
+      where: { userId },
+    }),
+  ])
+
+  const completedBets = bets.filter((b) => b.result)
+  const totalPnL = completedBets.reduce((sum, b) => sum + (b.pnl || 0), 0)
+  const winRate = completedBets.length > 0
+    ? (completedBets.filter((b) => b.pnl && b.pnl > 0).length / completedBets.length) * 100
+    : 0
 
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        {/* Header */}
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-foreground">Welcome back, {user.firstName || "User"}!</h1>
+          <h1 className="text-4xl font-bold text-foreground">Welcome back!</h1>
           <p className="text-lg text-muted-foreground">
             Manage your NRFI/YRFI predictions and track your betting performance.
           </p>
         </div>
 
-        {/* Quick links grid */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Watchlist */}
           <Link
             href="/watchlist"
             className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
@@ -50,10 +50,9 @@ export default function DashboardPage() {
               <Heart className="h-6 w-6" />
             </div>
             <h3 className="mt-4 font-semibold text-foreground">Watchlist</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Games you're tracking</p>
+            <p className="mt-1 text-xs text-muted-foreground">{watchlist.length} games tracked</p>
           </Link>
 
-          {/* Bet Tracker */}
           <Link
             href="/bets"
             className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
@@ -62,10 +61,9 @@ export default function DashboardPage() {
               <DollarSign className="h-6 w-6" />
             </div>
             <h3 className="mt-4 font-semibold text-foreground">Bets</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Track your betting record</p>
+            <p className="mt-1 text-xs text-muted-foreground">{bets.length} bets total</p>
           </Link>
 
-          {/* Accuracy */}
           <Link
             href="/accuracy"
             className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
@@ -77,7 +75,6 @@ export default function DashboardPage() {
             <p className="mt-1 text-xs text-muted-foreground">View your metrics</p>
           </Link>
 
-          {/* Insights */}
           <Link
             href="/insights"
             className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
@@ -90,12 +87,28 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {/* Quick stats section */}
         <div className="rounded-lg border border-border/30 bg-card/50 p-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Your Stats</h2>
-          <p className="text-sm text-muted-foreground">
-            Stats will appear here as you add bets and complete predictions.
-          </p>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Total Bets</p>
+              <p className="text-2xl font-bold text-foreground mt-1">{bets.length}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Win Rate</p>
+              <p className="text-2xl font-bold text-foreground mt-1">{winRate.toFixed(1)}%</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Total P/L</p>
+              <p className={totalPnL > 0 ? "text-emerald-400" : "text-foreground"}>
+                <span className="text-2xl font-bold">{totalPnL > 0 ? "+" : ""}{totalPnL.toFixed(2)}</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Balance</p>
+              <p className="text-2xl font-bold text-foreground mt-1">${bankroll?.currentBalance.toFixed(2) || "—"}</p>
+            </div>
+          </div>
         </div>
       </main>
     </div>
