@@ -56,6 +56,11 @@ const NAV_ITEMS = [
   { href: "/accuracy", label: "Accuracy" },
   { href: "/history", label: "History" },
   { href: "/insights", label: "Insights" },
+  { href: "/odds", label: "Odds & EV" },
+  { href: "/weather", label: "Weather" },
+  { href: "/resources", label: "Resources" },
+  { href: "/community", label: "Community" },
+  { href: "/weekly-recap", label: "Weekly" },
   { href: "/glossary", label: "Glossary" },
 ]
 
