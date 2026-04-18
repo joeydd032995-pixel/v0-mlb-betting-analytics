@@ -4,6 +4,7 @@ import type { Game, NRFIPrediction, Team, Pitcher, ModelBreakdown } from "@/lib/
 import { METRIC_GLOSSARY } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   CloudSun,
   Wind,
@@ -19,6 +20,8 @@ import {
   BrainCircuit,
   AlertTriangle,
   HelpCircle,
+  BarChart3,
+  History,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -286,9 +289,8 @@ export function GamePredictionCard({
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="p-4">
-        {/* Teams row */}
+      {/* Teams row + Matchup summary */}
+      <div className="border-b border-border/50 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           {/* Away team */}
           <div className="flex flex-col items-start gap-0.5 min-w-0">
@@ -320,128 +322,172 @@ export function GamePredictionCard({
             <span className="text-xs text-zinc-500">{homePitcher.throws}HP · {pct(homePitcher.firstInning.nrfiRate)} NRFI</span>
           </div>
         </div>
-
-        {/* Probability bar */}
-        <div className="mt-4">
-          <ProbabilityBar nrfi={prediction.nrfiProbability} yrfi={prediction.yrfiProbability} />
-        </div>
-
-        {/* Tags row */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <RecommendationBadge rec={prediction.recommendation} />
-          <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
-          {prediction.modelBreakdown && (
-            <ModelConsensusBadge consensus={prediction.modelBreakdown.modelConsensus} />
-          )}
-          {va && va.recommendedBet !== "NO_BET" && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300">
-              <DollarSign className="h-3 w-3" />
-              Value {formatOdds(va.recommendedBet === "NRFI" ? va.nrfiOdds : va.yrfiOdds)}
-              {" "}
-              <span className="text-violet-400">+{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(1)}%</span>
-            </span>
-          )}
-        </div>
-
-        {/* Per-team expected runs */}
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <div className="rounded-md bg-muted/30 px-3 py-2">
-            <MetricLabel label={`${awayTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
-            <p className="text-sm font-semibold tabular-nums">{prediction.awayExpectedRuns.toFixed(3)}</p>
-            <MetricLabel label={`${pct(prediction.awayScores0Prob)} score 0`} glossaryKey="nrfiRate" />
-          </div>
-          <div className="rounded-md bg-muted/30 px-3 py-2">
-            <MetricLabel label={`${homeTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
-            <p className="text-sm font-semibold tabular-nums">{prediction.homeExpectedRuns.toFixed(3)}</p>
-            <MetricLabel label={`${pct(prediction.homeScores0Prob)} score 0`} glossaryKey="nrfiRate" />
-          </div>
-        </div>
-
-        {/* Recent form pills — pitchers */}
-        <div className="mt-3 flex flex-col gap-1.5">
-          <PitcherFormRow name={awayPitcher.name} results={awayPitcher.firstInning.last5Results} />
-          <PitcherFormRow name={homePitcher.name} results={homePitcher.firstInning.last5Results} />
-        </div>
-
-        {/* Recent form pills — team offense */}
-        {(awayTeam.firstInning.last5Results || homeTeam.firstInning.last5Results) && (
-          <div className="mt-2 flex flex-col gap-1.5 border-t border-border/30 pt-2">
-            {awayTeam.firstInning.last5Results && (
-              <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />
-            )}
-            {homeTeam.firstInning.last5Results && (
-              <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />
-            )}
-          </div>
-        )}
       </div>
 
-      {/* Expand / collapse factors */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between border-t border-border/40 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/20"
-      >
-        <span>Key Factors ({prediction.factors.length})</span>
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-      </button>
+      {/* Tabbed content */}
+      <Tabs defaultValue="overview" className="flex flex-col">
+        <TabsList className="w-full justify-start rounded-none border-b border-border/30 bg-transparent px-4 py-2">
+          <TabsTrigger value="overview" className="gap-1.5">
+            <BarChart3 className="h-3.5 w-3.5" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="historical" className="gap-1.5">
+            <History className="h-3.5 w-3.5" />
+            Historical
+          </TabsTrigger>
+          <TabsTrigger value="pitchers" className="gap-1.5">
+            <TrendingUp className="h-3.5 w-3.5" />
+            Pitchers
+          </TabsTrigger>
+          <TabsTrigger value="accuracy" className="gap-1.5">
+            <BarChart3 className="h-3.5 w-3.5" />
+            Accuracy
+          </TabsTrigger>
+        </TabsList>
 
-      {expanded && (
-        <div className="border-t border-border/30 bg-muted/10 px-4 pb-4 pt-3">
-          <ul className="space-y-2">
-            {prediction.factors.map((f, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <FactorIcon impact={f.impact} />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-foreground/90">{f.name}</span>
-                    {f.value && (
-                      <span className="text-xs text-muted-foreground">{f.value}</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="mt-0 flex-1 space-y-3 border-t border-border/30 p-4">
+          {/* Probability bar */}
+          <div>
+            <ProbabilityBar nrfi={prediction.nrfiProbability} yrfi={prediction.yrfiProbability} />
+          </div>
 
-          {/* Model ensemble breakdown */}
-          {prediction.modelBreakdown && (
-            <ModelBreakdownPanel
-              bd={prediction.modelBreakdown}
-              awayAbbr={awayTeam.abbreviation}
-              homeAbbr={homeTeam.abbreviation}
-            />
-          )}
+          {/* Tags row */}
+          <div className="flex flex-wrap items-center gap-2">
+            <RecommendationBadge rec={prediction.recommendation} />
+            <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
+            {prediction.modelBreakdown && (
+              <ModelConsensusBadge consensus={prediction.modelBreakdown.modelConsensus} />
+            )}
+            {va && va.recommendedBet !== "NO_BET" && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300">
+                <DollarSign className="h-3 w-3" />
+                Value {formatOdds(va.recommendedBet === "NRFI" ? va.nrfiOdds : va.yrfiOdds)}
+                {" "}
+                <span className="text-violet-400">+{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(1)}%</span>
+              </span>
+            )}
+          </div>
 
-          {/* Value analysis detail */}
-          {va && (
-            <div className="mt-3 rounded-md border border-violet-500/20 bg-violet-500/5 p-3">
-              <p className="text-xs font-semibold text-violet-300 mb-1.5">Value Analysis · {game.odds?.bookmaker}</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                <span className="text-muted-foreground">NRFI Odds</span>
-                <span className="font-medium tabular-nums">{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
-                <span className="text-muted-foreground">YRFI Odds</span>
-                <span className="font-medium tabular-nums">{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
-                {va.recommendedBet !== "NO_BET" && (
-                  <>
-                    <span className="text-muted-foreground">Model Edge</span>
-                    <span className={cn("font-semibold tabular-nums", "text-violet-300")}>
-                      +{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(2)}%
-                      {" "}on {va.recommendedBet}
-                    </span>
-                    <span className="text-muted-foreground">Kelly Size</span>
-                    <span className="font-medium tabular-nums">{pct(va.kellyFraction)} of bankroll</span>
-                    <span className="text-muted-foreground">Expected Value</span>
-                    <span className={cn("font-semibold tabular-nums", va.expectedValue > 0 ? "text-emerald-400" : "text-rose-400")}>
-                      {va.expectedValue > 0 ? "+" : ""}{(va.expectedValue * 100).toFixed(2)}%
-                    </span>
-                  </>
-                )}
-              </div>
+          {/* Per-team expected runs */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md bg-muted/30 px-3 py-2">
+              <MetricLabel label={`${awayTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
+              <p className="text-sm font-semibold tabular-nums">{prediction.awayExpectedRuns.toFixed(3)}</p>
+              <MetricLabel label={`${pct(prediction.awayScores0Prob)} score 0`} glossaryKey="nrfiRate" />
+            </div>
+            <div className="rounded-md bg-muted/30 px-3 py-2">
+              <MetricLabel label={`${homeTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
+              <p className="text-sm font-semibold tabular-nums">{prediction.homeExpectedRuns.toFixed(3)}</p>
+              <MetricLabel label={`${pct(prediction.homeScores0Prob)} score 0`} glossaryKey="nrfiRate" />
+            </div>
+          </div>
+
+          {/* Recent form pills — pitchers */}
+          <div className="flex flex-col gap-1.5 border-t border-border/30 pt-3">
+            <PitcherFormRow name={awayPitcher.name} results={awayPitcher.firstInning.last5Results} />
+            <PitcherFormRow name={homePitcher.name} results={homePitcher.firstInning.last5Results} />
+          </div>
+
+          {/* Recent form pills — team offense */}
+          {(awayTeam.firstInning.last5Results || homeTeam.firstInning.last5Results) && (
+            <div className="flex flex-col gap-1.5 border-t border-border/30 pt-3">
+              {awayTeam.firstInning.last5Results && (
+                <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />
+              )}
+              {homeTeam.firstInning.last5Results && (
+                <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />
+              )}
             </div>
           )}
-        </div>
-      )}
+
+          {/* Key Factors section */}
+          {prediction.factors.length > 0 && (
+            <div className="border-t border-border/30 pt-3">
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="flex w-full items-center justify-between text-xs text-muted-foreground transition-colors"
+              >
+                <span className="font-medium">Key Factors ({prediction.factors.length})</span>
+                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+
+              {expanded && (
+                <div className="mt-2 space-y-2">
+                  <ul className="space-y-2">
+                    {prediction.factors.map((f, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <FactorIcon impact={f.impact} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold text-foreground/90">{f.name}</span>
+                            {f.value && (
+                              <span className="text-xs text-muted-foreground">{f.value}</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Model ensemble breakdown */}
+                  {prediction.modelBreakdown && (
+                    <ModelBreakdownPanel
+                      bd={prediction.modelBreakdown}
+                      awayAbbr={awayTeam.abbreviation}
+                      homeAbbr={homeTeam.abbreviation}
+                    />
+                  )}
+
+                  {/* Value analysis detail */}
+                  {va && (
+                    <div className="rounded-md border border-violet-500/20 bg-violet-500/5 p-3">
+                      <p className="text-xs font-semibold text-violet-300 mb-1.5">Value Analysis · {game.odds?.bookmaker}</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                        <span className="text-muted-foreground">NRFI Odds</span>
+                        <span className="font-medium tabular-nums">{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
+                        <span className="text-muted-foreground">YRFI Odds</span>
+                        <span className="font-medium tabular-nums">{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
+                        {va.recommendedBet !== "NO_BET" && (
+                          <>
+                            <span className="text-muted-foreground">Model Edge</span>
+                            <span className={cn("font-semibold tabular-nums", "text-violet-300")}>
+                              +{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(2)}%
+                              {" "}on {va.recommendedBet}
+                            </span>
+                            <span className="text-muted-foreground">Kelly Size</span>
+                            <span className="font-medium tabular-nums">{pct(va.kellyFraction)} of bankroll</span>
+                            <span className="text-muted-foreground">Expected Value</span>
+                            <span className={cn("font-semibold tabular-nums", va.expectedValue > 0 ? "text-emerald-400" : "text-rose-400")}>
+                              {va.expectedValue > 0 ? "+" : ""}{(va.expectedValue * 100).toFixed(2)}%
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Historical Tab - placeholder */}
+        <TabsContent value="historical" className="mt-0 flex-1 border-t border-border/30 p-4">
+          <p className="text-xs text-muted-foreground italic">Historical matchup data coming soon</p>
+        </TabsContent>
+
+        {/* Pitchers Tab - placeholder */}
+        <TabsContent value="pitchers" className="mt-0 flex-1 border-t border-border/30 p-4">
+          <p className="text-xs text-muted-foreground italic">Pitcher comparison coming soon</p>
+        </TabsContent>
+
+        {/* Accuracy Tab - placeholder */}
+        <TabsContent value="accuracy" className="mt-0 flex-1 border-t border-border/30 p-4">
+          <p className="text-xs text-muted-foreground italic">Game result and accuracy data coming soon</p>
+        </TabsContent>
+      </Tabs>
     </Card>
   )
 }
