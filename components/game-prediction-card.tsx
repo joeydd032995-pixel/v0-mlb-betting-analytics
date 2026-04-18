@@ -89,6 +89,43 @@ function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]
   )
 }
 
+function ProbabilityGauge({ probability }: { probability: number }) {
+  const pct = Math.round(probability * 100)
+  const isNrfi = probability >= 0.5
+
+  // Create conic gradient: emerald (NRFI) from 0 to probability, rose (YRFI) for remainder
+  const gaugeStyle = {
+    background: `conic-gradient(
+      from 0deg,
+      #10b981 0deg,
+      #10b981 ${probability * 360}deg,
+      #f43f5e ${probability * 360}deg,
+      #f43f5e 360deg
+    )`,
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="relative w-24 h-24 rounded-full flex items-center justify-center" style={gaugeStyle}>
+        {/* Inner circle to create donut effect */}
+        <div className="absolute w-20 h-20 rounded-full bg-background flex items-center justify-center">
+          <div className="text-center">
+            <div className={cn(
+              "text-2xl font-black tabular-nums leading-none",
+              isNrfi ? "text-emerald-400" : "text-rose-400"
+            )}>
+              {pct}%
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="text-xs font-semibold text-muted-foreground">
+        {isNrfi ? "NRFI" : "YRFI"}
+      </div>
+    </div>
+  )
+}
+
 function ProbabilityBar({ nrfi, yrfi }: { nrfi: number; yrfi: number }) {
   const nrfiPct = Math.round(nrfi * 100)
   const yrfiPct = 100 - nrfiPct
@@ -111,6 +148,7 @@ function ProbabilityBar({ nrfi, yrfi }: { nrfi: number; yrfi: number }) {
     </div>
   )
 }
+
 
 function FactorIcon({ impact }: { impact: NRFIPrediction["factors"][0]["impact"] }) {
   if (impact === "positive") return <TrendingUp className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
@@ -299,20 +337,10 @@ export function GamePredictionCard({
             <span className="text-xs text-zinc-500">{awayPitcher.throws}HP · {pct(awayPitcher.firstInning.nrfiRate)} NRFI</span>
           </div>
 
-          {/* Center score area */}
+          {/* Center probability gauge */}
           <div className="flex flex-col items-center gap-1 flex-shrink-0">
             <span className="text-xs font-medium text-muted-foreground">@</span>
-            <div
-              className={cn(
-                "text-3xl font-black tabular-nums leading-none",
-                isNrfiFavored ? "text-emerald-400" : "text-rose-400"
-              )}
-            >
-              {nrfiPct}%
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {isNrfiFavored ? "NRFI" : "YRFI"}
-            </div>
+            <ProbabilityGauge probability={prediction.nrfiProbability} />
           </div>
 
           {/* Home team */}
