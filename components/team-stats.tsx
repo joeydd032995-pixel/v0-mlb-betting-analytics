@@ -2,8 +2,10 @@
 
 import type { Team } from "@/lib/types"
 import { Card } from "@/components/ui/card"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { TrendingUp, TrendingDown } from "lucide-react"
+import { TrendingUp, TrendingDown, HelpCircle } from "lucide-react"
+import { METRIC_GLOSSARY } from "@/lib/types"
 
 interface Props {
   teams: Team[]
@@ -28,6 +30,36 @@ function RateBar({ rate, max = 0.55 }: { rate: number; max?: number }) {
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
       <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${fill}%` }} />
     </div>
+  )
+}
+
+function TableHeaderWithTooltip({
+  label,
+  glossaryKey,
+  align = "left",
+}: {
+  label: string
+  glossaryKey?: keyof typeof METRIC_GLOSSARY
+  align?: "left" | "right"
+}) {
+  const alignClass = align === "right" ? "text-right" : "text-left"
+  if (!glossaryKey) {
+    return (
+      <span className={`text-xs font-semibold uppercase tracking-wide text-muted-foreground ${alignClass}`}>
+        {label}
+      </span>
+    )
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className={`flex items-center gap-1 cursor-help ${alignClass}`}>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+          <HelpCircle className="h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground transition-colors" />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">{METRIC_GLOSSARY[glossaryKey]}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -63,16 +95,16 @@ export function TeamStats({ teams }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Team</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">YRFI Rate</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">xR/1st</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">OPS</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">wOBA</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">K%</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">BB%</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Home YRFI</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Away YRFI</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">L10</th>
+              <th className="px-4 py-3"><TableHeaderWithTooltip label="Team" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="YRFI Rate" glossaryKey="yrfiRate" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="xR/1st" glossaryKey="xR" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="OPS" glossaryKey="ops" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="wOBA" glossaryKey="woba" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="K%" glossaryKey="kRate" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="BB%" glossaryKey="bbRate" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="Home YRFI" glossaryKey="yrfiRate" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="Away YRFI" glossaryKey="yrfiRate" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="L10" align="right" /></th>
             </tr>
           </thead>
           <tbody>

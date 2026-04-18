@@ -2,8 +2,11 @@
 
 import type { Pitcher, Team } from "@/lib/types"
 import { Card } from "@/components/ui/card"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { bayesianShrinkage } from "@/lib/nrfi-models"
+import { METRIC_GLOSSARY } from "@/lib/types"
+import { HelpCircle } from "lucide-react"
 
 interface Props {
   pitchers: Pitcher[]
@@ -120,6 +123,36 @@ function FormDots({ results }: { results: boolean[] }) {
   )
 }
 
+function TableHeaderWithTooltip({
+  label,
+  glossaryKey,
+  align = "left",
+}: {
+  label: string
+  glossaryKey?: keyof typeof METRIC_GLOSSARY
+  align?: "left" | "center" | "right"
+}) {
+  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+  if (!glossaryKey) {
+    return (
+      <span className={`text-xs font-semibold uppercase tracking-wide text-muted-foreground ${alignClass}`}>
+        {label}
+      </span>
+    )
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className={`flex items-center gap-1 cursor-help ${alignClass}`}>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+          <HelpCircle className="h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground transition-colors" />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">{METRIC_GLOSSARY[glossaryKey]}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function PitcherStats({ pitchers, teams }: Props) {
   const sorted = [...pitchers].sort(
     (a, b) => b.firstInning.nrfiRate - a.firstInning.nrfiRate
@@ -152,19 +185,17 @@ export function PitcherStats({ pitchers, teams }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pitcher</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Team</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">NRFI Rate</th>
-              <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Last 5</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">1st ERA</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">1st WHIP</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">K%</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">BB%</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">xR/inn</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">GS</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Model Trust
-              </th>
+              <th className="px-4 py-3"><TableHeaderWithTooltip label="Pitcher" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="Team" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="NRFI Rate" glossaryKey="nrfiRate" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="Last 5" align="center" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="1st ERA" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="1st WHIP" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="K%" glossaryKey="kRate" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="BB%" glossaryKey="bbRate" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="xR/inn" glossaryKey="xR" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="GS" align="right" /></th>
+              <th className="px-3 py-3"><TableHeaderWithTooltip label="Model Trust" /></th>
             </tr>
           </thead>
           <tbody>

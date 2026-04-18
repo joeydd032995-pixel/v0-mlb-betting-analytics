@@ -250,3 +250,27 @@ export interface FilterOptions {
   sortBy: "probability" | "confidence" | "edge" | "time"
   showValueOnly: boolean
 }
+
+export const METRIC_GLOSSARY: Record<string, string> = {
+  pNRFI: "Poisson-calculated probability that neither team scores a run in the first inning (0–100%)",
+  pYRFI: "Poisson-calculated probability that at least one team scores a run in the first inning (0–100%)",
+  confidence: "Model confidence in the prediction, based on input data quality and historical accuracy",
+  edge: "Expected value of the bet relative to public betting odds; positive = favorable for NRFI",
+  kelly: "Kelly Criterion fraction; recommended bet size as a percentage of bankroll (use cautiously)",
+  parkFactor: "Adjustment factor for home-run-friendly or pitcher-friendly stadiums (0.8–1.2)",
+  xR: "Expected runs in the first inning, calculated from Statcast data and team stats",
+  woba: "Weighted on-base average; measures offensive value per plate appearance (scale: 0–.450)",
+  ops: "On-base plus slugging; combined measure of offensive output (scale: 0–1.0+)",
+  kRate: "Strikeout rate; percentage of plate appearances ending in strikeout (0–100%)",
+  bbRate: "Walk rate; percentage of plate appearances ending in a walk (0–100%)",
+  yrfiRate: "Empirical rate at which a team scored in the first inning over a sample period (0–100%)",
+  nrfiRate: "Empirical rate at which neither team scored in the first inning over a sample period (0–100%)",
+  accuracy: "Percentage of predictions that were correct (0–100%), only available after games complete",
+  roi: "Return on investment if you bet at published odds on all recommendations (e.g., +12.5%)",
+  starter: "The primary pitcher assigned to start the game, usually pitching the first 5–7 innings",
+  relief: "A pitcher who enters the game after the starter, typically in later innings",
+  weather: "Environmental conditions (temperature, wind direction/speed) affecting ball carry and play",
+  dome: "Retractable or permanent roof protecting field from weather; eliminates wind/weather factors",
+  playoff: "Post-season tournament; higher intensity and different roster composition than regular season",
+  ensembleModel: "Combination of multiple prediction models (Poisson, Markov, ZIP) for increased robustness",
+}

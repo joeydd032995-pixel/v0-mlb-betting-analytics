@@ -1,7 +1,9 @@
 "use client"
 
 import type { Game, NRFIPrediction, Team, Pitcher, ModelBreakdown } from "@/lib/types"
+import { METRIC_GLOSSARY } from "@/lib/types"
 import { Card } from "@/components/ui/card"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import {
   CloudSun,
   Wind,
@@ -16,6 +18,7 @@ import {
   DollarSign,
   BrainCircuit,
   AlertTriangle,
+  HelpCircle,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -35,6 +38,22 @@ function pct(n: number) {
 
 function formatOdds(n: number) {
   return n > 0 ? `+${n}` : `${n}`
+}
+
+type MetricGlossaryKey = keyof typeof METRIC_GLOSSARY
+
+function MetricLabel({ label, glossaryKey }: { label: string; glossaryKey: MetricGlossaryKey }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-1 cursor-help">
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <HelpCircle className="h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground transition-colors" />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">{METRIC_GLOSSARY[glossaryKey]}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] }) {
@@ -327,14 +346,14 @@ export function GamePredictionCard({
         {/* Per-team expected runs */}
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-md bg-muted/30 px-3 py-2">
-            <p className="text-xs text-muted-foreground">{awayTeam.abbreviation} xR (1st)</p>
+            <MetricLabel label={`${awayTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
             <p className="text-sm font-semibold tabular-nums">{prediction.awayExpectedRuns.toFixed(3)}</p>
-            <p className="text-xs text-muted-foreground">{pct(prediction.awayScores0Prob)} score 0</p>
+            <MetricLabel label={`${pct(prediction.awayScores0Prob)} score 0`} glossaryKey="nrfiRate" />
           </div>
           <div className="rounded-md bg-muted/30 px-3 py-2">
-            <p className="text-xs text-muted-foreground">{homeTeam.abbreviation} xR (1st)</p>
+            <MetricLabel label={`${homeTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
             <p className="text-sm font-semibold tabular-nums">{prediction.homeExpectedRuns.toFixed(3)}</p>
-            <p className="text-xs text-muted-foreground">{pct(prediction.homeScores0Prob)} score 0</p>
+            <MetricLabel label={`${pct(prediction.homeScores0Prob)} score 0`} glossaryKey="nrfiRate" />
           </div>
         </div>
 
