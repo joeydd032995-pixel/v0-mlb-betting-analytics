@@ -530,14 +530,21 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             )}
             <div className="flex flex-wrap gap-2">
               {[
-                { label: "2024 Season", year: 2024, months: [3,4,5,6,7,8,9] },
-                { label: "2025 Season", year: 2025, months: [3,4,5,6,7,8,9,10] },
-                { label: "2026 YTD",    year: 2026, months: Array.from({ length: new Date().getMonth() + 1 }, (_, i) => i + 1) },
-              ].map(({ label, year, months }) => (
+                { label: "2024 Season", year: 2024 },
+                { label: "2025 Season", year: 2025 },
+                { label: "2026 YTD",    year: 2026 },
+              ].map(({ label, year }) => (
                 <button
                   key={year}
                   disabled={syncYear !== null}
-                  onClick={() => syncSeason(year, months)}
+                  onClick={() => {
+                    // Compute months client-side only (avoids SSR/CSR Date mismatch)
+                    const months =
+                      year === 2024 ? [3,4,5,6,7,8,9] :
+                      year === 2025 ? [3,4,5,6,7,8,9,10] :
+                      Array.from({ length: new Date().getMonth() + 1 }, (_, i) => i + 1)
+                    syncSeason(year, months)
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
                     syncYear === year

@@ -1,9 +1,16 @@
-import { auth } from "@clerk/nextjs/server"
-import { Brain, TrendingUp, Zap } from "lucide-react"
+import { Brain } from "lucide-react"
 import { ModelInsights } from "@/components/model-insights"
 
 export default async function InsightsPage() {
-  const { userId } = await auth()
+  // auth() requires CLERK_SECRET_KEY — guard so the page works without Clerk configured
+  let userId: string | null = null
+  try {
+    const { auth } = await import("@clerk/nextjs/server")
+    const session = await auth()
+    userId = session.userId
+  } catch {
+    // Clerk not configured or middleware unavailable — proceed with userId = null
+  }
 
   return (
     <div className="min-h-screen bg-background">
