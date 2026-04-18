@@ -212,11 +212,11 @@ export async function fetchPitcherStats(
   return {
     fullName: person.fullName,
     gamesStarted: pitchingSplit.gamesStarted ?? 0,
-    era: parseFloat(pitchingSplit.era ?? "4.0") || 4.0,
-    whip: parseFloat(pitchingSplit.whip ?? "1.28") || 1.28,
+    era: pitchingSplit.era !== undefined ? parseFloat(pitchingSplit.era) : 4.0,
+    whip: pitchingSplit.whip !== undefined ? parseFloat(pitchingSplit.whip) : 1.28,
     strikeOuts: pitchingSplit.strikeOuts ?? 0,
     baseOnBalls: pitchingSplit.baseOnBalls ?? 0,
-    inningsPitched: parseFloat(pitchingSplit.inningsPitched ?? "0") || 0,
+    inningsPitched: parseFloat(pitchingSplit.inningsPitched ?? "0"),
     hits: pitchingSplit.hits ?? 0,
     homeRuns: pitchingSplit.homeRuns ?? 0,
   }

@@ -106,7 +106,7 @@ export default async function DashboardPage() {
             </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground">Balance</p>
-              <p className="text-2xl font-bold text-foreground mt-1">${bankroll?.currentBalance.toFixed(2) || "—"}</p>
+              <p className="text-2xl font-bold text-foreground mt-1">${bankroll?.currentBalance?.toFixed(2) ?? "—"}</p>
             </div>
           </div>
         </div>
