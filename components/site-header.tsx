@@ -7,9 +7,11 @@
 import { Activity, Search, Grid3x3, LayoutGrid } from "lucide-react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import { AuthNav } from "@/components/auth-nav"
+import dynamic from "next/dynamic"
 import { GlobalSearch } from "@/components/global-search"
 import { Button } from "@/components/ui/button"
+
+const AuthNav = dynamic(() => import("@/components/auth-nav").then(m => ({ default: m.AuthNav })), { ssr: false })
 
 export function SiteHeader() {
   const pathname = usePathname()

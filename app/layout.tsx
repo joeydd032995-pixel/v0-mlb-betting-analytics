@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
 import { ClerkProvider } from "@clerk/nextjs"
 import { Toaster } from "sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import "./globals.css"
@@ -30,43 +31,44 @@ export const viewport = {
   themeColor: "#0a0a0a",
 }
 
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return (
-    // ClerkProvider must wrap the entire app so auth state is available
-    // everywhere via useAuth(), auth(), currentUser(), etc.
-    //
-    // afterSignOutUrl tells Clerk where to redirect after the user logs out
-    // (can also be set via NEXT_PUBLIC_CLERK_AFTER_SIGN_OUT_URL env var).
-    <ClerkProvider afterSignOutUrl="/">
-      <html lang="en" className="dark bg-background">
-        <body className="font-sans antialiased flex flex-col min-h-screen">
-          <SiteHeader />
-          <main className="flex-1">
-            {children}
-          </main>
-          <SiteFooter />
+  const inner = (
+    <html lang="en" className="dark bg-background">
+      <body className="font-sans antialiased flex flex-col min-h-screen">
+        <TooltipProvider>
+        <SiteHeader />
+        <main className="flex-1">
+          {children}
+        </main>
+        <SiteFooter />
 
-          {/* Sonner toast portal — styled to match the dark navy theme.
-              toast() calls anywhere in the app will render here. */}
-          <Toaster
-            theme="dark"
-            position="top-right"
-            richColors
-            toastOptions={{
-              style: {
-                background: "oklch(0.205 0 0)",  /* --card */
-                border: "1px solid oklch(0.269 0 0)", /* --border */
-                color: "oklch(0.985 0 0)",        /* --foreground */
-              },
-              className: "font-sans text-sm",
-            }}
-          />
+        <Toaster
+          theme="dark"
+          position="top-right"
+          richColors
+          toastOptions={{
+            style: {
+              background: "oklch(0.205 0 0)",
+              border: "1px solid oklch(0.269 0 0)",
+              color: "oklch(0.985 0 0)",
+            },
+            className: "font-sans text-sm",
+          }}
+        />
 
-          <Analytics />
-        </body>
-      </html>
-    </ClerkProvider>
+        <Analytics />
+        </TooltipProvider>
+      </body>
+    </html>
   )
+
+  return clerkKey ? (
+    <ClerkProvider publishableKey={clerkKey} afterSignOutUrl="/">
+      {inner}
+    </ClerkProvider>
+  ) : inner
 }
