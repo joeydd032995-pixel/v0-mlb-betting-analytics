@@ -4,12 +4,17 @@
 
 "use client"
 
-import { Activity, Search } from "lucide-react"
+import { Activity, Search, Grid3x3, LayoutGrid } from "lucide-react"
+import { usePathname } from "next/navigation"
+import Link from "next/link"
 import { AuthNav } from "@/components/auth-nav"
 import { GlobalSearch } from "@/components/global-search"
 import { Button } from "@/components/ui/button"
 
 export function SiteHeader() {
+  const pathname = usePathname()
+  const isGridView = pathname === "/grid"
+
   const dateStr = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -33,7 +38,7 @@ export function SiteHeader() {
             </div>
           </div>
 
-          {/* Search + Navigation + Auth */}
+          {/* Search + View toggle + Navigation + Auth */}
           <div className="flex items-center gap-2 text-xs">
             {/* Search trigger */}
             <Button
@@ -56,6 +61,34 @@ export function SiteHeader() {
                 Cmd+K
               </span>
             </Button>
+
+            {/* View toggle */}
+            <div className="hidden sm:flex items-center gap-1 border border-border/30 rounded-md p-1">
+              <Link
+                href="/"
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  !isGridView
+                    ? "bg-muted/50 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Cards view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">Cards</span>
+              </Link>
+              <Link
+                href="/grid"
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  isGridView
+                    ? "bg-muted/50 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Grid view"
+              >
+                <Grid3x3 className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">Grid</span>
+              </Link>
+            </div>
 
             <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
               {dateStr}
