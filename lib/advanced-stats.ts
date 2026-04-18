@@ -119,7 +119,7 @@ export class HittingStatsCalculator {
     for (let i = 0; i < stats.exitVelocity.length; i++) {
       const ev = stats.exitVelocity[i]
       const la = stats.launchAngles[i]
-      expectedRunValue += this.expectedRunValueFromEVLA(ev, la)
+      expectedRunValue += expectedRunValueFromEVLA(ev, la)
     }
 
     // Add fixed values for BB, HBP, K
@@ -127,17 +127,6 @@ export class HittingStatsCalculator {
     expectedRunValue += w.uBB * stats.BB + w.HBP * stats.HBP
 
     return stats.PA > 0 ? expectedRunValue / stats.PA : 0
-  }
-
-  // Expected run value from exit velocity and launch angle
-  private static expectedRunValueFromEVLA(ev: number, la: number): number {
-    // Simplified model - in production, use Statcast's actual xwOBA table
-    if (ev < 70) return 0.1 // Weak contact
-    if (ev >= 95 && la >= 25 && la <= 35) return 2.0 // Barrel
-    if (ev >= 90) return 0.9 // Hard hit
-    if (la < 10) return 0.3 // Ground ball
-    if (la > 50) return 0.2 // Pop up
-    return 0.6 // Average contact
   }
 
   // wRC+ (Weighted Runs Created Plus)
@@ -252,6 +241,20 @@ export class HittingStatsCalculator {
       barrel_pct_regressed: this.regressStat(barrel_pct, stats.battedBalls, CONFIG.regression.barrel_hardHit_BIP, 8.5),
     }
   }
+}
+
+// ==================== Shared helpers ====================
+
+// Expected run value from Statcast exit velocity and launch angle.
+// Shared by HittingStatsCalculator.calculateXwOBA and
+// PitchingStatsCalculator.calculateXwOBAAllowed.
+function expectedRunValueFromEVLA(ev: number, la: number): number {
+  if (ev < 70) return 0.1
+  if (ev >= 95 && la >= 25 && la <= 35) return 2.0
+  if (ev >= 90) return 0.9
+  if (la < 10) return 0.3
+  if (la > 50) return 0.2
+  return 0.6
 }
 
 // ==================== PITCHING STATS ====================
@@ -432,7 +435,7 @@ export class PitchingStatsCalculator {
     for (let i = 0; i < stats.exitVelocityAllowed.length; i++) {
       const ev = stats.exitVelocityAllowed[i]
       const la = stats.launchAnglesAllowed[i]
-      expectedRunValue += HittingStatsCalculator["expectedRunValueFromEVLA"](ev, la)
+      expectedRunValue += expectedRunValueFromEVLA(ev, la)
     }
 
     const w = CONFIG.wOBA_weights

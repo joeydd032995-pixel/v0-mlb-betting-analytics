@@ -24,13 +24,19 @@ function mapWindDirection(degrees: number, speedMph: number, venue: string): Win
   const orientation = STADIUM_ORIENTATION[venue] ?? "unknown"
 
   if (orientation === "out-to-cf") {
-    // wind blowing from home plate toward CF = "out" when degrees roughly 315–45
-    if ((degrees >= 315 || degrees <= 45)) return "out"
+    // Wind from behind home plate blows toward CF = "out"
+    if (degrees >= 315 || degrees <= 45) return "out"
     if (degrees >= 135 && degrees <= 225) return "in"
     return "crosswind"
   }
 
-  // For unknown orientation, default to crosswind
+  if (orientation === "in-to-cf") {
+    // Reversed: wind from behind home plate blows toward home = "in"
+    if (degrees >= 315 || degrees <= 45) return "in"
+    if (degrees >= 135 && degrees <= 225) return "out"
+    return "crosswind"
+  }
+
   return "crosswind"
 }
 
@@ -48,6 +54,11 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
 
   const coords = STADIUM_COORDS[venue]
   if (!coords) return DOME_WEATHER
+
+  if (!API_KEY) {
+    console.warn("[weather] OPENWEATHER_API_KEY is not set — using dome defaults")
+    return DOME_WEATHER
+  }
 
   try {
     const url = `${BASE_URL}?lat=${coords.lat}&lon=${coords.lon}&appid=${API_KEY}&units=imperial`

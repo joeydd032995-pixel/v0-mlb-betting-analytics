@@ -279,7 +279,8 @@ export function upsertPredictions(incoming: TrackedPrediction[]): TrackedPredict
       map.set(pred.id, pred)
     } else if (prev.status === "pending") {
       // Refresh prediction data (model may have updated) but keep pending status
-      map.set(pred.id, { ...pred, status: "pending" })
+      // and the original save timestamp so the history sort order is stable.
+      map.set(pred.id, { ...pred, status: "pending", savedAt: prev.savedAt })
     }
     // If complete, leave it untouched
   }

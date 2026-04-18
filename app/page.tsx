@@ -391,14 +391,18 @@ export default function HomePage() {
 
   // Apply filters and sort
   const filtered = useMemo(() => {
-    let items = predictions.map((pred, i) => ({
-      pred,
-      game: todayGames[i],
-      homeTeam: teamMap.get(todayGames[i]?.homeTeamId ?? "")!,
-      awayTeam: teamMap.get(todayGames[i]?.awayTeamId ?? "")!,
-      homePitcher: pitcherMap.get(todayGames[i]?.homePitcherId ?? "")!,
-      awayPitcher: pitcherMap.get(todayGames[i]?.awayPitcherId ?? "")!,
-    })).filter((x) => x.game && x.homeTeam && x.awayTeam && x.homePitcher && x.awayPitcher)
+    // Look up by gameId so prediction → game pairing is correct regardless of order.
+    const gameById = new Map<string, Game>(todayGames.map((g) => [g.id, g]))
+    let items = predictions.flatMap((pred) => {
+      const game = gameById.get(pred.gameId)
+      if (!game) return []
+      const homeTeam = teamMap.get(game.homeTeamId)
+      const awayTeam = teamMap.get(game.awayTeamId)
+      const homePitcher = pitcherMap.get(game.homePitcherId)
+      const awayPitcher = pitcherMap.get(game.awayPitcherId)
+      if (!homeTeam || !awayTeam || !homePitcher || !awayPitcher) return []
+      return [{ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }]
+    })
 
     if (filters.confidenceLevel !== "all") {
       items = items.filter((x) => x.pred.confidence === filters.confidenceLevel)
