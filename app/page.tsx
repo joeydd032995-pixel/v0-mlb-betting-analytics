@@ -215,6 +215,66 @@ export default function HomePage() {
     computeExtendedAccuracy([])
   )
 
+  // ── Results sync state (declared before syncResults so useCallback can close over setters) ──
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
+
+  // syncResults reads from localStorage directly (via autoRecordResults → loadTrackedPredictions)
+  // so it does not capture trackedPredictions from the closure. This gives it a stable
+  // identity with an empty dependency array, safe to call from mount effects.
+  // Declared before the mount useEffect so the dep array [syncResults] does not
+  // violate the const temporal dead zone.
+  const syncResults = useCallback(async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
+    setSyncing(true)
+    try {
+      // Read fresh from localStorage when basePredictions is not provided so we
+      // never act on stale React state.
+      const baseData = basePredictions ?? loadTrackedPredictions()
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      const pendingDates = new Set<string>(
+        baseData
+          .filter((p) => p.status === "pending")
+          .map((p) => p.date)
+      )
+      pendingDates.add(today)
+      // Also check yesterday in case games ended after midnight ET
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      pendingDates.add(
+        new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(yesterday)
+      )
+
+      const targetDates = dates ?? [...pendingDates]
+
+      let totalRecorded = 0
+
+      for (const date of targetDates) {
+        const res = await fetch(`/api/results?date=${date}`)
+        if (!res.ok) continue
+        const data = await res.json()
+        if (!data.results) continue
+
+        const { recorded } = autoRecordResults(data.results)
+        totalRecorded += recorded
+      }
+
+      if (totalRecorded > 0) {
+        // Read the freshly-persisted state from localStorage after all updates
+        const latest = loadTrackedPredictions()
+        setTrackedPredictions(latest)
+        setTrackingAccuracy(computeExtendedAccuracy(latest))
+        setLastSyncInfo(`${totalRecorded} result${totalRecorded !== 1 ? "s" : ""} recorded`)
+      } else {
+        setLastSyncInfo("No new results")
+      }
+    } catch {
+      setLastSyncInfo("Sync failed")
+    } finally {
+      setSyncing(false)
+    }
+  }, []) // no state captured — reads localStorage directly
+
   // Load from localStorage on mount, then immediately sync all pending predictions
   // across the full season so accuracy stats are up to date on every refresh.
   // Note: basePredictions is passed to syncResults to avoid the stale-state race
@@ -291,64 +351,6 @@ export default function HomePage() {
     setTrackedPredictions(updated)
     setTrackingAccuracy(computeExtendedAccuracy(updated))
   }
-
-  // ── Results sync ─────────────────────────────────────────────────────────────
-  const [syncing, setSyncing] = useState(false)
-  const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null)
-  const [backfilling, setBackfilling] = useState(false)
-
-  // syncResults reads from localStorage directly (via autoRecordResults → loadTrackedPredictions)
-  // so it does not capture trackedPredictions from the closure. This gives it a stable
-  // identity with an empty dependency array, safe to call from mount effects.
-  const syncResults = useCallback(async (dates?: string[], basePredictions?: TrackedPrediction[]) => {
-    setSyncing(true)
-    try {
-      // Read fresh from localStorage when basePredictions is not provided so we
-      // never act on stale React state.
-      const baseData = basePredictions ?? loadTrackedPredictions()
-      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
-      const pendingDates = new Set<string>(
-        baseData
-          .filter((p) => p.status === "pending")
-          .map((p) => p.date)
-      )
-      pendingDates.add(today)
-      // Also check yesterday in case games ended after midnight ET
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      pendingDates.add(
-        new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(yesterday)
-      )
-
-      const targetDates = dates ?? [...pendingDates]
-
-      let totalRecorded = 0
-
-      for (const date of targetDates) {
-        const res = await fetch(`/api/results?date=${date}`)
-        if (!res.ok) continue
-        const data = await res.json()
-        if (!data.results) continue
-
-        const { recorded } = autoRecordResults(data.results)
-        totalRecorded += recorded
-      }
-
-      if (totalRecorded > 0) {
-        // Read the freshly-persisted state from localStorage after all updates
-        const latest = loadTrackedPredictions()
-        setTrackedPredictions(latest)
-        setTrackingAccuracy(computeExtendedAccuracy(latest))
-        setLastSyncInfo(`${totalRecorded} result${totalRecorded !== 1 ? "s" : ""} recorded`)
-      } else {
-        setLastSyncInfo("No new results")
-      }
-    } catch {
-      setLastSyncInfo("Sync failed")
-    } finally {
-      setSyncing(false)
-    }
-  }, []) // no state captured — reads localStorage directly
 
   // Backfill historical predictions from season start to yesterday
   const backfillSeason = useCallback(async () => {
