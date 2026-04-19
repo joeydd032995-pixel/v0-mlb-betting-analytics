@@ -115,6 +115,8 @@ export interface NRFIPrediction {
   gameId: string
   nrfiProbability: number
   yrfiProbability: number
+  /** Calibrated NRFI percentage (0–100). Decision threshold: 34 = NRFI call, <34 = YRFI call. */
+  calibratedNrfiPct: number
   homeExpectedRuns: number
   awayExpectedRuns: number
   homeScores0Prob: number

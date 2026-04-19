@@ -417,10 +417,10 @@ function computeConfidence(
 // ─── Recommendation ───────────────────────────────────────────────────────────
 
 function getRecommendation(nrfiProb: number): Recommendation {
-  if (nrfiProb >= 0.65) return "STRONG_NRFI"
-  if (nrfiProb >= 0.57) return "LEAN_NRFI"
-  if (nrfiProb >= 0.47) return "TOSS_UP"
-  if (nrfiProb >= 0.38) return "LEAN_YRFI"
+  if (nrfiProb >= 0.62) return "STRONG_NRFI"
+  if (nrfiProb >= 0.52) return "LEAN_NRFI"
+  if (nrfiProb >= 0.34) return "TOSS_UP"
+  if (nrfiProb >= 0.22) return "LEAN_YRFI"
   return "STRONG_YRFI"
 }
 
@@ -601,8 +601,8 @@ export function computeNRFIPrediction(
 
   const ensembleNrfi = combineHalfInnings(homeHalfRaw, awayHalfRaw)
 
-  // Blend: 60% ensemble, 40% base Poisson (for numerical stability & familiarity)
-  const blendedNrfi = 0.60 * ensembleNrfi + 0.40 * (awayScores0Base * homeScores0Base)
+  // Blend: 60% ensemble, 40% recalibrated league-anchor (0.515)
+  const blendedNrfi = 0.60 * ensembleNrfi + 0.40 * 0.515
   const nrfiProb = Math.max(0.05, Math.min(0.95, blendedNrfi))
   const yrfiProb = 1 - nrfiProb
 
@@ -669,6 +669,7 @@ export function computeNRFIPrediction(
     gameId: game.id,
     nrfiProbability: nrfiProb,
     yrfiProbability: yrfiProb,
+    calibratedNrfiPct: parseFloat((nrfiProb * 100).toFixed(1)),
     homeExpectedRuns: homeLambda,
     awayExpectedRuns: awayLambda,
     homeScores0Prob: homeScores0Base,
