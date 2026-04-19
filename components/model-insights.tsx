@@ -69,6 +69,8 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   const [syncTotal,    setSyncTotal]    = useState<number>(0)
   const [syncDone,     setSyncDone]     = useState<number>(0)
   const [syncError,    setSyncError]    = useState<string | null>(null)
+  const [dbStatus,     setDbStatus]     = useState<{ connected: boolean; error?: string; vars?: Record<string, boolean>; gameCount?: number } | null>(null)
+  const [dbChecking,   setDbChecking]   = useState(false)
 
   const loadPerformance = useCallback(async (): Promise<PerformanceData | null> => {
     setPerfLoading(true)
@@ -87,6 +89,20 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     }
     return null
   }, [])
+
+  async function checkDb() {
+    setDbChecking(true)
+    setDbStatus(null)
+    try {
+      const res  = await fetch("/api/db-status")
+      const data = await res.json()
+      setDbStatus(data)
+    } catch {
+      setDbStatus({ connected: false, error: "Could not reach /api/db-status — check network." })
+    } finally {
+      setDbChecking(false)
+    }
+  }
 
   useEffect(() => { loadPerformance() }, [loadPerformance])
 
@@ -615,7 +631,35 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 <span>{syncError}</span>
               </div>
             )}
+            {dbStatus && (
+              <div className={cn(
+                "rounded-lg border px-4 py-3 text-xs space-y-1",
+                dbStatus.connected
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+              )}>
+                <p className="font-semibold">{dbStatus.connected ? "✓ Database connected" : "✗ Database not connected"}</p>
+                {dbStatus.connected && <p className="text-muted-foreground">{dbStatus.gameCount ?? 0} game results in DB</p>}
+                {dbStatus.error && <p>{dbStatus.error}</p>}
+                {dbStatus.vars && (
+                  <div className="pt-1 space-y-0.5 text-muted-foreground">
+                    {Object.entries(dbStatus.vars).map(([k, v]) => (
+                      <p key={k}>{v ? "✓" : "✗"} {k}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
+              {/* Test DB connection */}
+              <button
+                disabled={dbChecking || syncYear !== null}
+                onClick={checkDb}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/40 bg-card/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {dbChecking ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Database className="h-3 w-3" />}
+                Test Connection
+              </button>
               {/* Sync All — one click to pull everything from 2024 to now */}
               <button
                 disabled={syncYear !== null}
