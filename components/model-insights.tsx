@@ -74,7 +74,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     try {
       const res  = await fetch("/api/performance")
       const data = await res.json()
-      setPerfData(data)
+      // Only store well-formed responses; error objects don't have the expected shape
+      if (data && typeof data.hasData === "boolean") {
+        setPerfData(data)
+      }
     } catch (e) {
       console.error("[ModelInsights] performance fetch error:", e)
     } finally {
@@ -567,7 +570,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {perfData && (
+            {perfData?.syncStatus && (
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                 <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalGames.toLocaleString()}</span> games in DB</span>
                 <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalPredictions.toLocaleString()}</span> predictions</span>
