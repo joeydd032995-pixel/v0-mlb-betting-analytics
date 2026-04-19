@@ -68,8 +68,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   const [syncProgress, setSyncProgress] = useState<string>("")
   const [syncTotal,    setSyncTotal]    = useState<number>(0)
   const [syncDone,     setSyncDone]     = useState<number>(0)
+  const [syncError,    setSyncError]    = useState<string | null>(null)
 
-  const loadPerformance = useCallback(async () => {
+  const loadPerformance = useCallback(async (): Promise<PerformanceData | null> => {
     setPerfLoading(true)
     try {
       const res  = await fetch("/api/performance")
@@ -77,65 +78,78 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       // Only store well-formed responses; error objects don't have the expected shape
       if (data && typeof data.hasData === "boolean") {
         setPerfData(data)
+        return data as PerformanceData
       }
     } catch (e) {
       console.error("[ModelInsights] performance fetch error:", e)
     } finally {
       setPerfLoading(false)
     }
+    return null
   }, [])
 
   useEffect(() => { loadPerformance() }, [loadPerformance])
 
-  async function syncSeason(year: number, months: number[]) {
-    setSyncYear(year)
-    setSyncTotal(months.length)
-    for (let i = 0; i < months.length; i++) {
-      const m = months[i]
-      setSyncDone(i)
-      setSyncProgress(`Syncing ${new Date(year, m - 1, 1).toLocaleString("en-US", { month: "short" })} ${year}… (${i + 1}/${months.length})`)
+  async function runSync(pairs: { year: number; month: number }[], sentinel: number) {
+    setSyncError(null)
+    setSyncYear(sentinel)
+    setSyncTotal(pairs.length)
+    let totalSynced  = 0
+    let totalSkipped = 0
+    let hadError     = false
+
+    for (let i = 0; i < pairs.length; i++) {
+      const { year, month } = pairs[i]
+      const label = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" })
+      setSyncProgress(`Syncing ${label} ${year}… (${i + 1}/${pairs.length})`)
       try {
-        await fetch(`/api/historical-sync?year=${year}&month=${m}`)
-      } catch { /* non-fatal – continue */ }
+        const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}`)
+        const data = await res.json()
+        if (data?.gameResultsSynced) totalSynced  += data.gameResultsSynced
+        if (data?.skipped)           totalSkipped += data.skipped
+        setSyncDone(i + 1)  // advance after success so bar reaches 100%
+        if (!res.ok && data?.error) {
+          setSyncError(`Sync failed: ${data.error}`)
+          hadError = true
+          break
+        }
+      } catch (e) {
+        console.error("[ModelInsights] sync fetch error:", e)
+        setSyncError("Network error while syncing. Please check your connection and try again.")
+        hadError = true
+        break
+      }
     }
+
     setSyncYear(null)
     setSyncProgress("")
     setSyncTotal(0)
     setSyncDone(0)
+
+    // Only show the DB-config warning when nothing was written AND nothing was
+    // legitimately skipped (skip = already in DB) AND no other error fired.
+    if (totalSynced === 0 && totalSkipped === 0 && !hadError) {
+      setSyncError("No records were written. Make sure DATABASE_URL is set in your Vercel environment variables and redeploy.")
+    }
+
     await loadPerformance()
+  }
+
+  async function syncSeason(year: number, months: number[]) {
+    await runSync(months.map((m) => ({ year, month: m })), year)
   }
 
   async function syncAll() {
     const now = new Date()
     const curYear  = now.getFullYear()
     const curMonth = now.getMonth() + 1
-
-    // All (year, month) pairs from MLB opening month 2024 through today
     const pairs: { year: number; month: number }[] = []
     for (let y = 2024; y <= curYear; y++) {
-      const startM = 3                                  // MLB seasons open in March
-      const endM   = y < curYear ? 10 : curMonth       // past seasons end in Oct
-      for (let m = startM; m <= endM; m++) {
-        pairs.push({ year: y, month: m })
-      }
+      const startM = 3
+      const endM   = y < curYear ? 10 : curMonth
+      for (let m = startM; m <= endM; m++) pairs.push({ year: y, month: m })
     }
-
-    setSyncYear(-1)  // -1 = "all years" sentinel
-    setSyncTotal(pairs.length)
-    for (let i = 0; i < pairs.length; i++) {
-      const { year, month } = pairs[i]
-      setSyncDone(i)
-      const label = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" })
-      setSyncProgress(`Syncing ${label} ${year}… (${i + 1}/${pairs.length})`)
-      try {
-        await fetch(`/api/historical-sync?year=${year}&month=${month}`)
-      } catch { /* non-fatal – continue */ }
-    }
-    setSyncYear(null)
-    setSyncProgress("")
-    setSyncTotal(0)
-    setSyncDone(0)
-    await loadPerformance()
+    await runSync(pairs, -1)
   }
 
   async function exportData() {
@@ -593,6 +607,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                     />
                   </div>
                 )}
+              </div>
+            )}
+            {syncError && (
+              <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-300 flex items-start gap-2">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{syncError}</span>
               </div>
             )}
             <div className="flex flex-wrap gap-2">
