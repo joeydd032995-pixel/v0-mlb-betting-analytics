@@ -70,7 +70,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   const [syncDone,     setSyncDone]     = useState<number>(0)
   const [syncError,    setSyncError]    = useState<string | null>(null)
 
-  const loadPerformance = useCallback(async () => {
+  const loadPerformance = useCallback(async (): Promise<PerformanceData | null> => {
     setPerfLoading(true)
     try {
       const res  = await fetch("/api/performance")
@@ -78,12 +78,14 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       // Only store well-formed responses; error objects don't have the expected shape
       if (data && typeof data.hasData === "boolean") {
         setPerfData(data)
+        return data as PerformanceData
       }
     } catch (e) {
       console.error("[ModelInsights] performance fetch error:", e)
     } finally {
       setPerfLoading(false)
     }
+    return null
   }, [])
 
   useEffect(() => { loadPerformance() }, [loadPerformance])
@@ -116,11 +118,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     setSyncTotal(0)
     setSyncDone(0)
 
-    if (totalSynced === 0 && !syncError) {
-      setSyncError("No records were written. Make sure DATABASE_URL is set in your Vercel environment variables, then redeploy.")
+    const fresh = await loadPerformance()
+    // Only flag a DB problem if nothing was synced AND the DB is still empty.
+    // (totalSynced===0 is also normal when all days were already present — skip logic.)
+    if (totalSynced === 0 && !syncError && !(fresh?.totalGames ?? 0)) {
+      setSyncError("No records were written. Make sure DATABASE_URL is set in your Vercel environment variables and redeploy.")
     }
-
-    await loadPerformance()
   }
 
   async function syncSeason(year: number, months: number[]) {
