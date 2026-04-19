@@ -94,23 +94,31 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     setSyncError(null)
     setSyncYear(sentinel)
     setSyncTotal(pairs.length)
-    let totalSynced = 0
+    let totalSynced  = 0
+    let totalSkipped = 0
+    let hadError     = false
 
     for (let i = 0; i < pairs.length; i++) {
       const { year, month } = pairs[i]
-      setSyncDone(i)
       const label = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" })
       setSyncProgress(`Syncing ${label} ${year}… (${i + 1}/${pairs.length})`)
       try {
         const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}`)
         const data = await res.json()
-        if (data?.gameResultsSynced) totalSynced += data.gameResultsSynced
-        // Surface the first DB error and abort early
+        if (data?.gameResultsSynced) totalSynced  += data.gameResultsSynced
+        if (data?.skipped)           totalSkipped += data.skipped
+        setSyncDone(i + 1)  // advance after success so bar reaches 100%
         if (!res.ok && data?.error) {
           setSyncError(`Sync failed: ${data.error}`)
+          hadError = true
           break
         }
-      } catch { /* network error — continue */ }
+      } catch (e) {
+        console.error("[ModelInsights] sync fetch error:", e)
+        setSyncError("Network error while syncing. Please check your connection and try again.")
+        hadError = true
+        break
+      }
     }
 
     setSyncYear(null)
@@ -118,12 +126,13 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     setSyncTotal(0)
     setSyncDone(0)
 
-    const fresh = await loadPerformance()
-    // Only flag a DB problem if nothing was synced AND the DB is still empty.
-    // (totalSynced===0 is also normal when all days were already present — skip logic.)
-    if (totalSynced === 0 && !syncError && !(fresh?.totalGames ?? 0)) {
+    // Only show the DB-config warning when nothing was written AND nothing was
+    // legitimately skipped (skip = already in DB) AND no other error fired.
+    if (totalSynced === 0 && totalSkipped === 0 && !hadError) {
       setSyncError("No records were written. Make sure DATABASE_URL is set in your Vercel environment variables and redeploy.")
     }
+
+    await loadPerformance()
   }
 
   async function syncSeason(year: number, months: number[]) {
