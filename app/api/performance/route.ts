@@ -63,6 +63,13 @@ export async function GET() {
     const totalCorrect = withResult.filter((p) => p.correct).length
     const accuracy = withResult.length > 0 ? totalCorrect / withResult.length : 0
 
+    // ── 3b. Baseline NRFI/YRFI rate for the same predicted-game population ──
+    // Using withResult (not the broader GameResult table) so that NRFI Rate,
+    // YRFI Rate, and Model Accuracy all share the same denominator and are
+    // directly comparable on the stat cards.
+    const nrfiInPredicted = withResult.filter((p) => p.actualResult === "NRFI").length
+    const yrfiInPredicted = withResult.length - nrfiInPredicted
+
     // ── 4. By confidence level ─────────────────────────────────────────────
     const confGroup = (label: string) => {
       const s = withResult.filter((p) => p.confidence === label)
@@ -151,14 +158,15 @@ export async function GET() {
       prisma.modelPrediction.count(),
     ])
 
-    const yrfiGames = totalGames - nrfiGames
     return NextResponse.json({
       hasData:          true,
-      totalGames,
-      nrfiGames,
-      yrfiGames,
-      nrfiRate:         nrfiGames / totalGames,
-      yrfiRate:         yrfiGames / totalGames,
+      // totalGames here is the predicted-game count so all three top-level
+      // stat cards (NRFI Rate, YRFI Rate, Model Accuracy) share the same denominator.
+      totalGames:       withResult.length,
+      nrfiGames:        nrfiInPredicted,
+      yrfiGames:        yrfiInPredicted,
+      nrfiRate:         withResult.length > 0 ? nrfiInPredicted / withResult.length : 0,
+      yrfiRate:         withResult.length > 0 ? yrfiInPredicted / withResult.length : 0,
       totalPredictions: withResult.length,
       totalCorrect,
       accuracy,
