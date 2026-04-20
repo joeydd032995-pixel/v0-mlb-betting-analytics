@@ -25,7 +25,10 @@ export async function GET() {
       return NextResponse.json({
         hasData: false,
         totalGames: 0,
+        nrfiGames: 0,
+        yrfiGames: 0,
         nrfiRate: 0,
+        yrfiRate: 0,
         totalPredictions: 0,
         accuracy: 0,
         byConfidence: { High: null, Medium: null, Low: null },
@@ -127,15 +130,18 @@ export async function GET() {
         1
       ).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 
+      const yrfiGamesMonth = data.total - data.nrfi
       return {
         key,
         label,
-        totalGames:        data.total,
-        nrfiGames:         data.nrfi,
-        nrfiRate:          data.nrfi / data.total,
-        predictions:       pred?.total       ?? 0,
-        correctPredictions: pred?.correct    ?? 0,
-        accuracy:          pred && pred.total > 0 ? pred.correct / pred.total : null,
+        totalGames:         data.total,
+        nrfiGames:          data.nrfi,
+        yrfiGames:          yrfiGamesMonth,
+        nrfiRate:           data.nrfi / data.total,
+        yrfiRate:           yrfiGamesMonth / data.total,
+        predictions:        pred?.total       ?? 0,
+        correctPredictions: pred?.correct     ?? 0,
+        accuracy:           pred && pred.total > 0 ? pred.correct / pred.total : null,
       }
     })
 
@@ -145,11 +151,14 @@ export async function GET() {
       prisma.modelPrediction.count(),
     ])
 
+    const yrfiGames = totalGames - nrfiGames
     return NextResponse.json({
       hasData:          true,
       totalGames,
       nrfiGames,
+      yrfiGames,
       nrfiRate:         nrfiGames / totalGames,
+      yrfiRate:         yrfiGames / totalGames,
       totalPredictions: withResult.length,
       totalCorrect,
       accuracy,

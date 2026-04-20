@@ -16,7 +16,9 @@ interface MonthRow {
   label: string
   totalGames: number
   nrfiGames: number
+  yrfiGames: number
   nrfiRate: number
+  yrfiRate: number
   predictions: number
   correctPredictions: number
   accuracy: number | null
@@ -26,7 +28,9 @@ interface PerformanceData {
   hasData: boolean
   totalGames: number
   nrfiGames: number
+  yrfiGames: number
   nrfiRate: number
+  yrfiRate: number
   totalPredictions: number
   totalCorrect: number
   accuracy: number
@@ -778,7 +782,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
         {/* ── Stat cards ───────────────────────────────────────────────── */}
         {perfData?.hasData && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -794,6 +798,25 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                     <div className="h-full bg-emerald-500" style={{ width: pct(perfData.nrfiRate) }} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-rose-400" />
+                    Historical YRFI Rate
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Actual first-inning YRFI</p>
+                    <p className="text-3xl font-bold text-rose-400">{pct(perfData.yrfiRate)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{perfData.totalGames.toLocaleString()} games · {perfData.yrfiGames.toLocaleString()} YRFI</p>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
+                    <div className="h-full bg-rose-500" style={{ width: pct(perfData.yrfiRate) }} />
                   </div>
                 </CardContent>
               </Card>
@@ -834,7 +857,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   {perfData.byConfidence.High ? (
                     <>
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">Confidence ≥68</p>
+                        <p className="text-xs text-muted-foreground mb-1">Confidence ≥62</p>
                         <p className="text-3xl font-bold text-violet-400">{pct(perfData.byConfidence.High.accuracy)}</p>
                         <p className="text-xs text-muted-foreground mt-1">{perfData.byConfidence.High.total.toLocaleString()} predictions</p>
                       </div>
@@ -944,6 +967,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                           <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Month</th>
                           <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Games</th>
                           <th className="text-center px-3 py-2 font-semibold text-emerald-400">NRFI Rate</th>
+                          <th className="text-center px-3 py-2 font-semibold text-rose-400">YRFI Rate</th>
                           <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Predictions</th>
                           <th className="text-right px-3 py-2 font-semibold text-sky-400">Model Acc.</th>
                         </tr>
@@ -954,8 +978,13 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                             <td className="px-3 py-2 text-muted-foreground">{row.label}</td>
                             <td className="px-3 py-2 text-center text-muted-foreground">{row.totalGames}</td>
                             <td className="px-3 py-2 text-center">
-                              <span className={cn("font-semibold", row.nrfiRate >= 0.62 ? "text-emerald-400" : "text-rose-400")}>
+                              <span className={cn("font-semibold", row.nrfiRate >= 0.62 ? "text-emerald-400" : "text-muted-foreground")}>
                                 {pct(row.nrfiRate)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <span className={cn("font-semibold", row.yrfiRate >= 0.38 ? "text-rose-400" : "text-muted-foreground")}>
+                                {pct(row.yrfiRate)}
                               </span>
                             </td>
                             <td className="px-3 py-2 text-center text-muted-foreground">{row.predictions || "—"}</td>
