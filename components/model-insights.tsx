@@ -794,7 +794,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Actual first-inning NRFI</p>
                     <p className="text-3xl font-bold text-emerald-400">{pct(perfData.nrfiRate)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{perfData.totalGames.toLocaleString()} games · {perfData.nrfiGames.toLocaleString()} NRFI</p>
+                    <p className="text-xs text-muted-foreground mt-1">{perfData.nrfiGames.toLocaleString()} of {perfData.totalGames.toLocaleString()} predicted games</p>
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                     <div className="h-full bg-emerald-500" style={{ width: pct(perfData.nrfiRate) }} />
@@ -813,7 +813,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Actual first-inning YRFI</p>
                     <p className="text-3xl font-bold text-rose-400">{pct(perfData.yrfiRate)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{perfData.totalGames.toLocaleString()} games · {perfData.yrfiGames.toLocaleString()} YRFI</p>
+                    <p className="text-xs text-muted-foreground mt-1">{perfData.yrfiGames.toLocaleString()} of {perfData.totalGames.toLocaleString()} predicted games</p>
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                     <div className="h-full bg-rose-500" style={{ width: pct(perfData.yrfiRate) }} />
@@ -834,7 +834,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">All predictions</p>
                         <p className="text-3xl font-bold text-sky-400">{pct(perfData.accuracy)}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{perfData.totalPredictions.toLocaleString()} predictions · {perfData.totalCorrect.toLocaleString()} correct</p>
+                        <p className="text-xs text-muted-foreground mt-1">{perfData.totalCorrect.toLocaleString()} of {perfData.totalPredictions.toLocaleString()} predicted games correct</p>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                         <div className="h-full bg-sky-500" style={{ width: pct(perfData.accuracy) }} />
