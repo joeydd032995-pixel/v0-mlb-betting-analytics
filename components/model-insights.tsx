@@ -106,6 +106,21 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
 
   useEffect(() => { loadPerformance() }, [loadPerformance])
 
+  const SYNC_ALL    = -1
+  const RESCORE_ALL = -2
+
+  function buildAllMonthPairs(): { year: number; month: number }[] {
+    const now      = new Date()
+    const curYear  = now.getFullYear()
+    const curMonth = now.getMonth() + 1
+    const pairs: { year: number; month: number }[] = []
+    for (let y = 2024; y <= curYear; y++) {
+      const endM = y < curYear ? 10 : curMonth
+      for (let m = 3; m <= endM; m++) pairs.push({ year: y, month: m })
+    }
+    return pairs
+  }
+
   async function runSync(pairs: { year: number; month: number }[], sentinel: number) {
     setSyncError(null)
     setSyncYear(sentinel)
@@ -119,7 +134,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       const label = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" })
       setSyncProgress(`Syncing ${label} ${year}… (${i + 1}/${pairs.length})`)
       try {
-        const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}${sentinel === -2 ? "&skip=false" : ""}`)
+        const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}${sentinel === RESCORE_ALL ? "&skip=false" : ""}`)
         const data = await res.json()
         if (data?.gameResultsSynced) totalSynced  += data.gameResultsSynced
         if (data?.skipped)           totalSkipped += data.skipped
@@ -155,31 +170,8 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     await runSync(months.map((m) => ({ year, month: m })), year)
   }
 
-  async function syncAll() {
-    const now = new Date()
-    const curYear  = now.getFullYear()
-    const curMonth = now.getMonth() + 1
-    const pairs: { year: number; month: number }[] = []
-    for (let y = 2024; y <= curYear; y++) {
-      const startM = 3
-      const endM   = y < curYear ? 10 : curMonth
-      for (let m = startM; m <= endM; m++) pairs.push({ year: y, month: m })
-    }
-    await runSync(pairs, -1)
-  }
-
-  async function runRescore() {
-    const now = new Date()
-    const curYear  = now.getFullYear()
-    const curMonth = now.getMonth() + 1
-    const pairs: { year: number; month: number }[] = []
-    for (let y = 2024; y <= curYear; y++) {
-      const startM = 3
-      const endM   = y < curYear ? 10 : curMonth
-      for (let m = startM; m <= endM; m++) pairs.push({ year: y, month: m })
-    }
-    await runSync(pairs, -2)
-  }
+  async function syncAll()    { await runSync(buildAllMonthPairs(), SYNC_ALL) }
+  async function runRescore() { await runSync(buildAllMonthPairs(), RESCORE_ALL) }
 
   async function exportData() {
     try {
@@ -679,12 +671,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 onClick={syncAll}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors",
-                  syncYear === -1
+                  syncYear === SYNC_ALL
                     ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
                     : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
-                {syncYear === -1
+                {syncYear === SYNC_ALL
                   ? <><RefreshCw className="h-3 w-3 animate-spin" />Syncing…</>
                   : <>Sync All (2024–Now)</>
                 }
@@ -695,12 +687,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 onClick={runRescore}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors",
-                  syncYear === -2
+                  syncYear === RESCORE_ALL
                     ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
                     : "border-orange-500/40 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
-                {syncYear === -2
+                {syncYear === RESCORE_ALL
                   ? <><RefreshCw className="h-3 w-3 animate-spin" />Re-scoring…</>
                   : <>Re-score All (New Model)</>
                 }

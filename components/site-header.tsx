@@ -96,9 +96,11 @@ export function SiteHeader() {
               </Link>
             </div>
 
-            <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
-              {dateStr}
-            </span>
+            {dateStr ? (
+              <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
+                {dateStr}
+              </span>
+            ) : null}
             <AuthNav />
           </div>
         </div>
