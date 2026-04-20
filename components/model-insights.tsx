@@ -109,14 +109,19 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   const SYNC_ALL    = -1
   const RESCORE_ALL = -2
 
-  function buildAllMonthPairs(): { year: number; month: number }[] {
-    const now      = new Date()
+  function buildMonthPairsForYear(year: number, now = new Date()): { year: number; month: number }[] {
     const curYear  = now.getFullYear()
     const curMonth = now.getMonth() + 1
+    const endM     = year < curYear ? 10 : curMonth
+    if (endM < 3) return []
+    return Array.from({ length: endM - 3 + 1 }, (_, i) => ({ year, month: 3 + i }))
+  }
+
+  function buildAllMonthPairs(): { year: number; month: number }[] {
+    const now = new Date()
     const pairs: { year: number; month: number }[] = []
-    for (let y = 2024; y <= curYear; y++) {
-      const endM = y < curYear ? 10 : curMonth
-      for (let m = 3; m <= endM; m++) pairs.push({ year: y, month: m })
+    for (let y = 2024; y <= now.getFullYear(); y++) {
+      pairs.push(...buildMonthPairsForYear(y, now))
     }
     return pairs
   }
@@ -125,9 +130,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     setSyncError(null)
     setSyncYear(sentinel)
     setSyncTotal(pairs.length)
-    let totalSynced  = 0
-    let totalSkipped = 0
-    let hadError     = false
+    let totalSynced             = 0
+    let totalPredictionsSynced  = 0
+    let totalSkipped            = 0
+    let hadError                = false
 
     for (let i = 0; i < pairs.length; i++) {
       const { year, month } = pairs[i]
@@ -136,8 +142,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       try {
         const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}${sentinel === RESCORE_ALL ? "&skip=false" : ""}`)
         const data = await res.json()
-        if (data?.gameResultsSynced) totalSynced  += data.gameResultsSynced
-        if (data?.skipped)           totalSkipped += data.skipped
+        if (data?.gameResultsSynced)  totalSynced            += data.gameResultsSynced
+        if (data?.predictionsSynced)  totalPredictionsSynced += data.predictionsSynced
+        if (data?.skipped)            totalSkipped           += data.skipped
         setSyncDone(i + 1)  // advance after success so bar reaches 100%
         if (!res.ok && data?.error) {
           setSyncError(`Sync failed: ${data.error}`)
@@ -159,7 +166,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
 
     // Only show the DB-config warning when nothing was written AND nothing was
     // legitimately skipped (skip = already in DB) AND no other error fired.
-    if (totalSynced === 0 && totalSkipped === 0 && !hadError) {
+    if (totalSynced === 0 && totalPredictionsSynced === 0 && totalSkipped === 0 && !hadError) {
       setSyncError("No records were written. Make sure DATABASE_URL is set in your Vercel environment variables and redeploy.")
     }
 
@@ -681,22 +688,24 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   : <>Sync All (2024–Now)</>
                 }
               </button>
-              {/* Re-score All — forces skip=false to update predictions with new model config */}
-              <button
-                disabled={syncYear !== null}
-                onClick={runRescore}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors",
-                  syncYear === RESCORE_ALL
-                    ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
-                    : "border-orange-500/40 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                )}
-              >
-                {syncYear === RESCORE_ALL
-                  ? <><RefreshCw className="h-3 w-3 animate-spin" />Re-scoring…</>
-                  : <>Re-score All (New Model)</>
-                }
-              </button>
+              {/* Re-score All — requires auth; forces skip=false to overwrite stored predictions */}
+              {userId && (
+                <button
+                  disabled={syncYear !== null}
+                  onClick={runRescore}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors",
+                    syncYear === RESCORE_ALL
+                      ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
+                      : "border-orange-500/40 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                >
+                  {syncYear === RESCORE_ALL
+                    ? <><RefreshCw className="h-3 w-3 animate-spin" />Re-scoring…</>
+                    : <>Re-score All (New Model)</>
+                  }
+                </button>
+              )}
 
               <span className="self-center text-border/60 text-xs select-none">or by year:</span>
 
@@ -709,10 +718,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   key={year}
                   disabled={syncYear !== null}
                   onClick={() => {
-                    const months =
-                      year === 2024 ? [3,4,5,6,7,8,9] :
-                      year === 2025 ? [3,4,5,6,7,8,9,10] :
-                      Array.from({ length: new Date().getMonth() + 1 }, (_, i) => i + 1)
+                    const months = buildMonthPairsForYear(year).map(({ month }) => month)
                     syncSeason(year, months)
                   }}
                   className={cn(

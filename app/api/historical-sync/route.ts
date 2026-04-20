@@ -196,6 +196,19 @@ export async function GET(request: Request) {
     )
   }
 
+  // Re-score (skip=false) overwrites all stored predictions — require auth.
+  if (!skipSynced) {
+    let userId: string | null = null
+    try {
+      const { auth } = await import("@clerk/nextjs/server")
+      const session = await auth()
+      userId = session.userId
+    } catch { /* Clerk not configured — deny by default */ }
+    if (!userId) {
+      return NextResponse.json({ error: "Authentication required for re-score" }, { status: 401 })
+    }
+  }
+
   const dates = daysInMonth(year, month)
   const currentYear = new Date().getFullYear()
   const isBacktested = year < currentYear
