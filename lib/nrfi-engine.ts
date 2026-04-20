@@ -418,7 +418,7 @@ function computeConfidence(
   score += (modelConsensus - 0.5) * 16
 
   score = Math.max(10, Math.min(98, Math.round(score)))
-  const level: ConfidenceLevel = score >= 68 ? "High" : score >= 45 ? "Medium" : "Low"
+  const level: ConfidenceLevel = score >= 62 ? "High" : score >= 45 ? "Medium" : "Low"
   return { level, score }
 }
 

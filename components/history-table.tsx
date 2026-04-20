@@ -495,7 +495,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
           },
           {
             label: "NRFI Accuracy",
-            value: accuracy.totalPredictions > 0 ? pct(accuracy.nrfiAccuracy) : "—",
+            value: accuracy.nrfiTotal > 0 ? pct(accuracy.nrfiAccuracy) : "—",
             sub: accuracy.nrfiTotal > 0
               ? `${accuracy.nrfiCorrect}/${accuracy.nrfiTotal} correct`
               : "When predicting NRFI",
@@ -503,7 +503,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
           },
           {
             label: "YRFI Accuracy",
-            value: accuracy.totalPredictions > 0 ? pct(accuracy.yrfiAccuracy) : "—",
+            value: accuracy.yrfiTotal > 0 ? pct(accuracy.yrfiAccuracy) : "—",
             sub: accuracy.yrfiTotal > 0
               ? `${accuracy.yrfiCorrect}/${accuracy.yrfiTotal} correct`
               : "When predicting YRFI",
@@ -511,11 +511,13 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
           },
           {
             label: "High-Conf Accuracy",
-            value: accuracy.totalPredictions > 0 ? pct(accuracy.highConfAccuracy) : "—",
+            value: accuracy.highConfTotal > 0 ? pct(accuracy.highConfAccuracy) : "—",
             sub:
-              accuracy.totalPredictions > 0
-                ? `ROI: ${accuracy.roi > 0 ? "+" : ""}${pct(accuracy.roi)}`
-                : `${accuracy.pendingCount} predictions pending`,
+              accuracy.highConfTotal > 0
+                ? `${accuracy.highConfCorrect}/${accuracy.highConfTotal} correct`
+                : accuracy.totalPredictions > 0
+                  ? `${accuracy.pendingCount} pending results`
+                  : "No completed results yet",
             color: "text-amber-400",
           },
         ].map((s) => (
