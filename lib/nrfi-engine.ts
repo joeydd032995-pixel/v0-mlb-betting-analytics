@@ -7,7 +7,7 @@
  *  3. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
  *  4. Markov Chain (24 states)     — state-based base-out inning simulation
  *
- * Ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
+ * Ensemble weights: Poisson 18%, ZIP 39%, Markov 31%, MAPRE 12%
  * P(NRFI) = P(home scores 0) × P(away scores 0)  (per-ensemble)
  */
 
@@ -42,6 +42,12 @@ const KELLY_FRACTION = 0.25
 /** Below this temperature (°F) run scoring is suppressed — used in both
  *  the weather multiplier and the factor-card cold-weather threshold. */
 const COLD_TEMP_THRESHOLD_F = 50
+/** Fraction of the final probability drawn from the inner weighted-model ensemble */
+const ENSEMBLE_BLEND = 0.68
+/** League-average NRFI anchor probability blended into the final output */
+const LEAGUE_ANCHOR = 0.618
+/** Minimum ensemble NRFI probability required to call NRFI */
+const NRFI_CALL_THRESHOLD = 0.52
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -418,7 +424,7 @@ function computeConfidence(
 
 function getRecommendation(nrfiProb: number): Recommendation {
   if (nrfiProb >= 0.62) return "STRONG_NRFI"
-  if (nrfiProb >= 0.52) return "LEAN_NRFI"
+  if (nrfiProb >= NRFI_CALL_THRESHOLD) return "LEAN_NRFI"
   if (nrfiProb >= 0.34) return "TOSS_UP"
   if (nrfiProb >= 0.22) return "LEAN_YRFI"
   return "STRONG_YRFI"
@@ -601,8 +607,8 @@ export function computeNRFIPrediction(
 
   const ensembleNrfi = combineHalfInnings(homeHalfRaw, awayHalfRaw)
 
-  // Blend: 60% ensemble, 40% recalibrated league-anchor (0.515)
-  const blendedNrfi = 0.60 * ensembleNrfi + 0.40 * 0.515
+  // Blend: 68% ensemble, 32% league-anchor (0.618)
+  const blendedNrfi = ENSEMBLE_BLEND * ensembleNrfi + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
   const nrfiProb = Math.max(0.05, Math.min(0.95, blendedNrfi))
   const yrfiProb = 1 - nrfiProb
 
