@@ -516,7 +516,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
               accuracy.highConfTotal > 0
                 ? `${accuracy.highConfCorrect}/${accuracy.highConfTotal} correct`
                 : accuracy.totalPredictions > 0
-                  ? `${accuracy.pendingCount} pending results`
+                  ? "No completed High-Conf results"
                   : "No completed results yet",
             color: "text-amber-400",
           },
@@ -692,7 +692,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       <p className="text-xs text-muted-foreground">
         * P/L shown as flat-stake units on the recommended bet. Click any row to see the full
         per-model breakdown (Poisson / ZIP / Markov / Ensemble). High-confidence bets are
-        predictions with a confidence score ≥ 68. ZIP ω = lockdown probability;
+        predictions with a confidence score ≥ 62. ZIP ω = lockdown probability;
         high ω means the model expects a dominant 1-2-3 inning.
       </p>
     </div>
