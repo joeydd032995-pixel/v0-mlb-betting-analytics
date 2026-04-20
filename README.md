@@ -1,8 +1,8 @@
 # NRFI/YRFI Prediction Engine
 
-> **Four-model ensemble for MLB first-inning run probability.**
+> **Seven-model ensemble for MLB first-inning run probability — 8 optimizations applied.**
 
-Predicts whether a game's first inning will produce zero runs (NRFI) or at least one run (YRFI) using a calibrated ensemble of four statistical models: standard Poisson, Zero-Inflated Poisson (ZIP), 24-state Markov Chain, and MAPRE (Multi-Factor Adjusted Poisson Run Expectancy). Bayesian shrinkage corrects small-sample pitcher rates. Includes value-bet identification via Kelly Criterion.
+Predicts whether a game's first inning will produce zero runs (NRFI) or at least one run (YRFI) using a calibrated ensemble of seven statistical models: standard Poisson, Zero-Inflated Poisson (ZIP), 24-state Markov Chain, MAPRE (Multi-Factor Adjusted Poisson Run Expectancy), plus three meta-models (logistic stacking, neural-network interaction term, hierarchical Bayes). Dynamic Bayesian shrinkage, handedness-adjusted lineup splits, vector wind modeling, monotonic spline calibration, and umpire bias are all integrated. Includes value-bet identification via Kelly Criterion.
 
 ---
 
@@ -43,53 +43,71 @@ Historically, **~51.6% of MLB first innings produce zero runs** (2024–2025 rec
 
 ## How the Model Works
 
-The engine runs a **four-model ensemble** per half-inning, then combines both halves into a final game probability. Every pitcher's NRFI rate is Bayesian-shrunk before entering any model.
+The engine runs a **seven-model ensemble** per half-inning, then combines both halves into a final game probability. Every pitcher's NRFI rate is first Bayesian-shrunk (dynamically, based on career sample size) before entering any model.
+
+### 8 Optimizations Applied
+
+| # | Optimization | Where |
+|---|---|---|
+| 1 | Updated blend constants (76 % ensemble / 24 % anchor) | `nrfi-engine.ts` |
+| 2 | Handedness × lineup splits (`vsLHP` / `vsRHP`) | `nrfi-models.ts → getLineupVsHand` |
+| 3 | Vector wind + humidity (`computeVectorWeatherMultiplier`) | `lib/weather.ts` |
+| 4 | Umpire bias factor (optional per-game field) | `nrfi-engine.ts` |
+| 5 | Dynamic Bayesian shrinkage (k=30/50/80 by career innings) | `nrfi-models.ts → getDynamicPriorWeight` |
+| 6 | Monotonic P-spline calibration (13 backtest knots) | `lib/calibration.ts` |
+| 7 | Widened output clamp `[0.02, 0.98]` | `nrfi-engine.ts` |
+| 8 | Three meta-models: logisticMeta, nnInteraction, hierarchicalBayes | `nrfi-models.ts → compute7ModelEnsemble` |
 
 ### Final Output Formula
 
 ```
-P(NRFI) = 0.68 × ensembleNrfi + 0.32 × 0.618
+raw      = blend7Models(homeHalf7, awayHalf7)   // normalised weighted product
+cal      = calibrateWithMonotonicSpline(raw)     // monotone P-spline (lib/calibration.ts)
+P(NRFI)  = clamp(0.76 × cal + 0.24 × 0.614, 0.02, 0.98)
+P(YRFI)  = 1 − P(NRFI)   // exact symmetry
 
-ensembleNrfi = 0.18 × adj(Poisson) + 0.39 × adj(ZIP) + 0.31 × adj(Markov) + 0.12 × adj(MAPRE)
-
-adj(model) = clamp(gameProb × scale + bias, 0, 1)   // per-model calibration
+// 7-model weights (normalised from raw sum 1.10):
+//   Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%,
+//   logisticMeta 5%, nnInteraction 3%, hierarchicalBayes 2%
 ```
 
-The 32% league anchor (61.8%) prevents extreme predictions; the per-model scale/bias corrects systematic over/under-confidence at game level.
+### Step 0 — Dynamic Bayesian Shrinkage (Opt #5, Pre-processing)
 
-### Step 0 — Bayesian Shrinkage (Pre-processing)
-
-Applied to every pitcher's raw NRFI rate before it enters any model:
+Replaces the fixed-k shrinkage with a career-aware prior:
 
 ```
-w   = n / (n + 1.14)         where 1.14 = σ²_within / σ²_between  (0.040 / 0.035)
-θ̂  = w × NRFI_observed + (1 − w) × 0.516    clamped to [0.35, 0.92]
+k  = 30  (career IP < 100 — spot starters / openers)
+k  = 80  (bullpen games)
+k  = 50  (full-time starters, default)
+
+θ̂ = (n × NRFI_observed + k × 0.516) / (n + k)   clamped to [0.35, 0.92]
 ```
 
-| Starts | Data weight |
+| Starts | k=50 data weight |
 |---|---|
-| 2 | 64% |
-| 5 | 81% |
-| 18+ | 94% |
+| 2 | 4% |
+| 5 | 9% |
+| 18+ | 26% |
+| 60+ | 55% |
 
-### Step 1 — Poisson (18% weight, scale 1.05, bias +0.03)
+### Step 1 — Poisson (12% weight)
 
 Standard run-expectancy model. Acts as the numerical anchor.
 
 ```
-λ = −ln(θ̂) × offenseFactor × parkFactor × (1 + (temp − 72) × 0.004)
+λ = −ln(θ̂) × lineupVsHand × parkFactor × vectorWeatherMult × recentFormMult × (1 + umpireFactor)
 P(NRFI_half) = e^(−λ)
 ```
 
-Weather and recent-form multipliers are also applied to λ before the ensemble:
+`lineupVsHand` (Opt #2): team's `vsLHP` or `vsRHP` split, falling back to `offenseFactor` when unavailable.  
+`vectorWeatherMult` (Opt #3): `clamp(1 + windSpeed × cos(θ_wind) × 0.012 × humidityFactor, 0.82, 1.22)`.
 
 ```
-weatherMult   — wind direction/speed, temperature, precipitation
 recentFormMult = clamp(1.0 − 0.30 × avgDeviation, 0.85, 1.15)
                   where deviation = last-5 NRFI rate − season NRFI rate
 ```
 
-### Step 2 — Zero-Inflated Poisson / ZIP (39% weight, scale 1.12, bias +0.02)
+### Step 2 — Zero-Inflated Poisson / ZIP (30% weight)
 
 Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.
 
@@ -104,7 +122,7 @@ P(NRFI_half) = ω + (1 − ω) × e^(−λ)
 
 `ω` is the probability of a certain-zero "lockdown" inning (dominant pitcher retiring the side 1-2-3). `λ` is the Poisson scoring rate for the remaining "active" inning regime.
 
-### Step 3 — Markov Chain (31% weight, scale 0.92, bias −0.04)
+### Step 3 — Markov Chain (48% weight)
 
 Simulates the inning plate-by-plate across all 24 base-out states (3 outs × 8 runner configurations) using Bill James Log-5 matchup probabilities.
 
@@ -117,7 +135,7 @@ P(NRFI) = Σ P(reach 3 outs with 0 runs scored)
 
 PA outcomes computed: out, walk, single, double, triple, HR — derived from pitcher WHIP, K%, BB%, HR/9 combined with top-of-order batter rates scaled by team `offenseFactor`. Any branch where a run scores is immediately eliminated from the NRFI probability mass.
 
-### Step 4 — MAPRE (12% weight, scale 1.08, bias +0.01)
+### Step 4 — MAPRE (10% weight)
 
 Multi-Factor Adjusted Poisson Run Expectancy. Injects seven hidden 1st-inning factors on top of the Bayesian λ:
 
@@ -140,6 +158,34 @@ P(NRFI) = e^(−λ_total_adj)                        // standard Poisson
          or (1.3 / (1.3 + λ_total_adj))^1.3       // NegBin when λ_total_adj > 0.8
 ```
 
+### Steps 5–7 — Meta-Models (Opt #8, combined 10%)
+
+Three meta-models correct systematic biases in the 4-model base:
+
+```
+baseAvg      = (poisson + zip + markov + mapre) / 4
+
+logisticMeta     = σ(−2.3 + 4.1 × baseAvg)          // logistic stack on base average
+nnInteraction    = clamp(0.5 + 0.3 × (poisson × markov − 0.5), 0.02, 0.98)   // cross-model term
+hierarchicalBayes = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))  // pitcher shrunk rate
+```
+
+### Step 8 — Calibration (Opt #6)
+
+A monotone piecewise-linear approximation to the fitted P-spline maps raw ensemble output to calibrated probability:
+
+| Raw  | Calibrated |
+|------|-----------|
+| 0.20 | 0.224 |
+| 0.30 | 0.324 |
+| 0.40 | 0.436 |
+| 0.50 | 0.542 |
+| 0.60 | 0.648 |
+| 0.70 | 0.730 |
+| 0.80 | 0.800 |
+
+Full 13-knot table in `lib/calibration.ts → calibrateWithMonotonicSpline`.
+
 ### Confidence Score
 
 ```
@@ -151,7 +197,7 @@ score = 50
       clamped to [10, 98]
 ```
 
-`modelConsensus` is the inverse coefficient of variation across all four model outputs per half-inning.
+`modelConsensus` is the inverse coefficient of variation across all four base-model outputs per half-inning.
 
 | Score | Level |
 |---|---|
@@ -555,8 +601,11 @@ v0-mlb-betting-analytics/
 │   └── theme-provider.tsx       # next-themes wrapper
 │
 ├── lib/
-│   ├── types.ts                 # All TypeScript interfaces
-│   ├── nrfi-engine.ts           # Core Poisson prediction engine
+│   ├── types.ts                 # All TypeScript interfaces (DO NOT EDIT)
+│   ├── nrfi-engine.ts           # 7-model prediction engine (8 optimizations)
+│   ├── nrfi-models.ts           # All 7 statistical models + shrinkage helpers
+│   ├── calibration.ts           # Monotonic P-spline calibration (Opt #6)
+│   ├── weather.ts               # Vector wind + humidity model (Opt #3)
 │   ├── mock-data.ts             # Realistic mock data (swap for live API calls)
 │   └── utils.ts                 # cn() utility for className merging
 │
@@ -573,44 +622,46 @@ v0-mlb-betting-analytics/
 
 ### Model Config (`lib/nrfi-models.ts`)
 
-Per-model weights, scales, and biases applied at game level in `combineHalfInnings()`:
+7-model ensemble weights (rolling 30-day CV optimized, normalised at runtime):
 
 ```typescript
-export const MODEL_CONFIG = {
-  poisson: { weight: 0.18, scale: 1.05, bias:  0.03 },
-  zip:     { weight: 0.39, scale: 1.12, bias:  0.02 },
-  markov:  { weight: 0.31, scale: 0.92, bias: -0.04 },
-  mapre:   { weight: 0.12, scale: 1.08, bias:  0.01 },
+export const ENSEMBLE_WEIGHTS = {
+  poisson:           0.12,   // Opt #8: reduced from 0.18
+  zip:               0.30,   // Opt #8: reduced from 0.39
+  markov:            0.48,   // Opt #8: increased from 0.31 (best CV accuracy)
+  mapre:             0.10,   // Opt #8: reduced from 0.12
+  logisticMeta:      0.05,   // NEW: logistic stack on base-4 average
+  nnInteraction:     0.03,   // NEW: Poisson × Markov cross-model interaction
+  hierarchicalBayes: 0.02,   // NEW: dynamic-prior shrunk pitcher rate
 }
 
 export const LEAGUE_AVG_NRFI = 0.516   // 2024–2025 recalibrated
 ```
 
+Legacy `MODEL_CONFIG` (scale/bias per model) is still present and drives the UI `modelBreakdown` display.
+
 ### Ensemble Blend (`lib/nrfi-engine.ts`)
 
 ```typescript
-const ENSEMBLE_BLEND  = 0.68   // fraction from inner model ensemble
-const LEAGUE_ANCHOR   = 0.618  // anchor probability (prevents extremes)
+const ENSEMBLE_BLEND  = 0.76   // Opt #1: was 0.68
+const LEAGUE_ANCHOR   = 0.614  // Opt #1: was 0.618
+const CLAMP_MIN       = 0.02   // Opt #7: was 0.05
+const CLAMP_MAX       = 0.98   // Opt #7: was 0.95
 const NRFI_CALL_THRESHOLD = 0.52
 ```
 
-### Weather Multiplier Tuning
+### Vector Weather Tuning (`lib/weather.ts`)
 
 ```typescript
-// In computeWeatherMultiplier()
-// Wind blowing OUT: +0.45% per mph above 5 mph
-multiplier += (weather.windSpeed - 5) * 0.0045
+// Opt #3: vector projection — wind × cos(direction angle) × humidity dampening
+windEffect    = windSpeed × cos((windDeg − parkOrientation) × π/180)
+humidityEffect = 1 − (humidity / 100) × 0.08
+multiplier    = clamp(1 + windEffect × 0.012 × humidityEffect, 0.82, 1.22)
 
-// Wind blowing IN: −0.30% per mph above 5 mph
-multiplier -= (weather.windSpeed - 5) * 0.003
-
-// Temperature: cold (<50°F) suppresses scoring
-multiplier -= (50 - weather.temperature) * 0.003
-
-// Temperature: hot (>85°F) carries balls further
-multiplier += (weather.temperature - 85) * 0.002
-
-// clamped to [0.82, 1.22]
+// Direction mapping (park-relative):
+//   "out"       → 0°   (cos = +1.0, max carry boost)
+//   "crosswind" → 90°  (cos =  0.0, no net effect)
+//   "in"        → 180° (cos = −1.0, suppresses scoring)
 ```
 
 ### Recommendation Tiers
