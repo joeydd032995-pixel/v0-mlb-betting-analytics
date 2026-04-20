@@ -331,9 +331,21 @@ export async function GET(request: Request) {
 
         await prisma.modelPrediction.upsert({
           where:  { id: tracked.id },
-          update: actualResult !== undefined
-            ? { actualResult, correct: actualResult === tracked.prediction, status: "complete" }
-            : {},
+          update: {
+            // Refresh prediction fields so re-runs pick up model config changes
+            nrfiProbability: tracked.nrfiProbability,
+            prediction:      tracked.prediction,
+            confidence:      tracked.confidence,
+            confidenceScore: tracked.confidenceScore,
+            poissonNrfi:     tracked.poissonNrfi,
+            zipNrfi:         tracked.zipNrfi,
+            markovNrfi:      tracked.markovNrfi,
+            ensembleNrfi:    tracked.ensembleNrfi,
+            modelConsensus:  tracked.modelConsensus,
+            ...(actualResult !== undefined
+              ? { actualResult, correct: actualResult === tracked.prediction, status: "complete" }
+              : {}),
+          },
           create: {
             id:              tracked.id,
             date,
