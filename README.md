@@ -1,8 +1,8 @@
 # NRFI/YRFI Prediction Engine
 
-> **Advanced Poisson-based first-inning run probability calculator for MLB.**
+> **Four-model ensemble for MLB first-inning run probability.**
 
-Predicts whether a game's first inning will produce zero runs (NRFI) or at least one run (YRFI), using a multi-factor statistical model built on pitcher first-inning NRFI rates, opposing lineup offense factors, park factors, weather, and recent form. Includes value-bet identification via Kelly Criterion.
+Predicts whether a game's first inning will produce zero runs (NRFI) or at least one run (YRFI) using a calibrated ensemble of four statistical models: standard Poisson, Zero-Inflated Poisson (ZIP), 24-state Markov Chain, and MAPRE (Multi-Factor Adjusted Poisson Run Expectancy). Bayesian shrinkage corrects small-sample pitcher rates. Includes value-bet identification via Kelly Criterion.
 
 ---
 
@@ -37,56 +37,144 @@ These markets are popular because:
 - They are heavily dependent on starting pitcher quality (top of the batting order, fresh arms)
 - Bookmakers frequently misprice them relative to underlying pitcher stats
 
-Historically, **~60% of MLB first innings produce zero runs**, making NRFI the slight favorite in most matchups — but this varies dramatically based on pitcher, ballpark, lineup, and weather.
+Historically, **~51.6% of MLB first innings produce zero runs** (2024–2025 recalibrated), making NRFI a near coin-flip in average matchups — but the range varies dramatically based on pitcher, ballpark, lineup, and weather.
 
 ---
 
 ## How the Model Works
 
-The engine uses a **Poisson scoring model**. For each half-inning, the expected runs (λ) are derived from the opposing pitcher's historical NRFI rate and adjusted for contextual factors:
+The engine runs a **four-model ensemble** per half-inning, then combines both halves into a final game probability. Every pitcher's NRFI rate is Bayesian-shrunk before entering any model.
+
+### Final Output Formula
 
 ```
-λ = −ln(pitcherNrfiRate) × offenseFactor × parkFactor × weatherMultiplier × recentFormMultiplier
+P(NRFI) = 0.68 × ensembleNrfi + 0.32 × 0.618
 
-P(team scores 0) = e^(−λ)          [Poisson PMF at k=0]
+ensembleNrfi = 0.18 × adj(Poisson) + 0.39 × adj(ZIP) + 0.31 × adj(Markov) + 0.12 × adj(MAPRE)
 
-P(NRFI) = P(home scores 0) × P(away scores 0)
-P(YRFI) = 1 − P(NRFI)
+adj(model) = clamp(gameProb × scale + bias, 0, 1)   // per-model calibration
 ```
 
-### Factor Breakdown
+The 32% league anchor (61.8%) prevents extreme predictions; the per-model scale/bias corrects systematic over/under-confidence at game level.
 
-| Factor | Source | Effect |
-|---|---|---|
-| `pitcherNrfiRate` | Season NRFI % for that pitcher | Base λ via Poisson inversion |
-| `offenseFactor` | Team's 1st-inning runs relative to league avg | Scales λ up/down |
-| `parkFactor` | Ballpark run environment (1.0 = neutral) | Scales λ up/down |
-| `weatherMultiplier` | Wind direction/speed, temperature | Scales λ up/down |
-| `recentFormMultiplier` | Last-5-start NRFI results (30% weight) | Blended with season rate |
+### Step 0 — Bayesian Shrinkage (Pre-processing)
+
+Applied to every pitcher's raw NRFI rate before it enters any model:
+
+```
+w   = n / (n + 1.14)         where 1.14 = σ²_within / σ²_between  (0.040 / 0.035)
+θ̂  = w × NRFI_observed + (1 − w) × 0.516    clamped to [0.35, 0.92]
+```
+
+| Starts | Data weight |
+|---|---|
+| 2 | 64% |
+| 5 | 81% |
+| 18+ | 94% |
+
+### Step 1 — Poisson (18% weight, scale 1.05, bias +0.03)
+
+Standard run-expectancy model. Acts as the numerical anchor.
+
+```
+λ = −ln(θ̂) × offenseFactor × parkFactor × (1 + (temp − 72) × 0.004)
+P(NRFI_half) = e^(−λ)
+```
+
+Weather and recent-form multipliers are also applied to λ before the ensemble:
+
+```
+weatherMult   — wind direction/speed, temperature, precipitation
+recentFormMult = clamp(1.0 − 0.30 × avgDeviation, 0.85, 1.15)
+                  where deviation = last-5 NRFI rate − season NRFI rate
+```
+
+### Step 2 — Zero-Inflated Poisson / ZIP (39% weight, scale 1.12, bias +0.02)
+
+Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.
+
+```
+logit(ω) = −1.38 + 4.0 × (kRate − 0.225) + (72 − temp) × 0.008 + umpire × 0.18
+log(λ)   = ln(0.42) + 0.90 × ln(offenseFactor) + 0.60 × ln(parkFactor) + (temp − 72) × 0.004
+
+P(NRFI_half) = ω + (1 − ω) × e^(−λ)
+
+ω clamped [8%, 60%]   λ floor 0.05
+```
+
+`ω` is the probability of a certain-zero "lockdown" inning (dominant pitcher retiring the side 1-2-3). `λ` is the Poisson scoring rate for the remaining "active" inning regime.
+
+### Step 3 — Markov Chain (31% weight, scale 0.92, bias −0.04)
+
+Simulates the inning plate-by-plate across all 24 base-out states (3 outs × 8 runner configurations) using Bill James Log-5 matchup probabilities.
+
+```
+P(event | batter vs pitcher) = (b·p/l) / [ (b·p/l) + (1−b)(1−p)/(1−l) ]
+
+States: outs ∈ {0,1,2} × runners ∈ {000…111}
+P(NRFI) = Σ P(reach 3 outs with 0 runs scored)
+```
+
+PA outcomes computed: out, walk, single, double, triple, HR — derived from pitcher WHIP, K%, BB%, HR/9 combined with top-of-order batter rates scaled by team `offenseFactor`. Any branch where a run scores is immediately eliminated from the NRFI probability mass.
+
+### Step 4 — MAPRE (12% weight, scale 1.08, bias +0.01)
+
+Multi-Factor Adjusted Poisson Run Expectancy. Injects seven hidden 1st-inning factors on top of the Bayesian λ:
+
+```
+λ_adj = λ_base × M_sOPS × M_BABIP × M_HR × M_pitchMix + Δ_HFA + Δ_rest
+
+M_sOPS     = 1 + 0.0015 × (sOPS+ − 100)          // batting team 1st-inning sOPS+
+M_BABIP    = 1 + 1.8    × (BABIP − 0.295)          // pitcher 1st-inning BABIP
+M_HR       = 1 + 9      × (HR/PA − 0.034)          // pitcher 1st-inning HR rate
+M_pitchMix = 1 + 0.12   × barrelDev                // Statcast barrel deviation
+Δ_HFA      = −0.030  if home pitcher               // home-field advantage
+Δ_rest     = +0.032  if away team fatigued          // short rest / time-zone shift
+
+// Game-level: cross-half correlation ρ
+λ_total     = λ_home + λ_away
+ρ           = 0.06 when both λ > 0.60              // high-run environment
+λ_total_adj = λ_total × (1 + ρ)
+
+P(NRFI) = e^(−λ_total_adj)                        // standard Poisson
+         or (1.3 / (1.3 + λ_total_adj))^1.3       // NegBin when λ_total_adj > 0.8
+```
 
 ### Confidence Score
 
-Confidence (0–100) is calculated from:
-- **Distance from 50%** — predictions further from a coin flip earn higher confidence
-- **Sample size** — pitchers with ≥18 starts get a bonus
-- **Form consistency** — low variance over last 5 starts increases confidence
+```
+score = 50
+      + |P(NRFI) − 0.50| × 70     // max +35 for extreme predictions
+      + sampleBonus                 // +12 if ≥18 starts, −14 if <3
+      − formVariance × 15           // high variance in last 5 = penalty
+      + (modelConsensus − 0.5) × 16 // all models agree = bonus
+      clamped to [10, 98]
+```
 
-Scores ≥ 68 → **High** | 45–67 → **Medium** | < 45 → **Low**
+`modelConsensus` is the inverse coefficient of variation across all four model outputs per half-inning.
+
+| Score | Level |
+|---|---|
+| ≥ 68 | High |
+| 45–67 | Medium |
+| < 45 | Low |
+
+### Recommendation Tiers
+
+| P(NRFI) | Call |
+|---|---|
+| ≥ 0.62 | STRONG NRFI |
+| ≥ 0.52 | LEAN NRFI |
+| 0.38–0.52 | TOSS-UP |
+| 0.28–0.38 | LEAN YRFI |
+| < 0.28 | STRONG YRFI |
 
 ### Value Bet Identification
 
-For games with bookmaker odds, the engine calculates:
-
 ```
-edge = modelProbability − impliedProbability(odds)
-```
-
-A value bet is flagged when `edge ≥ 3%`. Position size is determined by **Kelly Criterion** (25% fractional):
-
-```
-kellyFraction = ((b × p − q) / b) × 0.25
-
-where b = decimal odds − 1, p = model probability, q = 1 − p
+edge = P(model) − impliedProbability(bookOdds)    // ≥3% required
+kellyFraction = ((b × p − q) / b) × 0.25          // 25% fractional Kelly
+where  b = decimal odds,  p = model prob,  q = 1 − p
 ```
 
 ---
@@ -398,43 +486,44 @@ See `.env.example` for the complete list with descriptions.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     app/page.tsx (Client)                    │
-│   Tabs: Today's Games │ Pitchers │ Teams │ History           │
-└────────────────────────────┬────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     app/page.tsx  (Client)                       │
+│   Dashboard │ Grid View │ Accuracy │ History │ Insights          │
+└────────────────────────────┬────────────────────────────────────┘
                              │
-              ┌──────────────▼──────────────┐
-              │    lib/nrfi-engine.ts        │
-              │  computeAllPredictions()     │
-              │  ─────────────────────────  │
-              │  Poisson Model               │
-              │  λ = −ln(nrfiRate)          │
-              │    × offenseFactor          │
-              │    × parkFactor             │
-              │    × weatherMultiplier      │
-              │    × recentFormMultiplier   │
-              │                             │
-              │  P(NRFI) = e^−λA × e^−λB   │
-              └─────┬────────────┬──────────┘
-                    │            │
-          ┌─────────▼──┐   ┌────▼──────────┐
-          │ lib/mock-  │   │ lib/types.ts   │
-          │ data.ts    │   │ Full type      │
-          │ (swap for  │   │ definitions    │
-          │ live APIs) │   └───────────────┘
-          └─────┬──────┘
-                │ replaces with ↓
-   ┌────────────┴─────────────────────────────┐
-   │           Live API Layer                  │
-   │  ┌─────────────┐  ┌────────────────────┐ │
-   │  │ MLB Stats   │  │ The Odds API       │ │
-   │  │ API (free)  │  │ (NRFI/YRFI odds)   │ │
-   │  └─────────────┘  └────────────────────┘ │
-   │  ┌─────────────┐  ┌────────────────────┐ │
-   │  │ OpenWeather │  │ Sports Data IO     │ │
-   │  │ (weather)   │  │ (enhanced splits)  │ │
-   │  └─────────────┘  └────────────────────┘ │
-   └──────────────────────────────────────────┘
+         ┌───────────────────▼────────────────────┐
+         │           lib/nrfi-engine.ts             │
+         │         computeAllPredictions()          │
+         │                                          │
+         │  Step 0: Bayesian shrinkage              │
+         │    θ̂ = w·NRFI + (1−w)·0.516            │
+         │                                          │
+         │  Per half-inning (×2):                   │
+         │  ┌──────────┐  ┌──────────────────────┐ │
+         │  │ Poisson  │  │  lib/nrfi-models.ts   │ │
+         │  │  18%     │  │  ┌────┐ ┌───────────┐ │ │
+         │  └──────────┘  │  │ZIP │ │  Markov   │ │ │
+         │                │  │39% │ │  Chain31% │ │ │
+         │                │  └────┘ └───────────┘ │ │
+         │                │  ┌──────────────────┐  │ │
+         │                │  │  MAPRE  12%      │  │ │
+         │                │  └──────────────────┘  │ │
+         │                └──────────────────────┘ │
+         │                                          │
+         │  combineHalfInnings():                   │
+         │    adj(model) = clamp(p×scale+bias, 0,1) │
+         │    ensembleNrfi = Σ weight_i × adj_i     │
+         │                                          │
+         │  Final: 0.68×ensemble + 0.32×0.618       │
+         └───────────────────┬────────────────────┘
+                             │
+   ┌─────────────────────────▼───────────────────────────┐
+   │                    Live API Layer                     │
+   │  ┌─────────────┐  ┌────────────┐  ┌──────────────┐  │
+   │  │ MLB Stats   │  │ The Odds   │  │ OpenWeather  │  │
+   │  │ API (free)  │  │ API        │  │ API          │  │
+   │  └─────────────┘  └────────────┘  └──────────────┘  │
+   └─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -482,16 +571,27 @@ v0-mlb-betting-analytics/
 
 ## Configuration
 
-### Model Parameters
+### Model Config (`lib/nrfi-models.ts`)
 
-Core Poisson model constants live in `lib/nrfi-engine.ts`:
+Per-model weights, scales, and biases applied at game level in `combineHalfInnings()`:
 
 ```typescript
-// Minimum edge before recommending a bet (3%)
-const MIN_KELLY_EDGE = 0.03
+export const MODEL_CONFIG = {
+  poisson: { weight: 0.18, scale: 1.05, bias:  0.03 },
+  zip:     { weight: 0.39, scale: 1.12, bias:  0.02 },
+  markov:  { weight: 0.31, scale: 0.92, bias: -0.04 },
+  mapre:   { weight: 0.12, scale: 1.08, bias:  0.01 },
+}
 
-// Fractional Kelly multiplier for position sizing (25%)
-const KELLY_FRACTION = 0.25
+export const LEAGUE_AVG_NRFI = 0.516   // 2024–2025 recalibrated
+```
+
+### Ensemble Blend (`lib/nrfi-engine.ts`)
+
+```typescript
+const ENSEMBLE_BLEND  = 0.68   // fraction from inner model ensemble
+const LEAGUE_ANCHOR   = 0.618  // anchor probability (prevents extremes)
+const NRFI_CALL_THRESHOLD = 0.52
 ```
 
 ### Weather Multiplier Tuning
@@ -501,7 +601,7 @@ const KELLY_FRACTION = 0.25
 // Wind blowing OUT: +0.45% per mph above 5 mph
 multiplier += (weather.windSpeed - 5) * 0.0045
 
-// Wind blowing IN: −0.30% per mph above 5 mph  
+// Wind blowing IN: −0.30% per mph above 5 mph
 multiplier -= (weather.windSpeed - 5) * 0.003
 
 // Temperature: cold (<50°F) suppresses scoring
@@ -509,28 +609,28 @@ multiplier -= (50 - weather.temperature) * 0.003
 
 // Temperature: hot (>85°F) carries balls further
 multiplier += (weather.temperature - 85) * 0.002
+
+// clamped to [0.82, 1.22]
+```
+
+### Recommendation Tiers
+
+```typescript
+// In getRecommendation() — lib/nrfi-engine.ts
+nrfiProbability >= 0.62  → "STRONG_NRFI"
+nrfiProbability >= 0.52  → "LEAN_NRFI"   // NRFI_CALL_THRESHOLD
+nrfiProbability >= 0.38  → "TOSS_UP"
+nrfiProbability >= 0.28  → "LEAN_YRFI"
+nrfiProbability <  0.28  → "STRONG_YRFI"
 ```
 
 ### Confidence Thresholds
 
 ```typescript
-// In computeConfidence()
+// In computeConfidence() — lib/nrfi-engine.ts
 score >= 68  → "High"   confidence
 score 45–67  → "Medium" confidence
 score < 45   → "Low"    confidence
-```
-
-Adjust these thresholds in `nrfi-engine.ts` to control how aggressively High confidence is assigned.
-
-### Recommendation Tiers
-
-```typescript
-// In getRecommendation()
-nrfiProbability >= 0.65  → "STRONG_NRFI"
-nrfiProbability >= 0.57  → "LEAN_NRFI"
-nrfiProbability >= 0.47  → "TOSS_UP"
-nrfiProbability >= 0.38  → "LEAN_YRFI"
-nrfiProbability <  0.38  → "STRONG_YRFI"
 ```
 
 ---

@@ -257,12 +257,23 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Final NRFI %</p>
               <p className="font-mono text-sm text-emerald-400">P(NRFI) = 0.68 × ensembleNrfi + 0.32 × 0.618</p>
-              <p className="text-xs text-muted-foreground">68% weighted model ensemble + 32% league anchor (61.8%). Ensemble = scale/bias-calibrated Poisson/ZIP/Markov/MAPRE blend.</p>
+              <p className="text-xs text-muted-foreground">68% inner model ensemble + 32% league anchor (61.8%). The anchor prevents extreme outputs in low-data situations.</p>
+            </div>
+            <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Per-Model Calibration (applied before weighting)</p>
+              <p className="font-mono text-sm text-emerald-400">adj(model) = clamp(gameProb × scale + bias, 0, 1)</p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-1 text-xs text-muted-foreground font-mono">
+                <p>Poisson:  ×1.05 +0.03</p>
+                <p>ZIP:      ×1.12 +0.02</p>
+                <p>Markov:   ×0.92 −0.04</p>
+                <p>MAPRE:    ×1.08 +0.01</p>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Scale/bias correct each model&apos;s systematic over/under-confidence at game level before the weighted sum.</p>
             </div>
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Full Game</p>
               <p className="font-mono text-sm text-emerald-400">P(NRFI_game) = P(away scores 0 in top 1st) × P(home scores 0 in bot 1st)</p>
-              <p className="text-xs text-muted-foreground">Each half-inning is computed independently, then multiplied. Clamped to [5%, 95%].</p>
+              <p className="text-xs text-muted-foreground">Each half-inning is computed independently per model, multiplied at game level, then calibrated. Final output clamped to [5%, 95%].</p>
             </div>
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
               {[
@@ -294,7 +305,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
         {/* Scenario note */}
         <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
           <span className="font-semibold text-foreground">Sample scenario used below: </span>
-          Two solid starters (home pitcher 72% NRFI rate, away pitcher 68%), pitcher-friendly park (0.95), slightly below-avg offense (0.95), 68°F, neutral weather. Each model's NRFI % and YRFI % is shown for this scenario.
+          Two solid starters (home pitcher 72% NRFI rate, away pitcher 68%), pitcher-friendly park (0.95), slightly below-avg offense (0.95), 68°F, neutral weather. League avg NRFI = 51.6%. Each model&apos;s NRFI % and YRFI % is shown for this scenario.
         </div>
 
         {/* Pre-processing: Bayesian Shrinkage */}
@@ -378,7 +389,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="space-y-1 text-xs text-muted-foreground">
               <p><span className="text-foreground font-medium">ω (omega)</span> — probability of a certain-zero "lockdown" inning. Driven by pitcher K-rate, temperature, and umpire zone width. Clamped [8%, 60%].</p>
               <p><span className="text-foreground font-medium">λ (lambda)</span> — Poisson scoring rate for the "active inning" regime. Driven by offense factor and park. Calibrated so average inputs → λ ≈ 0.42.</p>
-              <p><span className="text-foreground font-medium">Calibration target:</span> at league-average inputs both half-innings combine to P(NRFI_game) ≈ 0.62.</p>
+              <p><span className="text-foreground font-medium">Calibration target:</span> at league-average inputs (kRate=0.225, offFactor=1.0, park=1.0, 72°F) → ω≈0.20, λ≈0.42 → P(NRFI_half)≈0.73.</p>
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Example:</span> Elite strikeout pitcher (K% = 0.33) on a cold 45°F night → ω ≈ 0.38 (38% chance of a pure lockdown inning regardless of offense). Even if runs are possible (62% chance), Poisson still needs to produce 0 → combined P(NRFI) much higher than base Poisson.
