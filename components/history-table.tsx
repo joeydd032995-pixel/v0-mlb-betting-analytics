@@ -57,7 +57,7 @@ function exportToCSV(predictions: TrackedPrediction[]): void {
     p.status,
     p.actualResult || "—",
     p.runsFirstInning ? `${p.runsFirstInning.away}-${p.runsFirstInning.home}` : "—",
-    p.correct ? "YES" : p.status === "pending" ? "—" : "NO",
+    p.actualResult ? (p.prediction === p.actualResult ? "YES" : "NO") : "—",
     p.prediction === "NRFI" && p.nrfiOdds ? formatOdds(p.nrfiOdds) : p.prediction === "YRFI" && p.yrfiOdds ? formatOdds(p.yrfiOdds) : "—",
     formatPnL(p.profitLoss),
   ])
@@ -394,16 +394,25 @@ function CompletedRow({ pred, onDelete }: { pred: TrackedPrediction; onDelete: (
           </span>
         </td>
         <td className="px-3 py-3 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            {pred.correct ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            ) : (
-              <XCircle className="h-4 w-4 text-rose-400" />
-            )}
-            <span className={cn("text-xs font-medium", pred.correct ? "text-emerald-400" : "text-rose-400")}>
+          {pred.actualResult ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold",
+                pred.prediction === pred.actualResult
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : "bg-rose-500/15 text-rose-300"
+              )}
+            >
+              {pred.prediction === pred.actualResult ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <XCircle className="h-3 w-3" />
+              )}
               {pred.actualResult}
             </span>
-          </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          )}
         </td>
         <td className="px-3 py-3 text-center">
           <ConfBadge level={pred.confidence} />
@@ -638,11 +647,13 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
                       </p>
                     </div>
                     <div className="flex items-center gap-1">
-                      {r.correct ? (
-                        <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-rose-400" />
-                      )}
+                      {r.actualResult ? (
+                        r.prediction === r.actualResult ? (
+                          <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-rose-400" />
+                        )
+                      ) : null}
                       <button
                         onClick={() => onDelete(r.id)}
                         className="rounded p-1 text-muted-foreground hover:text-rose-400 transition-colors"
