@@ -31,6 +31,7 @@ function LabelWithTooltip({ label, glossaryKey }: { label: string; glossaryKey?:
 
 export function PredictionHeader({ predictions, accuracy }: Props) {
   const highConf = predictions.filter((p) => p.confidence === "High").length
+  const hasOddsData = predictions.some((p) => p.valueAnalysis !== undefined)
   const valueBets = predictions.filter(
     (p) => p.valueAnalysis && p.valueAnalysis.recommendedBet !== "NO_BET"
   ).length
@@ -69,8 +70,12 @@ export function PredictionHeader({ predictions, accuracy }: Props) {
     {
       label: "Value Bets Found",
       glossaryKey: "edge" as const,
-      value: valueBets.toString(),
-      sub: accuracy.totalPredictions > 0 ? `${(accuracy.roi * 100).toFixed(1)}% season ROI` : "No bets tracked yet",
+      value: !hasOddsData && predictions.length > 0 ? "N/A" : valueBets.toString(),
+      sub: !hasOddsData && predictions.length > 0
+        ? "Odds data unavailable"
+        : accuracy.totalPredictions > 0
+          ? `${(accuracy.roi * 100).toFixed(1)}% season ROI`
+          : "No bets tracked yet",
       icon: TrendingUp,
       color: "text-violet-400",
       bg: "bg-violet-400/10 border-violet-400/20",

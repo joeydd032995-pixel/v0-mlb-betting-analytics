@@ -115,6 +115,8 @@ export interface ExtendedModelAccuracy extends ModelAccuracy {
   nrfiTotal: number
   yrfiCorrect: number
   yrfiTotal: number
+  highConfCorrect: number
+  highConfTotal: number
 }
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
@@ -143,6 +145,27 @@ function isValidTrackedPrediction(p: unknown): p is TrackedPrediction {
 
 // ─── CRUD helpers ─────────────────────────────────────────────────────────────
 
+/** Threshold used to classify a prediction as NRFI vs YRFI */
+export const NRFI_PREDICTION_THRESHOLD = 0.5
+
+/**
+ * One-time migration: reclassifies any stored prediction whose `prediction`
+ * field was written with the old threshold (0.34) instead of the current 0.5.
+ * A record needs migration when nrfiProbability is in [0.34, 0.5) but is
+ * stored as "NRFI", or nrfiProbability >= 0.5 but stored as "YRFI".
+ * Returns the array unchanged (by reference) if no records need updating.
+ */
+function migrateThreshold(predictions: TrackedPrediction[]): TrackedPrediction[] {
+  let changed = false
+  const migrated = predictions.map((p) => {
+    const correct: "NRFI" | "YRFI" = p.nrfiProbability >= NRFI_PREDICTION_THRESHOLD ? "NRFI" : "YRFI"
+    if (p.prediction === correct) return p
+    changed = true
+    return { ...p, prediction: correct }
+  })
+  return changed ? migrated : predictions
+}
+
 export function loadTrackedPredictions(): TrackedPrediction[] {
   if (typeof window === "undefined") return []
   try {
@@ -150,7 +173,11 @@ export function loadTrackedPredictions(): TrackedPrediction[] {
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(isValidTrackedPrediction)
+    const valid = parsed.filter(isValidTrackedPrediction)
+    const migrated = migrateThreshold(valid)
+    // Persist only when migration actually changed something
+    if (migrated !== valid) persist(migrated)
+    return migrated
   } catch {
     return []
   }
@@ -228,7 +255,7 @@ export function buildTrackedPrediction(
 
     nrfiProbability: pred.nrfiProbability,
     yrfiProbability: pred.yrfiProbability,
-    prediction:      pred.nrfiProbability >= 0.34 ? "NRFI" : "YRFI",
+    prediction:      pred.nrfiProbability >= NRFI_PREDICTION_THRESHOLD ? "NRFI" : "YRFI",
     confidence:      pred.confidence,
     confidenceScore: pred.confidenceScore,
 
@@ -441,6 +468,8 @@ export function computeExtendedAccuracy(
     nrfiTotal: 0,
     yrfiCorrect: 0,
     yrfiTotal: 0,
+    highConfCorrect: 0,
+    highConfTotal: 0,
   }
 
   if (complete.length === 0) return empty
@@ -524,8 +553,10 @@ export function computeExtendedAccuracy(
     totalTracked: predictions.length,
     highConfPnL,
     nrfiCorrect,
-    nrfiTotal:   nrfiPreds.length,
+    nrfiTotal:    nrfiPreds.length,
     yrfiCorrect,
-    yrfiTotal:   yrfiPreds.length,
+    yrfiTotal:    yrfiPreds.length,
+    highConfCorrect: highCorrect,
+    highConfTotal:   highConf.length,
   }
 }
