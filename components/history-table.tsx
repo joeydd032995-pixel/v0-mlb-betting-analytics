@@ -57,7 +57,7 @@ function exportToCSV(predictions: TrackedPrediction[]): void {
     p.status,
     p.actualResult || "—",
     p.runsFirstInning ? `${p.runsFirstInning.away}-${p.runsFirstInning.home}` : "—",
-    p.correct ? "YES" : p.status === "pending" ? "—" : "NO",
+    p.actualResult ? (p.prediction === p.actualResult ? "YES" : "NO") : "—",
     p.prediction === "NRFI" && p.nrfiOdds ? formatOdds(p.nrfiOdds) : p.prediction === "YRFI" && p.yrfiOdds ? formatOdds(p.yrfiOdds) : "—",
     formatPnL(p.profitLoss),
   ])
@@ -647,11 +647,13 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
                       </p>
                     </div>
                     <div className="flex items-center gap-1">
-                      {r.correct ? (
-                        <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-rose-400" />
-                      )}
+                      {r.actualResult ? (
+                        r.prediction === r.actualResult ? (
+                          <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-rose-400" />
+                        )
+                      ) : null}
                       <button
                         onClick={() => onDelete(r.id)}
                         className="rounded p-1 text-muted-foreground hover:text-rose-400 transition-colors"
