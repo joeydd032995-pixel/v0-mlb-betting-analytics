@@ -494,6 +494,8 @@ export function computeMAPREHalfInning(
  * Named distinctly from the UI-facing ModelBreakdown in lib/types.ts.
  */
 export interface HalfInningEnsembleResult {
+  /** Raw weighted ensemble P(NRFI) for this half-inning (calibration applied at game level) */
+  ensembleNrfi: number
   /** Raw Poisson P(NRFI) for this half-inning (before ensemble) */
   poissonNrfi: number
   /** ZIP model P(NRFI) for this half-inning */
@@ -530,7 +532,7 @@ export interface HalfInningPair {
  * The Bayesian shrinkage is a pre-processing step (data quality) that feeds
  * into the Poisson, ZIP, Markov, and MAPRE models rather than being a 5th vote.
  *
- * Ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
+ * Ensemble weights: Poisson 18%, ZIP 39%, Markov 31%, MAPRE 12%
  * Cross-half ρ correlation and the Negative Binomial option for MAPRE are
  * applied in combineHalfInnings where both lambda values are available.
  */
@@ -581,21 +583,16 @@ export function computeHalfInningEnsemble(
   // offense × park adjustment with 2024–2025 calibrated 1st-inning factors.
   const mapreResult = computeMAPREHalfInning(poissonLambda, mapreInputs)
 
-  // Step 6: Ensemble — apply per-model scale/bias then blend with configured weights
-  const cfg = MODEL_CONFIG
-  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
-  const adjPoisson = clamp01(poissonNrfi             * cfg.poisson.scale + cfg.poisson.bias)
-  const adjZip     = clamp01(zipResult.nrfiProb      * cfg.zip.scale     + cfg.zip.bias)
-  const adjMarkov  = clamp01(markovResult.nrfiProb   * cfg.markov.scale  + cfg.markov.bias)
-  const adjMapre   = clamp01(mapreResult.nrfiProb    * cfg.mapre.scale   + cfg.mapre.bias)
-  const weights = { poisson: cfg.poisson.weight, zip: cfg.zip.weight, markov: cfg.markov.weight, mapre: cfg.mapre.weight }
+  // Step 6: Raw weighted ensemble — scale/bias calibration applied at game level in combineHalfInnings
+  const weights = { poisson: MODEL_CONFIG.poisson.weight, zip: MODEL_CONFIG.zip.weight, markov: MODEL_CONFIG.markov.weight, mapre: MODEL_CONFIG.mapre.weight }
   const ensembleNrfi =
-    weights.poisson * adjPoisson +
-    weights.zip     * adjZip +
-    weights.markov  * adjMarkov +
-    weights.mapre   * adjMapre
+    weights.poisson * poissonNrfi +
+    weights.zip     * zipResult.nrfiProb +
+    weights.markov  * markovResult.nrfiProb +
+    weights.mapre   * mapreResult.nrfiProb
 
   return {
+    ensembleNrfi,
     poissonNrfi,
     zipNrfi: zipResult.nrfiProb,
     zipOmega: zipResult.omega,

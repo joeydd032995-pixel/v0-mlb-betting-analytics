@@ -3,9 +3,11 @@
  *
  * Ensemble of four complementary models:
  *  1. Poisson (base)               — e^(−λ), λ from pitcher NRFI rate
- *  2. Bayesian Shrinkage           — corrects small-sample NRFI rate estimates
- *  3. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
- *  4. Markov Chain (24 states)     — state-based base-out inning simulation
+ *  2. Zero-Inflated Poisson (ZIP)  — models "lockdown" vs "active" innings
+ *  3. Markov Chain (24 states)     — state-based base-out inning simulation
+ *  4. MAPRE                        — multi-factor adjusted Poisson run expectancy
+ *
+ * Bayesian Shrinkage is a preprocessing step applied to small-sample NRFI rates.
  *
  * Ensemble weights: Poisson 18%, ZIP 39%, Markov 31%, MAPRE 12%
  * P(NRFI) = P(home scores 0) × P(away scores 0)  (per-ensemble)
@@ -425,8 +427,8 @@ function computeConfidence(
 function getRecommendation(nrfiProb: number): Recommendation {
   if (nrfiProb >= 0.62) return "STRONG_NRFI"
   if (nrfiProb >= NRFI_CALL_THRESHOLD) return "LEAN_NRFI"
-  if (nrfiProb >= 0.34) return "TOSS_UP"
-  if (nrfiProb >= 0.22) return "LEAN_YRFI"
+  if (nrfiProb >= 0.38) return "TOSS_UP"
+  if (nrfiProb >= 0.28) return "LEAN_YRFI"
   return "STRONG_YRFI"
 }
 
