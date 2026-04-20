@@ -394,16 +394,25 @@ function CompletedRow({ pred, onDelete }: { pred: TrackedPrediction; onDelete: (
           </span>
         </td>
         <td className="px-3 py-3 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            {pred.correct ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            ) : (
-              <XCircle className="h-4 w-4 text-rose-400" />
-            )}
-            <span className={cn("text-xs font-medium", pred.correct ? "text-emerald-400" : "text-rose-400")}>
+          {pred.actualResult ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold",
+                pred.prediction === pred.actualResult
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : "bg-rose-500/15 text-rose-300"
+              )}
+            >
+              {pred.prediction === pred.actualResult ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <XCircle className="h-3 w-3" />
+              )}
               {pred.actualResult}
             </span>
-          </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          )}
         </td>
         <td className="px-3 py-3 text-center">
           <ConfBadge level={pred.confidence} />
