@@ -119,7 +119,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       const label = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "short" })
       setSyncProgress(`Syncing ${label} ${year}… (${i + 1}/${pairs.length})`)
       try {
-        const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}`)
+        const res  = await fetch(`/api/historical-sync?year=${year}&month=${month}${sentinel === -2 ? "&skip=false" : ""}`)
         const data = await res.json()
         if (data?.gameResultsSynced) totalSynced  += data.gameResultsSynced
         if (data?.skipped)           totalSkipped += data.skipped
@@ -166,6 +166,19 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       for (let m = startM; m <= endM; m++) pairs.push({ year: y, month: m })
     }
     await runSync(pairs, -1)
+  }
+
+  async function runRescore() {
+    const now = new Date()
+    const curYear  = now.getFullYear()
+    const curMonth = now.getMonth() + 1
+    const pairs: { year: number; month: number }[] = []
+    for (let y = 2024; y <= curYear; y++) {
+      const startM = 3
+      const endM   = y < curYear ? 10 : curMonth
+      for (let m = startM; m <= endM; m++) pairs.push({ year: y, month: m })
+    }
+    await runSync(pairs, -2)
   }
 
   async function exportData() {
@@ -297,8 +310,8 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="font-mono text-sm text-muted-foreground">w = n / (n + 1.14)   where 1.14 = σ²_within / σ²_between</p>
-              <p className="font-mono text-sm text-muted-foreground">θ̂ = w × NRFI_observed + (1 − w) × 0.62</p>
-              <p className="text-xs text-muted-foreground mt-1">0.62 = league average NRFI rate. Clamped to [0.35, 0.92].</p>
+              <p className="font-mono text-sm text-muted-foreground">θ̂ = w × NRFI_observed + (1 − w) × 0.516</p>
+              <p className="text-xs text-muted-foreground mt-1">0.516 = league average NRFI rate. Clamped to [0.35, 0.92].</p>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs text-center">
               {[
@@ -322,7 +335,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500/20 text-xs font-bold text-sky-400">1</span>
               Poisson Model
-              <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">20% weight</span>
+              <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">18% weight</span>
             </CardTitle>
             <CardDescription>Standard run-expectancy model. Acts as the numerical anchor.</CardDescription>
           </CardHeader>
@@ -353,7 +366,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20 text-xs font-bold text-violet-400">2</span>
               Zero-Inflated Poisson (ZIP)
-              <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">30% weight</span>
+              <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">39% weight</span>
             </CardTitle>
             <CardDescription>Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.</CardDescription>
           </CardHeader>
@@ -364,7 +377,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <p className="font-mono text-sm text-violet-300 mt-2">P(NRFI) = ω + (1 − ω) × e^(−λ)</p>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
-              <p><span className="text-foreground font-medium">ω (omega)</span> — probability of a certain-zero "lockdown" inning. Driven by pitcher K-rate, temperature, and umpire zone width. Clamped [5%, 65%].</p>
+              <p><span className="text-foreground font-medium">ω (omega)</span> — probability of a certain-zero "lockdown" inning. Driven by pitcher K-rate, temperature, and umpire zone width. Clamped [8%, 60%].</p>
               <p><span className="text-foreground font-medium">λ (lambda)</span> — Poisson scoring rate for the "active inning" regime. Driven by offense factor and park. Calibrated so average inputs → λ ≈ 0.42.</p>
               <p><span className="text-foreground font-medium">Calibration target:</span> at league-average inputs both half-innings combine to P(NRFI_game) ≈ 0.62.</p>
             </div>
@@ -384,7 +397,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-xs font-bold text-amber-400">3</span>
               Markov Chain (24-state)
-              <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">30% weight</span>
+              <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">31% weight</span>
             </CardTitle>
             <CardDescription>Simulates the inning plate-by-plate across all 24 base-out states using Bill James Log-5 matchup probabilities.</CardDescription>
           </CardHeader>
@@ -417,7 +430,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20 text-xs font-bold text-rose-400">4</span>
               MAPRE — Multi-Factor Adjusted Poisson Run Expectancy
-              <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">20% weight</span>
+              <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">12% weight</span>
             </CardTitle>
             <CardDescription>Injects seven hidden 1st-inning factors on top of the Bayesian lambda. Applied at game level with cross-half correlation.</CardDescription>
           </CardHeader>
@@ -430,12 +443,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 <p><span className="text-rose-300">M_BABIP</span> = 1 + 1.8 × (BABIP − 0.295)</p>
                 <p><span className="text-rose-300">M_HR</span> = 1 + 9 × (HR/PA − 0.034)</p>
                 <p><span className="text-rose-300">M_pitchMix</span> = 1 + 0.12 × barrelDev</p>
-                <p><span className="text-rose-300">Δ_HFA</span> = −0.045 if home pitcher</p>
+                <p><span className="text-rose-300">Δ_HFA</span> = −0.030 if home pitcher</p>
                 <p><span className="text-rose-300">Δ_rest</span> = +0.032 if away team fatigued</p>
               </div>
               <p className="text-xs font-semibold text-rose-400 mt-3 mb-1">Game-level combination (with ρ correlation)</p>
               <p className="font-mono text-xs text-rose-300">λ_total = λ_home + λ_away × (1 + ρ)</p>
-              <p className="font-mono text-xs text-rose-300">ρ = 0.022 when both λ &gt; 0.60 (high-run environment)</p>
+              <p className="font-mono text-xs text-rose-300">ρ = 0.06 when both λ &gt; 0.60 (high-run environment)</p>
               <p className="font-mono text-xs text-rose-300">P(NRFI) = e^(−λ_total)  or  NegBin(r=1.3) when λ_total &gt; 0.8</p>
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
@@ -492,10 +505,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 </thead>
                 <tbody className="divide-y divide-border/20">
                   {[
-                    { model: "Poisson",  color: "text-sky-400",    weight: "20%", nrfi: 64, yrfi: 36, weighted: 12.8 },
-                    { model: "ZIP",      color: "text-violet-400", weight: "30%", nrfi: 67, yrfi: 33, weighted: 20.1 },
-                    { model: "Markov",   color: "text-amber-400",  weight: "30%", nrfi: 65, yrfi: 35, weighted: 19.5 },
-                    { model: "MAPRE",    color: "text-rose-400",   weight: "20%", nrfi: 62, yrfi: 38, weighted: 12.4 },
+                    { model: "Poisson",  color: "text-sky-400",    weight: "18%", nrfi: 64, yrfi: 36, weighted: 11.5 },
+                    { model: "ZIP",      color: "text-violet-400", weight: "39%", nrfi: 67, yrfi: 33, weighted: 26.1 },
+                    { model: "Markov",   color: "text-amber-400",  weight: "31%", nrfi: 65, yrfi: 35, weighted: 20.2 },
+                    { model: "MAPRE",    color: "text-rose-400",   weight: "12%", nrfi: 62, yrfi: 38, weighted: 7.4 },
                   ].map((row) => (
                     <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
                       <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
@@ -507,9 +520,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   ))}
                   <tr className="bg-muted/20 border-t border-border/40">
                     <td className="px-3 py-2 font-bold text-foreground" colSpan={2}>Ensemble (sum)</td>
-                    <td className="px-3 py-2 text-center font-bold text-emerald-400">64.8%</td>
-                    <td className="px-3 py-2 text-center font-bold text-rose-400">35.2%</td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">64.8%</td>
+                    <td className="px-3 py-2 text-center font-bold text-emerald-400">65.2%</td>
+                    <td className="px-3 py-2 text-center font-bold text-rose-400">34.8%</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">65.2%</td>
                   </tr>
                 </tbody>
               </table>
@@ -517,22 +530,22 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
 
             {/* Final blend */}
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2 text-xs">
-              <p className="font-semibold text-foreground mb-2">Final blend (60% ensemble + 40% base Poisson)</p>
-              <p className="font-mono text-muted-foreground">P(NRFI) = 0.60 × 64.8% + 0.40 × 64.0% = 38.9% + 25.6% = <span className="text-emerald-400 font-bold">64.5%</span></p>
-              <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 64.5% = <span className="text-rose-400 font-bold">35.5%</span></p>
+              <p className="font-semibold text-foreground mb-2">Final blend (68% ensemble + 32% league anchor 61.8%)</p>
+              <p className="font-mono text-muted-foreground">P(NRFI) = 0.68 × 65.2% + 0.32 × 61.8% = 44.3% + 19.8% = <span className="text-emerald-400 font-bold">64.1%</span></p>
+              <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 64.1% = <span className="text-rose-400 font-bold">35.9%</span></p>
             </div>
 
             {/* Final output bar */}
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
               <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Final NRFI / YRFI %</p>
-              <NrfiYrfiBar nrfi={65} color="bg-gradient-to-r from-emerald-500 to-emerald-400" />
+              <NrfiYrfiBar nrfi={64} color="bg-gradient-to-r from-emerald-500 to-emerald-400" />
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
-                  <p className="text-2xl font-bold text-emerald-400">64.5%</p>
+                  <p className="text-2xl font-bold text-emerald-400">64.1%</p>
                   <p className="text-xs text-muted-foreground mt-0.5">NRFI</p>
                 </div>
                 <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-center">
-                  <p className="text-2xl font-bold text-rose-400">35.5%</p>
+                  <p className="text-2xl font-bold text-rose-400">35.9%</p>
                   <p className="text-xs text-muted-foreground mt-0.5">YRFI</p>
                 </div>
               </div>
@@ -674,6 +687,22 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 {syncYear === -1
                   ? <><RefreshCw className="h-3 w-3 animate-spin" />Syncing…</>
                   : <>Sync All (2024–Now)</>
+                }
+              </button>
+              {/* Re-score All — forces skip=false to update predictions with new model config */}
+              <button
+                disabled={syncYear !== null}
+                onClick={runRescore}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  syncYear === -2
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed"
+                    : "border-orange-500/40 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                {syncYear === -2
+                  ? <><RefreshCw className="h-3 w-3 animate-spin" />Re-scoring…</>
+                  : <>Re-score All (New Model)</>
                 }
               </button>
 
