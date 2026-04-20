@@ -17,6 +17,16 @@ import type { Pitcher, Team } from "./types"
 
 /** ~51.6% of MLB first innings produce zero runs (2024–2025 recalibrated) */
 export const LEAGUE_AVG_NRFI = 0.516
+
+// ─── Default Model Configuration ─────────────────────────────────────────────
+
+/** Per-model calibration: weight in ensemble, multiplicative scale, additive bias. */
+export const MODEL_CONFIG = {
+  poisson: { weight: 0.18, scale: 1.05, bias:  0.03 },
+  zip:     { weight: 0.39, scale: 1.12, bias:  0.02 },
+  markov:  { weight: 0.31, scale: 0.92, bias: -0.04 },
+  mapre:   { weight: 0.12, scale: 1.08, bias:  0.01 },
+} as const
 /** 2024 MLB league averages (from config.ts) */
 const LEAGUE_K_RATE = 0.225
 const LEAGUE_BB_RATE = 0.085
@@ -484,6 +494,8 @@ export function computeMAPREHalfInning(
  * Named distinctly from the UI-facing ModelBreakdown in lib/types.ts.
  */
 export interface HalfInningEnsembleResult {
+  /** Raw weighted ensemble P(NRFI) for this half-inning (calibration applied at game level) */
+  ensembleNrfi: number
   /** Raw Poisson P(NRFI) for this half-inning (before ensemble) */
   poissonNrfi: number
   /** ZIP model P(NRFI) for this half-inning */
@@ -520,7 +532,7 @@ export interface HalfInningPair {
  * The Bayesian shrinkage is a pre-processing step (data quality) that feeds
  * into the Poisson, ZIP, Markov, and MAPRE models rather than being a 5th vote.
  *
- * Ensemble weights: Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20%
+ * Ensemble weights: Poisson 18%, ZIP 39%, Markov 31%, MAPRE 12%
  * Cross-half ρ correlation and the Negative Binomial option for MAPRE are
  * applied in combineHalfInnings where both lambda values are available.
  */
@@ -571,8 +583,8 @@ export function computeHalfInningEnsemble(
   // offense × park adjustment with 2024–2025 calibrated 1st-inning factors.
   const mapreResult = computeMAPREHalfInning(poissonLambda, mapreInputs)
 
-  // Step 6: Ensemble — Poisson 12%, ZIP 43%, Markov 33%, MAPRE 12%
-  const weights = { poisson: 0.12, zip: 0.43, markov: 0.33, mapre: 0.12 }
+  // Step 6: Raw weighted ensemble — scale/bias calibration applied at game level in combineHalfInnings
+  const weights = { poisson: MODEL_CONFIG.poisson.weight, zip: MODEL_CONFIG.zip.weight, markov: MODEL_CONFIG.markov.weight, mapre: MODEL_CONFIG.mapre.weight }
   const ensembleNrfi =
     weights.poisson * poissonNrfi +
     weights.zip     * zipResult.nrfiProb +
@@ -580,6 +592,7 @@ export function computeHalfInningEnsemble(
     weights.mapre   * mapreResult.nrfiProb
 
   return {
+    ensembleNrfi,
     poissonNrfi,
     zipNrfi: zipResult.nrfiProb,
     zipOmega: zipResult.omega,
@@ -598,9 +611,9 @@ export function computeHalfInningEnsemble(
  * Final combined P(NRFI) from both half-inning ensemble results.
  *
  * Architecture: weighted arithmetic mean of per-model game-level NRFI probabilities.
- *  • Poisson (12%): P(home=0) × P(away=0), independence assumption
- *  • ZIP (43%):     product of half-inning ZIP probabilities
- *  • Markov (33%):  product of half-inning Markov probabilities
+ *  • Poisson (18%): P(home=0) × P(away=0), independence assumption
+ *  • ZIP (39%):     product of half-inning ZIP probabilities
+ *  • Markov (31%):  product of half-inning Markov probabilities
  *  • MAPRE (12%):   full-game prob with ρ=0.06 cross-half correlation and
  *                   optional Negative Binomial overdispersion (λ_total_adj > 0.8)
  */
@@ -627,8 +640,17 @@ export function combineHalfInnings(
     ? Math.pow(r / (r + lambdaTotalAdj), r)
     : Math.exp(-lambdaTotalAdj)
 
-  // ── Weighted arithmetic mean — Poisson 12%, ZIP 43%, Markov 33%, MAPRE 12% ─
+  // ── Apply per-model scale/bias then blend with configured weights ─────────
+  const cfg = MODEL_CONFIG
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+  const adjPoisson = clamp01(poissonGame    * cfg.poisson.scale + cfg.poisson.bias)
+  const adjZip     = clamp01(zipGame        * cfg.zip.scale     + cfg.zip.bias)
+  const adjMarkov  = clamp01(markovGame     * cfg.markov.scale  + cfg.markov.bias)
+  const adjMapre   = clamp01(mapreFullProb  * cfg.mapre.scale   + cfg.mapre.bias)
   return Math.max(0.05, Math.min(0.95,
-    0.12 * poissonGame + 0.43 * zipGame + 0.33 * markovGame + 0.12 * mapreFullProb
+    cfg.poisson.weight * adjPoisson +
+    cfg.zip.weight     * adjZip +
+    cfg.markov.weight  * adjMarkov +
+    cfg.mapre.weight   * adjMapre
   ))
 }
