@@ -4,6 +4,7 @@
 
 "use client"
 
+import { useState, useEffect } from "react"
 import { Activity, Search, Grid3x3, LayoutGrid } from "lucide-react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
@@ -17,11 +18,14 @@ export function SiteHeader() {
   const pathname = usePathname()
   const isGridView = pathname === "/grid"
 
-  const dateStr = new Date().toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })
+  const [dateStr, setDateStr] = useState("")
+  useEffect(() => {
+    setDateStr(new Date().toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }))
+  }, [])
 
   return (
     <>
@@ -92,9 +96,11 @@ export function SiteHeader() {
               </Link>
             </div>
 
-            <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
-              {dateStr}
-            </span>
+            {dateStr ? (
+              <span className="hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 sm:inline">
+                {dateStr}
+              </span>
+            ) : null}
             <AuthNav />
           </div>
         </div>
