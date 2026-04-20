@@ -244,8 +244,8 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           <CardContent className="space-y-4">
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Final NRFI %</p>
-              <p className="font-mono text-sm text-emerald-400">P(NRFI) = 0.60 × P_ensemble + 0.40 × P_poisson</p>
-              <p className="text-xs text-muted-foreground">Blended for numerical stability. Ensemble itself = 80% (Poisson/ZIP/Markov product) + 20% MAPRE.</p>
+              <p className="font-mono text-sm text-emerald-400">P(NRFI) = 0.68 × ensembleNrfi + 0.32 × 0.618</p>
+              <p className="text-xs text-muted-foreground">68% weighted model ensemble + 32% league anchor (61.8%). Ensemble = scale/bias-calibrated Poisson/ZIP/Markov/MAPRE blend.</p>
             </div>
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Full Game</p>
@@ -254,10 +254,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </div>
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
               {[
-                { label: "Poisson", weight: "20%", color: "sky" },
-                { label: "ZIP", weight: "30%", color: "violet" },
-                { label: "Markov", weight: "30%", color: "amber" },
-                { label: "MAPRE", weight: "20%", color: "rose" },
+                { label: "Poisson", weight: "18%", color: "sky" },
+                { label: "ZIP", weight: "39%", color: "violet" },
+                { label: "Markov", weight: "31%", color: "amber" },
+                { label: "MAPRE", weight: "12%", color: "rose" },
               ].map((m) => (
                 <div key={m.label} className={cn(
                   "rounded-lg border p-3",
