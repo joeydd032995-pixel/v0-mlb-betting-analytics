@@ -131,19 +131,30 @@ function computeLambda(
 
 // ─── Opt #8: 7-Model Blend ───────────────────────────────────────────────────
 
+// Keys whose values are game-level signals (not half-inning probabilities).
+// These should be averaged across halves, not multiplied, to produce a game signal.
+const GAME_LEVEL_KEYS = new Set<keyof typeof ENSEMBLE_WEIGHTS>(["hierarchicalBayes", "nnInteraction"])
+
 /**
  * Combine two half-inning SevenModelResult objects into a game-level P(NRFI).
  *
- * For each model: P_game = P_home_half × P_away_half  (independence assumption)
- * Final: normalised weighted sum of the 7 game-level probabilities.
+ * Half-inning probability models (Poisson/ZIP/Markov/MAPRE):
+ *   P_game = P_home_half × P_away_half  (independence assumption)
+ *
+ * Game-level signal models (hierarchicalBayes/nnInteraction):
+ *   P_game = (home[k] + away[k]) / 2   (average — not a probability product)
+ *
+ * ENSEMBLE_WEIGHTS are pre-normalised to sum to 1.0.
  */
 function blend7Models(home: SevenModelResult, away: SevenModelResult): number {
-  const w     = ENSEMBLE_WEIGHTS
-  const keys  = Object.keys(w) as Array<keyof typeof ENSEMBLE_WEIGHTS>
-  const total = keys.reduce((s, k) => s + w[k], 0)   // 1.10 → normalise
+  const w    = ENSEMBLE_WEIGHTS
+  const keys = Object.keys(w) as Array<keyof typeof ENSEMBLE_WEIGHTS>
   let ensemble = 0
   for (const key of keys) {
-    ensemble += (w[key] / total) * home[key] * away[key]
+    const gameLevelProb = GAME_LEVEL_KEYS.has(key)
+      ? (home[key] + away[key]) / 2
+      : home[key] * away[key]
+    ensemble += w[key] * gameLevelProb
   }
   return Math.max(0, Math.min(1, ensemble))
 }
@@ -403,15 +414,19 @@ export function computeNRFIPrediction(
   const combinedMult      = vectorWeatherMult * recentMult
 
   // ── Opt #4: Umpire bias (optional — defaults to 0 when field absent) ─────────
-  const umpireFactor = (game as Game & { umpire?: { nrfiFactor?: number } }).umpire?.nrfiFactor ?? 0
+  // Positive nrfiFactor → umpire favours NRFI (tighter zone) → fewer runs → lower λ.
+  // We therefore subtract the factor: λ × (1 − nrfiFactor), clamped to ≥ 0.05.
+  const umpireFactor = game.umpire?.nrfiFactor ?? 0
 
   // ── Lambda per half-inning ───────────────────────────────────────────────────
   // awayScoresLambda: expected runs for away team (top 1st) vs home pitcher
-  const awayScoresLambda = computeLambda(homeShrunkRate, awayOffVsHand, game.parkFactor, combinedMult)
-    * (1 + umpireFactor)
+  const awayScoresLambda = Math.max(0.05,
+    computeLambda(homeShrunkRate, awayOffVsHand, game.parkFactor, combinedMult) * (1 - umpireFactor)
+  )
   // homeScoresLambda: expected runs for home team (bottom 1st) vs away pitcher
-  const homeScoresLambda = computeLambda(awayShrunkRate, homeOffVsHand, game.parkFactor, combinedMult)
-    * (1 + umpireFactor)
+  const homeScoresLambda = Math.max(0.05,
+    computeLambda(awayShrunkRate, homeOffVsHand, game.parkFactor, combinedMult) * (1 - umpireFactor)
+  )
 
   // ── Opt #8: 7-model ensemble per half ───────────────────────────────────────
   // "home half" = home pitcher on mound, away team batting
@@ -432,7 +447,7 @@ export function computeNRFIPrediction(
   const scalarWeatherMult = computeWeatherMultiplier(game.weather)
   const legacyMult        = scalarWeatherMult * recentMult
 
-  const homeMabreInputs: MAPREInputs = {
+  const homeMapreInputs: MAPREInputs = {
     sOpsPlus:              awayTeam.firstInning.offenseFactor * 100,
     babip1st:              homePitcher.firstInning.babip,
     hrPerPa1st:            homePitcher.firstInning.hrPer9 / 38.7,
@@ -449,7 +464,7 @@ export function computeNRFIPrediction(
     awayShortRestOrTravel: false,
   }
   const homeHalfRaw: HalfInningEnsembleResult = computeHalfInningEnsemble(
-    homePitcher, awayTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, homeMabreInputs
+    homePitcher, awayTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, homeMapreInputs
   )
   const awayHalfRaw: HalfInningEnsembleResult = computeHalfInningEnsemble(
     awayPitcher, homeTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, awayMapreInputs

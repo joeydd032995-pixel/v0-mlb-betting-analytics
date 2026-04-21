@@ -95,6 +95,8 @@ export interface Game {
   parkFactor: number
   weather: Weather
   odds?: GameOdds
+  /** Opt #4: positive nrfiFactor → umpire tightens zone → fewer runs → increases P(NRFI) */
+  umpire?: { nrfiFactor?: number }
 }
 
 export interface Weather {

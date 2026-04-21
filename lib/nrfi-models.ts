@@ -661,16 +661,16 @@ export function combineHalfInnings(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Optimized 7-Model Ensemble Weights (Rolling 30-day CV) ──────────────────
-// Markov gets the largest weight (0.48) — highest CV accuracy on 2025 backtest.
-// Three meta-models share the remaining 10% to correct systematic biases.
+// Pre-normalized to sum exactly to 1.0 (raw scores were 0.12/0.30/0.48/0.10/0.05/0.03/0.02
+// totalling 1.10; divided by 1.10 and rounded to 5 dp).
 export const ENSEMBLE_WEIGHTS = {
-  poisson:          0.12,
-  zip:              0.30,
-  markov:           0.48,
-  mapre:            0.10,
-  logisticMeta:     0.05,
-  nnInteraction:    0.03,
-  hierarchicalBayes:0.02,
+  poisson:           0.10909,
+  zip:               0.27273,
+  markov:            0.43636,
+  mapre:             0.09091,
+  logisticMeta:      0.04545,
+  nnInteraction:     0.02727,
+  hierarchicalBayes: 0.01818,
 } as const
 
 // ─── Opt #5: Dynamic Bayesian Shrinkage ──────────────────────────────────────
@@ -688,9 +688,11 @@ export const ENSEMBLE_WEIGHTS = {
  */
 export function getDynamicPriorWeight(pitcher: Pitcher): number {
   const ext = pitcher as Pitcher & { careerFirstInnings?: number; isBullpenGame?: boolean }
+  // Check bullpen flag first — these pitchers typically have careerIP < 100 too,
+  // but the heavy shrinkage (k=80) is the intended behavior for bullpen outings.
+  if (ext.isBullpenGame) return 80
   const careerIP = ext.careerFirstInnings ?? pitcher.firstInning.startCount * 3
   if (careerIP < 100) return 30
-  if (ext.isBullpenGame) return 80
   return 50
 }
 
@@ -743,18 +745,25 @@ function omegaFromKRate(kRate: number): number {
 
 /**
  * Markov-based P(NRFI) for one half-inning.
- * Reuses computePAOutcomes + computeMarkovNrfi from the existing models.
+ * Uses handedness-adjusted offense (Opt #2) and the dynamically shrunk pitcher
+ * rate (Opt #5) so these optimizations flow into the 48%-weighted model.
  */
-function computeMarkov24(_lambda: number, pitcher: Pitcher, team: Team): number {
-  const pa = computePAOutcomes(pitcher, team.firstInning.offenseFactor)
+function computeMarkov24(pitcher: Pitcher, team: Team): number {
+  const lineupFactor = getLineupVsHand(pitcher.throws, team)
+  const shrunkRate   = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
+  // Clone pitcher with shrunk rate so computePAOutcomes uses calibrated rate.
+  const pitcherClone = { ...pitcher, firstInning: { ...pitcher.firstInning, nrfiRate: shrunkRate } }
+  const pa = computePAOutcomes(pitcherClone, lineupFactor)
   return computeMarkovNrfi(pa).nrfiProb
 }
 
 /**
  * MAPRE-based P(NRFI) for one half-inning.
- * Wraps the existing computeMAPREHalfInning; isHomePitcher set by `side`.
+ * Receives the RAW base lambda (-ln(shrunkRate)) so that computeMAPREHalfInning
+ * can apply its own offense/BABIP/HR multipliers without double-counting the
+ * already-adjusted lambda from the engine.
  */
-function computeMAPREhalf(lambda: number, pitcher: Pitcher, team: Team, side: "home" | "away"): number {
+function computeMAPREhalf(rawBaseLambda: number, pitcher: Pitcher, team: Team, side: "home" | "away"): number {
   const inputs: MAPREInputs = {
     sOpsPlus:              team.firstInning.offenseFactor * 100,
     babip1st:              pitcher.firstInning.babip,
@@ -763,7 +772,7 @@ function computeMAPREhalf(lambda: number, pitcher: Pitcher, team: Team, side: "h
     isHomePitcher:         side === "home",
     awayShortRestOrTravel: false,
   }
-  return computeMAPREHalfInning(lambda, inputs).nrfiProb
+  return computeMAPREHalfInning(rawBaseLambda, inputs).nrfiProb
 }
 
 // ─── 7-Model Ensemble Computation ────────────────────────────────────────────
@@ -799,8 +808,13 @@ export function compute7ModelEnsemble(
   const omega = omegaFromKRate(pitcher.firstInning.kRate)
   const zip   = zipFromOmegaLambda(omega, lambda)
 
-  const markov = computeMarkov24(lambda, pitcher, team)
-  const mapre  = computeMAPREhalf(lambda, pitcher, team, side)
+  // Markov: uses handedness splits + shrunk rate (Opt #2 + #5); doesn't need lambda.
+  const markov = computeMarkov24(pitcher, team)
+
+  // MAPRE: pass raw base lambda so its multipliers don't double-count park/weather/umpire.
+  const shrunkRate     = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
+  const rawBaseLambda  = -Math.log(Math.max(0.01, shrunkRate))
+  const mapre          = computeMAPREhalf(rawBaseLambda, pitcher, team, side)
 
   // ── 3 Meta-models (Opt #8) ────────────────────────────────────────────────
   const baseAvg = (poisson + zip + markov + mapre) / 4

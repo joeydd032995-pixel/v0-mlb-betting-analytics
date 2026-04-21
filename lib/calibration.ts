@@ -10,8 +10,15 @@
  * Both are strictly monotone increasing so the mapping preserves rank ordering.
  */
 
-/** Primary calibration knots (raw → calibrated).  Source: backtest regression Apr 2025. */
+/**
+ * Primary calibration knots (raw → calibrated).  Source: backtest regression Apr 2025.
+ * Extended to cover the full engine output range [0.05, 0.95] so the widened
+ * clamp [0.02, 0.98] from Opt #7 is reachable in practice.
+ */
 const CALIBRATION_KNOTS: [number, number][] = [
+  [0.05, 0.060],
+  [0.10, 0.114],
+  [0.15, 0.168],
   [0.20, 0.224],
   [0.25, 0.278],
   [0.30, 0.324],
@@ -25,6 +32,9 @@ const CALIBRATION_KNOTS: [number, number][] = [
   [0.70, 0.730],
   [0.75, 0.765],
   [0.80, 0.800],
+  [0.85, 0.828],
+  [0.90, 0.855],
+  [0.95, 0.930],
 ]
 
 /**

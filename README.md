@@ -60,24 +60,24 @@ The engine runs a **seven-model ensemble** per half-inning, then combines both h
 
 ### Final Output Formula
 
-```
-raw      = blend7Models(homeHalf7, awayHalf7)   // normalised weighted product
+```text
+raw      = blend7Models(homeHalf7, awayHalf7)   // pre-normalised weighted sum
 cal      = calibrateWithMonotonicSpline(raw)     // monotone P-spline (lib/calibration.ts)
 P(NRFI)  = clamp(0.76 × cal + 0.24 × 0.614, 0.02, 0.98)
 P(YRFI)  = 1 − P(NRFI)   // exact symmetry
 
-// 7-model weights (normalised from raw sum 1.10):
-//   Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%,
-//   logisticMeta 5%, nnInteraction 3%, hierarchicalBayes 2%
+// 7-model weights (pre-normalised to sum to 1.0):
+//   Poisson 10.9%, ZIP 27.3%, Markov 43.6%, MAPRE 9.1%,
+//   logisticMeta 4.5%, nnInteraction 2.7%, hierarchicalBayes 1.8%
 ```
 
 ### Step 0 — Dynamic Bayesian Shrinkage (Opt #5, Pre-processing)
 
 Replaces the fixed-k shrinkage with a career-aware prior:
 
-```
+```text
+k  = 80  (bullpen games — checked first, since these pitchers also have careerIP < 100)
 k  = 30  (career IP < 100 — spot starters / openers)
-k  = 80  (bullpen games)
 k  = 50  (full-time starters, default)
 
 θ̂ = (n × NRFI_observed + k × 0.516) / (n + k)   clamped to [0.35, 0.92]
@@ -94,15 +94,16 @@ k  = 50  (full-time starters, default)
 
 Standard run-expectancy model. Acts as the numerical anchor.
 
-```
-λ = −ln(θ̂) × lineupVsHand × parkFactor × vectorWeatherMult × recentFormMult × (1 + umpireFactor)
+```text
+λ = −ln(θ̂) × lineupVsHand × parkFactor × vectorWeatherMult × recentFormMult × (1 − umpireFactor)
 P(NRFI_half) = e^(−λ)
 ```
 
 `lineupVsHand` (Opt #2): team's `vsLHP` or `vsRHP` split, falling back to `offenseFactor` when unavailable.  
-`vectorWeatherMult` (Opt #3): `clamp(1 + windSpeed × cos(θ_wind) × 0.012 × humidityFactor, 0.82, 1.22)`.
+`vectorWeatherMult` (Opt #3): `clamp(1 + windSpeed × cos(θ_wind) × 0.012 × humidityFactor, 0.82, 1.22)`.  
+`umpireFactor` (Opt #4): positive value means umpire tightens zone → fewer runs → λ decreases.
 
-```
+```text
 recentFormMult = clamp(1.0 − 0.30 × avgDeviation, 0.85, 1.15)
                   where deviation = last-5 NRFI rate − season NRFI rate
 ```
@@ -111,7 +112,7 @@ recentFormMult = clamp(1.0 − 0.30 × avgDeviation, 0.85, 1.15)
 
 Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.
 
-```
+```text
 logit(ω) = −1.38 + 4.0 × (kRate − 0.225) + (72 − temp) × 0.008 + umpire × 0.18
 log(λ)   = ln(0.42) + 0.90 × ln(offenseFactor) + 0.60 × ln(parkFactor) + (temp − 72) × 0.004
 
@@ -126,7 +127,7 @@ P(NRFI_half) = ω + (1 − ω) × e^(−λ)
 
 Simulates the inning plate-by-plate across all 24 base-out states (3 outs × 8 runner configurations) using Bill James Log-5 matchup probabilities.
 
-```
+```text
 P(event | batter vs pitcher) = (b·p/l) / [ (b·p/l) + (1−b)(1−p)/(1−l) ]
 
 States: outs ∈ {0,1,2} × runners ∈ {000…111}
@@ -139,7 +140,7 @@ PA outcomes computed: out, walk, single, double, triple, HR — derived from pit
 
 Multi-Factor Adjusted Poisson Run Expectancy. Injects seven hidden 1st-inning factors on top of the Bayesian λ:
 
-```
+```text
 λ_adj = λ_base × M_sOPS × M_BABIP × M_HR × M_pitchMix + Δ_HFA + Δ_rest
 
 M_sOPS     = 1 + 0.0015 × (sOPS+ − 100)          // batting team 1st-inning sOPS+
@@ -148,6 +149,9 @@ M_HR       = 1 + 9      × (HR/PA − 0.034)          // pitcher 1st-inning HR r
 M_pitchMix = 1 + 0.12   × barrelDev                // Statcast barrel deviation
 Δ_HFA      = −0.030  if home pitcher               // home-field advantage
 Δ_rest     = +0.032  if away team fatigued          // short rest / time-zone shift
+
+// λ_base is the RAW base lambda (−ln(shrunkRate)); park/weather/umpire are
+// not passed through to avoid double-counting with the engine's main lambda.
 
 // Game-level: cross-half correlation ρ
 λ_total     = λ_home + λ_away
@@ -162,12 +166,15 @@ P(NRFI) = e^(−λ_total_adj)                        // standard Poisson
 
 Three meta-models correct systematic biases in the 4-model base:
 
-```
+```text
 baseAvg      = (poisson + zip + markov + mapre) / 4
 
 logisticMeta     = σ(−2.3 + 4.1 × baseAvg)          // logistic stack on base average
 nnInteraction    = clamp(0.5 + 0.3 × (poisson × markov − 0.5), 0.02, 0.98)   // cross-model term
 hierarchicalBayes = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))  // pitcher shrunk rate
+
+// logisticMeta and nnInteraction are game-level signals, not half-inning probs.
+// blend7Models averages them across home+away instead of multiplying.
 ```
 
 ### Step 8 — Calibration (Opt #6)
@@ -184,11 +191,11 @@ A monotone piecewise-linear approximation to the fitted P-spline maps raw ensemb
 | 0.70 | 0.730 |
 | 0.80 | 0.800 |
 
-Full 13-knot table in `lib/calibration.ts → calibrateWithMonotonicSpline`.
+Full 19-knot table (covering raw ∈ [0.05, 0.95]) in `lib/calibration.ts → calibrateWithMonotonicSpline`.
 
 ### Confidence Score
 
-```
+```text
 score = 50
       + |P(NRFI) − 0.50| × 70     // max +35 for extreme predictions
       + sampleBonus                 // +12 if ≥18 starts, −14 if <3
@@ -217,7 +224,7 @@ score = 50
 
 ### Value Bet Identification
 
-```
+```text
 edge = P(model) − impliedProbability(bookOdds)    // ≥3% required
 kellyFraction = ((b × p − q) / b) × 0.25          // 25% fractional Kelly
 where  b = decimal odds,  p = model prob,  q = 1 − p
@@ -531,37 +538,35 @@ See `.env.example` for the complete list with descriptions.
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     app/page.tsx  (Client)                       │
 │   Dashboard │ Grid View │ Accuracy │ History │ Insights          │
 └────────────────────────────┬────────────────────────────────────┘
                              │
-         ┌───────────────────▼────────────────────┐
-         │           lib/nrfi-engine.ts             │
-         │         computeAllPredictions()          │
-         │                                          │
-         │  Step 0: Bayesian shrinkage              │
-         │    θ̂ = w·NRFI + (1−w)·0.516            │
-         │                                          │
-         │  Per half-inning (×2):                   │
-         │  ┌──────────┐  ┌──────────────────────┐ │
-         │  │ Poisson  │  │  lib/nrfi-models.ts   │ │
-         │  │  18%     │  │  ┌────┐ ┌───────────┐ │ │
-         │  └──────────┘  │  │ZIP │ │  Markov   │ │ │
-         │                │  │39% │ │  Chain31% │ │ │
-         │                │  └────┘ └───────────┘ │ │
-         │                │  ┌──────────────────┐  │ │
-         │                │  │  MAPRE  12%      │  │ │
-         │                │  └──────────────────┘  │ │
-         │                └──────────────────────┘ │
-         │                                          │
-         │  combineHalfInnings():                   │
-         │    adj(model) = clamp(p×scale+bias, 0,1) │
-         │    ensembleNrfi = Σ weight_i × adj_i     │
-         │                                          │
-         │  Final: 0.68×ensemble + 0.32×0.618       │
-         └───────────────────┬────────────────────┘
+         ┌───────────────────▼────────────────────────────────────┐
+         │           lib/nrfi-engine.ts                            │
+         │         computeAllPredictions()                         │
+         │                                                         │
+         │  Step 0: Dynamic Bayesian shrinkage (Opt #5)            │
+         │    k=30/50/80  θ̂ = (n·NRFI + k·0.516)/(n+k)          │
+         │    Opts #2,#3,#4 also applied to λ                      │
+         │                                                         │
+         │  Per half-inning (×2) — lib/nrfi-models.ts             │
+         │   compute7ModelEnsemble(λ, pitcher, team, side)         │
+         │  ┌──────────────────────────────────────────────────┐  │
+         │  │ Poisson    11% │ ZIP     27% │ Markov     44%    │  │
+         │  │ MAPRE       9% │ logMeta  5% │ nnInteract  3%    │  │
+         │  │                │ hierBayes   2%                   │  │
+         │  └──────────────────────────────────────────────────┘  │
+         │                                                         │
+         │  blend7Models():                                        │
+         │    half×half product for Poisson/ZIP/Markov/MAPRE       │
+         │    average (home+away)/2 for logMeta/nnInteract/hierB   │
+         │                                                         │
+         │  calibrateWithMonotonicSpline(raw)   ← lib/calibration  │
+         │  Final: clamp(0.76×cal + 0.24×0.614, 0.02, 0.98)       │
+         └───────────────────┬────────────────────────────────────┘
                              │
    ┌─────────────────────────▼───────────────────────────┐
    │                    Live API Layer                     │
