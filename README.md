@@ -54,7 +54,7 @@ The engine runs a **seven-model ensemble** per half-inning, then combines both h
 | 3 | Vector wind + humidity (`computeVectorWeatherMultiplier`) | `lib/weather.ts` |
 | 4 | Umpire bias factor (optional per-game field) | `nrfi-engine.ts` |
 | 5 | Dynamic Bayesian shrinkage (k=30/50/80 by career innings) | `nrfi-models.ts → getDynamicPriorWeight` |
-| 6 | Monotonic P-spline calibration (13 backtest knots) | `lib/calibration.ts` |
+| 6 | Monotonic P-spline calibration (19 backtest knots) | `lib/calibration.ts` |
 | 7 | Widened output clamp `[0.02, 0.98]` | `nrfi-engine.ts` |
 | 8 | Three meta-models: logisticMeta, nnInteraction, hierarchicalBayes | `nrfi-models.ts → compute7ModelEnsemble` |
 
@@ -173,8 +173,9 @@ logisticMeta     = σ(−2.3 + 4.1 × baseAvg)          // logistic stack on bas
 nnInteraction    = clamp(0.5 + 0.3 × (poisson × markov − 0.5), 0.02, 0.98)   // cross-model term
 hierarchicalBayes = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))  // pitcher shrunk rate
 
-// logisticMeta and nnInteraction are game-level signals, not half-inning probs.
-// blend7Models averages them across home+away instead of multiplying.
+// logisticMeta is a half-inning probability: blend7Models multiplies home×away (product).
+// nnInteraction and hierarchicalBayes are game-level signals:
+// blend7Models averages those across home+away instead of multiplying.
 ```
 
 ### Step 8 — Calibration (Opt #6)
@@ -208,8 +209,8 @@ score = 50
 
 | Score | Level |
 |---|---|
-| ≥ 68 | High |
-| 45–67 | Medium |
+| ≥ 62 | High |
+| 45–61 | Medium |
 | < 45 | Low |
 
 ### Recommendation Tiers
@@ -562,7 +563,7 @@ See `.env.example` for the complete list with descriptions.
          │                                                         │
          │  blend7Models():                                        │
          │    half×half product for Poisson/ZIP/Markov/MAPRE       │
-         │    average (home+away)/2 for logMeta/nnInteract/hierB   │
+         │    average (home+away)/2 for nnInteract/hierBayes       │
          │                                                         │
          │  calibrateWithMonotonicSpline(raw)   ← lib/calibration  │
          │  Final: clamp(0.76×cal + 0.24×0.614, 0.02, 0.98)       │
@@ -684,8 +685,8 @@ nrfiProbability <  0.28  → "STRONG_YRFI"
 
 ```typescript
 // In computeConfidence() — lib/nrfi-engine.ts
-score >= 68  → "High"   confidence
-score 45–67  → "Medium" confidence
+score >= 62  → "High"   confidence
+score 45–61  → "Medium" confidence
 score < 45   → "Low"    confidence
 ```
 

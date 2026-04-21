@@ -3,11 +3,8 @@
  * Knots fitted to 2024–2025 backtest data; monotonically maps raw ensemble
  * probability → calibrated probability. Replaces the old inline piecewise bias.
  *
- * Two knot sets coexist so callers can choose precision vs. recency:
- *  • CALIBRATION_KNOTS  – primary set from the optimization document (default)
- *  • DOC_KNOTS          – alternate set from the model-optimization doc section §6
- *
- * Both are strictly monotone increasing so the mapping preserves rank ordering.
+ * CALIBRATION_KNOTS is the primary set from the optimization document.
+ * 19 knots cover raw ∈ [0.05, 0.95] so the widened clamp [0.02, 0.98] is reachable.
  */
 
 /**

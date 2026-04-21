@@ -415,17 +415,18 @@ export function computeNRFIPrediction(
 
   // ── Opt #4: Umpire bias (optional — defaults to 0 when field absent) ─────────
   // Positive nrfiFactor → umpire favours NRFI (tighter zone) → fewer runs → lower λ.
-  // We therefore subtract the factor: λ × (1 − nrfiFactor), clamped to ≥ 0.05.
-  const umpireFactor = game.umpire?.nrfiFactor ?? 0
+  // Clamped to [-0.5, 0.5] so a mis-scaled external value can't collapse or explode λ.
+  const umpireFactor    = Math.max(-0.5, Math.min(0.5, game.umpire?.nrfiFactor ?? 0))
+  const umpireLambdaMult = Math.max(0.05, 1 - umpireFactor)
 
   // ── Lambda per half-inning ───────────────────────────────────────────────────
   // awayScoresLambda: expected runs for away team (top 1st) vs home pitcher
   const awayScoresLambda = Math.max(0.05,
-    computeLambda(homeShrunkRate, awayOffVsHand, game.parkFactor, combinedMult) * (1 - umpireFactor)
+    computeLambda(homeShrunkRate, awayOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
   )
   // homeScoresLambda: expected runs for home team (bottom 1st) vs away pitcher
   const homeScoresLambda = Math.max(0.05,
-    computeLambda(awayShrunkRate, homeOffVsHand, game.parkFactor, combinedMult) * (1 - umpireFactor)
+    computeLambda(awayShrunkRate, homeOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
   )
 
   // ── Opt #8: 7-model ensemble per half ───────────────────────────────────────
@@ -504,14 +505,6 @@ export function computeNRFIPrediction(
     consensusNote:   outlierNote(homeHalfUI, awayHalfUI),
   }
 
-  // ── Display lambdas (use legacy for UI continuity) ───────────────────────────
-  const legacyAwayLambda = computeLambda(
-    homePitcher.firstInning.nrfiRate, awayTeam.firstInning.offenseFactor, game.parkFactor, legacyMult
-  )
-  const legacyHomeLambda = computeLambda(
-    awayPitcher.firstInning.nrfiRate, homeTeam.firstInning.offenseFactor, game.parkFactor, legacyMult
-  )
-
   const { level: confidence, score: confScore } = computeConfidence(
     nrfiProb, homePitcher, awayPitcher, consensus
   )
@@ -534,10 +527,10 @@ export function computeNRFIPrediction(
     nrfiProbability:   nrfiProb,
     yrfiProbability:   yrfiProb,
     calibratedNrfiPct: parseFloat((nrfiProb * 100).toFixed(1)),
-    homeExpectedRuns:  legacyHomeLambda,
-    awayExpectedRuns:  legacyAwayLambda,
-    homeScores0Prob:   Math.exp(-legacyHomeLambda),
-    awayScores0Prob:   Math.exp(-legacyAwayLambda),
+    homeExpectedRuns:  homeScoresLambda,
+    awayExpectedRuns:  awayScoresLambda,
+    homeScores0Prob:   Math.exp(-homeScoresLambda),
+    awayScores0Prob:   Math.exp(-awayScoresLambda),
     confidence,
     confidenceScore:   confScore,
     recommendation:    getRecommendation(nrfiProb),
