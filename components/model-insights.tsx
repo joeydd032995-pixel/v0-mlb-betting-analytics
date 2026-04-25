@@ -62,6 +62,20 @@ interface ModelInsightsProps {
   userId: string | null
 }
 
+// ─── Per-model accuracy constants (module scope — never reallocated) ──────────
+const PER_MODEL_BASE  = ["Poisson", "ZIP", "Markov", "Ensemble"] as const
+const PER_MODEL_META  = ["Logistic Stack", "NN Interaction", "Hierarchical Bayes"] as const
+const PER_MODEL_ORDER = [...PER_MODEL_BASE, ...PER_MODEL_META] as const
+const PER_MODEL_COLORS: Record<string, string> = {
+  Poisson:              "text-sky-400",
+  ZIP:                  "text-violet-400",
+  Markov:               "text-amber-400",
+  Ensemble:             "text-emerald-400",
+  "Logistic Stack":     "text-fuchsia-400",
+  "NN Interaction":     "text-cyan-400",
+  "Hierarchical Bayes": "text-orange-400",
+}
+
 export function ModelInsights({ userId }: ModelInsightsProps) {
   const [selectedFactor, setSelectedFactor] = useState<string>("pitcher")
 
@@ -1080,21 +1094,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                       </thead>
                       <tbody className="divide-y divide-border/20">
                         {(() => {
-                          const baseModels = ["Poisson", "ZIP", "Markov", "Ensemble"] as const
-                          const metaModels = ["Logistic Stack", "NN Interaction", "Hierarchical Bayes"] as const
-                          const order = [...baseModels, ...metaModels] as const
-                          const present = order.filter((name) => perfData.perModel![name] != null)
-                          const firstMeta = present.find((n) => (metaModels as readonly string[]).includes(n))
-                          const hasBase   = present.some((n) => (baseModels as readonly string[]).includes(n))
-                          const colorMap: Record<string, string> = {
-                            Poisson:              "text-sky-400",
-                            ZIP:                  "text-violet-400",
-                            Markov:               "text-amber-400",
-                            Ensemble:             "text-emerald-400",
-                            "Logistic Stack":     "text-fuchsia-400",
-                            "NN Interaction":     "text-cyan-400",
-                            "Hierarchical Bayes": "text-orange-400",
-                          }
+                          const present   = PER_MODEL_ORDER.filter((name) => perfData.perModel![name] != null)
+                          const firstMeta = present.find((n) => (PER_MODEL_META as readonly string[]).includes(n))
+                          const hasBase   = present.some((n) => (PER_MODEL_BASE as readonly string[]).includes(n))
                           return present.map((name) => {
                             const m = perfData.perModel![name]
                             const showSep = hasBase && name === firstMeta
@@ -1106,7 +1108,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                                   </tr>
                                 )}
                                 <tr className="bg-card/30 hover:bg-card/50 transition-colors">
-                                  <td className={cn("px-3 py-2 font-semibold", colorMap[name])}>{name}</td>
+                                  <td className={cn("px-3 py-2 font-semibold", PER_MODEL_COLORS[name])}>{name}</td>
                                   <td className="px-3 py-2 text-center text-muted-foreground">{m?.correct ?? "—"}/{m?.total ?? "—"}</td>
                                   <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
                                   <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
