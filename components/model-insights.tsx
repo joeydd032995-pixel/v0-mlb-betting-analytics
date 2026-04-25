@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { Fragment, useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database, Download } from "lucide-react"
@@ -610,7 +610,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">8</span>
               Recent Form Multiplier
             </CardTitle>
-            <CardDescription>Applied to lambda before all seven models. Adjusts for hot/cold streaks vs a pitcher's season baseline.</CardDescription>
+            <CardDescription>Applied to rate/lambda upstream of the base models (Poisson, ZIP, MAPRE); the adjusted rate propagates into Markov via Log-5 per-PA probabilities and into meta-models via stacking.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
@@ -1079,36 +1079,42 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/20">
-                        {(["Poisson", "ZIP", "Markov", "Ensemble", "Logistic Stack", "NN Interaction", "Hierarchical Bayes"] as const)
-                          .filter((name) => perfData.perModel![name] != null)
-                          .map((name, i, arr) => {
+                        {(() => {
+                          const baseModels = ["Poisson", "ZIP", "Markov", "Ensemble"] as const
+                          const metaModels = ["Logistic Stack", "NN Interaction", "Hierarchical Bayes"] as const
+                          const order = [...baseModels, ...metaModels] as const
+                          const present = order.filter((name) => perfData.perModel![name] != null)
+                          const firstMeta = present.find((n) => (metaModels as readonly string[]).includes(n))
+                          const hasBase   = present.some((n) => (baseModels as readonly string[]).includes(n))
+                          const colorMap: Record<string, string> = {
+                            Poisson:              "text-sky-400",
+                            ZIP:                  "text-violet-400",
+                            Markov:               "text-amber-400",
+                            Ensemble:             "text-emerald-400",
+                            "Logistic Stack":     "text-fuchsia-400",
+                            "NN Interaction":     "text-cyan-400",
+                            "Hierarchical Bayes": "text-orange-400",
+                          }
+                          return present.map((name) => {
                             const m = perfData.perModel![name]
-                            const colorMap: Record<string, string> = {
-                              Poisson:             "text-sky-400",
-                              ZIP:                 "text-violet-400",
-                              Markov:              "text-amber-400",
-                              Ensemble:            "text-emerald-400",
-                              "Logistic Stack":    "text-fuchsia-400",
-                              "NN Interaction":    "text-cyan-400",
-                              "Hierarchical Bayes":"text-orange-400",
-                            }
-                            const isFirstMeta = name === "Logistic Stack" && arr.some((n) => ["Poisson","ZIP","Markov","Ensemble"].includes(n))
+                            const showSep = hasBase && name === firstMeta
                             return (
-                              <>
-                                {isFirstMeta && (
-                                  <tr key={`${name}-sep`} className="bg-muted/10">
+                              <Fragment key={name}>
+                                {showSep && (
+                                  <tr className="bg-muted/10">
                                     <td colSpan={4} className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meta-models</td>
                                   </tr>
                                 )}
-                                <tr key={name} className="bg-card/30 hover:bg-card/50 transition-colors">
+                                <tr className="bg-card/30 hover:bg-card/50 transition-colors">
                                   <td className={cn("px-3 py-2 font-semibold", colorMap[name])}>{name}</td>
                                   <td className="px-3 py-2 text-center text-muted-foreground">{m?.correct ?? "—"}/{m?.total ?? "—"}</td>
                                   <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
                                   <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
                                 </tr>
-                              </>
+                              </Fragment>
                             )
-                          })}
+                          })
+                        })()}
                       </tbody>
                     </table>
                   </div>
