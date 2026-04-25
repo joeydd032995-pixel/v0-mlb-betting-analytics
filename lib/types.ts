@@ -151,7 +151,7 @@ export interface ModelInputs {
   recentFormMultiplier?: number
 }
 
-/** Per-half-inning breakdown from the four-model ensemble */
+/** Per-half-inning breakdown from the 7-model ensemble */
 export interface HalfInningModelBreakdown {
   /** Base Poisson P(no score) using Bayesian-shrunk rate */
   poissonNrfi: number
@@ -171,6 +171,13 @@ export interface HalfInningModelBreakdown {
   bayesianDataWeight: number
   /** Bayesian-shrunk pitcher NRFI rate fed into models */
   shrunkNrfiRate: number
+  // ── Meta-models (Opt #8) — optional so old 4-model data loads cleanly ──────
+  /** Logistic Stack meta-model P(no score) — logistic regression on base-4 avg */
+  logisticMetaNrfi?: number
+  /** NN Interaction meta-model P(no score) — Poisson × Markov cross-term */
+  nnInteractionNrfi?: number
+  /** Hierarchical Bayes meta-model P(no score) — dynamic-prior shrunk pitcher rate */
+  hierarchicalBayesNrfi?: number
 }
 
 /** Full multi-model breakdown for a game prediction */

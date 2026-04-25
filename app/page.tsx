@@ -559,12 +559,14 @@ export default function HomePage() {
             <div className="rounded-lg border border-border/30 bg-muted/10 p-4 text-xs text-muted-foreground space-y-1">
               <p className="font-semibold text-foreground/80">How the model works</p>
               <p>
-                The engine uses a <strong className="text-foreground/70">Poisson scoring model</strong>: for each half-inning, expected runs (λ) are
-                derived from the pitcher&apos;s historical first-inning NRFI rate via λ = −ln(NRFI Rate), then adjusted
-                multiplicatively for the opposing lineup&apos;s first-inning offensive factor, park factor, and weather.
+                The engine runs a <strong className="text-foreground/70">7-model ensemble</strong> per half-inning:
+                Poisson (10.9%), ZIP (27.3%), Markov 24-state chain (43.6%), and MAPRE (9.1%) form the base layer,
+                blended with three meta-models — Logistic Stack, NN Interaction, and Hierarchical Bayes (combined 9.1%).
+                Dynamic Bayesian shrinkage, handedness-adjusted lineup splits, vector wind modeling, and monotonic
+                spline calibration are applied before final blending.
               </p>
               <p>
-                P(NRFI) = P(home scores 0) × P(away scores 0) = e<sup>−λ<sub>home</sub></sup> × e<sup>−λ<sub>away</sub></sup>
+                P(NRFI) = clamp(0.76 × calibrated_ensemble + 0.24 × 0.614,&nbsp;0.02,&nbsp;0.98)
               </p>
               <p>
                 Value bets are identified when the model&apos;s implied probability exceeds the bookmaker&apos;s

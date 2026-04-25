@@ -472,26 +472,34 @@ export function computeNRFIPrediction(
   )
 
   const homeHalfUI: HalfInningModelBreakdown = {
-    poissonNrfi:        homeHalfRaw.poissonNrfi,
-    zipNrfi:            homeHalfRaw.zipNrfi,
-    zipOmega:           homeHalfRaw.zipOmega,
-    zipLambda:          homeHalfRaw.zipLambda,
-    markovNrfi:         homeHalfRaw.markovNrfi,
-    mapreNrfi:          homeHalfRaw.mapreNrfi,
-    mapreLambdaAdj:     homeHalfRaw.mapreLambdaAdj,
-    bayesianDataWeight: homeHalfRaw.bayesianDataWeight,
-    shrunkNrfiRate:     homeHalfRaw.shrunkNrfiRate,
+    poissonNrfi:           homeHalfRaw.poissonNrfi,
+    zipNrfi:               homeHalfRaw.zipNrfi,
+    zipOmega:              homeHalfRaw.zipOmega,
+    zipLambda:             homeHalfRaw.zipLambda,
+    markovNrfi:            homeHalfRaw.markovNrfi,
+    mapreNrfi:             homeHalfRaw.mapreNrfi,
+    mapreLambdaAdj:        homeHalfRaw.mapreLambdaAdj,
+    bayesianDataWeight:    homeHalfRaw.bayesianDataWeight,
+    shrunkNrfiRate:        homeHalfRaw.shrunkNrfiRate,
+    // Meta-model half-inning values from the 7-model path
+    logisticMetaNrfi:      homeHalf7.logisticMeta,
+    nnInteractionNrfi:     homeHalf7.nnInteraction,
+    hierarchicalBayesNrfi: homeHalf7.hierarchicalBayes,
   }
   const awayHalfUI: HalfInningModelBreakdown = {
-    poissonNrfi:        awayHalfRaw.poissonNrfi,
-    zipNrfi:            awayHalfRaw.zipNrfi,
-    zipOmega:           awayHalfRaw.zipOmega,
-    zipLambda:          awayHalfRaw.zipLambda,
-    markovNrfi:         awayHalfRaw.markovNrfi,
-    mapreNrfi:          awayHalfRaw.mapreNrfi,
-    mapreLambdaAdj:     awayHalfRaw.mapreLambdaAdj,
-    bayesianDataWeight: awayHalfRaw.bayesianDataWeight,
-    shrunkNrfiRate:     awayHalfRaw.shrunkNrfiRate,
+    poissonNrfi:           awayHalfRaw.poissonNrfi,
+    zipNrfi:               awayHalfRaw.zipNrfi,
+    zipOmega:              awayHalfRaw.zipOmega,
+    zipLambda:             awayHalfRaw.zipLambda,
+    markovNrfi:            awayHalfRaw.markovNrfi,
+    mapreNrfi:             awayHalfRaw.mapreNrfi,
+    mapreLambdaAdj:        awayHalfRaw.mapreLambdaAdj,
+    bayesianDataWeight:    awayHalfRaw.bayesianDataWeight,
+    shrunkNrfiRate:        awayHalfRaw.shrunkNrfiRate,
+    // Meta-model half-inning values from the 7-model path
+    logisticMetaNrfi:      awayHalf7.logisticMeta,
+    nnInteractionNrfi:     awayHalf7.nnInteraction,
+    hierarchicalBayesNrfi: awayHalf7.hierarchicalBayes,
   }
   const consensus     = (halfInningConsensus(homeHalfUI) + halfInningConsensus(awayHalfUI)) / 2
   const legacyEnsemble = combineHalfInnings(homeHalfRaw, awayHalfRaw)
