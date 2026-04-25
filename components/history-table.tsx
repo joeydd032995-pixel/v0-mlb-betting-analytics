@@ -182,7 +182,7 @@ function ModelAccuracyPanel({ perModel }: { perModel: PerModelAccuracy[] }) {
       <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Per-Model Accuracy (completed predictions)
       </h4>
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {perModel.map((m) => {
           const color =
             m.accuracy >= 0.70
@@ -226,7 +226,8 @@ function ModelAccuracyPanel({ perModel }: { perModel: PerModelAccuracy[] }) {
       </div>
       <p className="mt-2 text-[10px] text-muted-foreground">
         MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
-        The Ensemble is the blended prediction used for recommendations.
+        Base models tracked: Poisson, ZIP, Markov. Meta-models: Logistic Stack, NN Interaction, Hierarchical Bayes.
+        The Ensemble is the final blended prediction (including MAPRE) used for recommendations.
       </p>
     </div>
   )
@@ -240,6 +241,15 @@ function ModelBreakdownRow({ pred }: { pred: TrackedPrediction }) {
       <span>Poisson: <span className="font-medium text-foreground">{pct(pred.poissonNrfi)} NRFI</span></span>
       <span>ZIP: <span className="font-medium text-foreground">{pct(pred.zipNrfi)} NRFI</span></span>
       <span>Markov: <span className="font-medium text-foreground">{pct(pred.markovNrfi)} NRFI</span></span>
+      {pred.logisticMetaNrfi != null && (
+        <span>Logistic Stack: <span className="font-medium text-foreground">{pct(pred.logisticMetaNrfi)} NRFI</span></span>
+      )}
+      {pred.nnInteractionNrfi != null && (
+        <span>NN Interact: <span className="font-medium text-foreground">{pct(pred.nnInteractionNrfi)} NRFI</span></span>
+      )}
+      {pred.hierarchicalBayesNrfi != null && (
+        <span>Hier. Bayes: <span className="font-medium text-foreground">{pct(pred.hierarchicalBayesNrfi)} NRFI</span></span>
+      )}
       <span>Consensus: <span className="font-medium text-foreground">{pct(pred.modelConsensus)}</span></span>
       <span>Home ZIP ω: <span className="font-medium text-foreground">{pct(pred.homeZipOmega)}</span></span>
       <span>Away ZIP ω: <span className="font-medium text-foreground">{pct(pred.awayZipOmega)}</span></span>

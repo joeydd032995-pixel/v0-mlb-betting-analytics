@@ -198,6 +198,28 @@ function ModelConsensusBadge({ consensus }: { consensus: number }) {
   )
 }
 
+function ModelRow({ name, p, detail }: { name: string; p: number; detail: string }) {
+  const pctVal = Math.round(p * 100)
+  const isNrfi = p >= 0.5
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-0.5">
+        <span className="w-24 text-[11px] font-semibold text-foreground/80">{name}</span>
+        <span className="flex-1 text-[10px] text-muted-foreground truncate">{detail}</span>
+        <span className={cn("text-xs font-bold tabular-nums", isNrfi ? "text-emerald-400" : "text-rose-400")}>
+          {pctVal}%
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted/50">
+        <div
+          className={cn("h-full rounded-full", isNrfi ? "bg-emerald-500" : "bg-rose-500")}
+          style={{ width: `${pctVal}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 /** Full model breakdown panel shown in the expanded section */
 function ModelBreakdownPanel({
   bd,
@@ -210,28 +232,46 @@ function ModelBreakdownPanel({
 }) {
   // Game-level per-model NRFI: both half-innings must hold for NRFI
   // homeHalfInning = home pitcher (stops away team) ; awayHalfInning = away pitcher (stops home team)
-  const models = [
+  const hh = bd.homeHalfInning
+  const ah = bd.awayHalfInning
+
+  const baseModels = [
     {
       name: "Poisson",
-      p: bd.homeHalfInning.poissonNrfi * bd.awayHalfInning.poissonNrfi,
+      p: hh.poissonNrfi * ah.poissonNrfi,
       detail: "Bayesian-shrunk λ via e^(−λ)",
     },
     {
       name: "ZIP",
-      p: bd.homeHalfInning.zipNrfi * bd.awayHalfInning.zipNrfi,
-      detail: `ω ${(bd.homeHalfInning.zipOmega * 100).toFixed(0)}% / ${(bd.awayHalfInning.zipOmega * 100).toFixed(0)}% lockdown`,
+      p: hh.zipNrfi * ah.zipNrfi,
+      detail: `ω ${(hh.zipOmega * 100).toFixed(0)}% / ${(ah.zipOmega * 100).toFixed(0)}% lockdown`,
     },
     {
       name: "Markov",
-      p: bd.homeHalfInning.markovNrfi * bd.awayHalfInning.markovNrfi,
-      detail: "24-state base-out chain",
+      p: hh.markovNrfi * ah.markovNrfi,
+      detail: "24-state base-out chain · handedness splits",
     },
     {
       name: "MAPRE",
-      p: bd.homeHalfInning.mapreNrfi * bd.awayHalfInning.mapreNrfi,
+      p: hh.mapreNrfi * ah.mapreNrfi,
       detail: "sOPS+, BAbip, HR/PA, HFA, rest/travel",
     },
   ]
+
+  const metaModels = [
+    ...(hh.logisticMetaNrfi != null && ah.logisticMetaNrfi != null
+      ? [{ name: "Logistic Stack", p: hh.logisticMetaNrfi * ah.logisticMetaNrfi, detail: "Logistic regression stacked on base-4 avg" }]
+      : []),
+    ...(hh.nnInteractionNrfi != null && ah.nnInteractionNrfi != null
+      ? [{ name: "NN Interaction", p: (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2, detail: "Poisson × Markov cross-model interaction" }]
+      : []),
+    ...(hh.hierarchicalBayesNrfi != null && ah.hierarchicalBayesNrfi != null
+      ? [{ name: "Hier. Bayes", p: (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2, detail: "Dynamic-prior shrunk pitcher rate" }]
+      : []),
+  ]
+
+  const hasMeta = metaModels.length > 0
+  const ensembleLabel = hasMeta ? "7-Model Ensemble" : "Model Ensemble"
 
   const { label, cls } = consensusLabel(bd.modelConsensus)
 
@@ -240,37 +280,31 @@ function ModelBreakdownPanel({
       <div className="flex items-center justify-between mb-2.5">
         <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
           <BrainCircuit className="h-3.5 w-3.5" />
-          Model Ensemble
+          {ensembleLabel}
         </p>
         <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold", cls)}>
           {label}
         </span>
       </div>
 
-      {/* Per-model probability bars */}
+      {/* Base models */}
       <div className="space-y-2">
-        {models.map(({ name, p, detail }) => {
-          const pct = Math.round(p * 100)
-          const isNrfi = p >= 0.5
-          return (
-            <div key={name}>
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="w-14 text-[11px] font-semibold text-foreground/80">{name}</span>
-                <span className="flex-1 text-[10px] text-muted-foreground truncate">{detail}</span>
-                <span className={cn("text-xs font-bold tabular-nums", isNrfi ? "text-emerald-400" : "text-rose-400")}>
-                  {pct}%
-                </span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted/50">
-                <div
-                  className={cn("h-full rounded-full", isNrfi ? "bg-emerald-500" : "bg-rose-500")}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          )
-        })}
+        {baseModels.map((m) => <ModelRow key={m.name} {...m} />)}
       </div>
+
+      {/* Meta-models separator + rows */}
+      {hasMeta && (
+        <>
+          <div className="my-2 flex items-center gap-2">
+            <div className="flex-1 border-t border-sky-500/20" />
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-sky-400/60">Meta-models</span>
+            <div className="flex-1 border-t border-sky-500/20" />
+          </div>
+          <div className="space-y-2">
+            {metaModels.map((m) => <ModelRow key={m.name} {...m} />)}
+          </div>
+        </>
+      )}
 
       {/* Bayesian data-trust for each pitcher */}
       <div className="mt-2.5 grid grid-cols-2 gap-x-4 border-t border-sky-500/15 pt-2 text-[10px]">

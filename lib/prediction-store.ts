@@ -63,6 +63,10 @@ export interface TrackedPrediction {
   // Bayesian data weights (how much of the rate comes from season data vs league avg)
   homeBayesianWeight: number
   awayBayesianWeight: number
+  // Meta-model game-level P(NRFI) — optional; absent on predictions saved before 7-model upgrade
+  logisticMetaNrfi?: number
+  nnInteractionNrfi?: number
+  hierarchicalBayesNrfi?: number
 
   // ── Model inputs (stored so we can back-test weighting schemes later) ────
   modelInputs: {
@@ -95,7 +99,7 @@ export interface TrackedPrediction {
 // ─── PerModelAccuracy ─────────────────────────────────────────────────────────
 
 export interface PerModelAccuracy {
-  model: "Poisson" | "ZIP" | "Markov" | "Ensemble"
+  model: "Poisson" | "ZIP" | "Markov" | "Ensemble" | "Logistic Stack" | "NN Interaction" | "Hierarchical Bayes"
   totalPredictions: number
   correct: number
   accuracy: number
@@ -272,6 +276,17 @@ export function buildTrackedPrediction(
     awayZipOmega:        ah?.zipOmega         ?? 0,
     homeBayesianWeight:  hh?.bayesianDataWeight ?? 0.5,
     awayBayesianWeight:  ah?.bayesianDataWeight ?? 0.5,
+
+    // Meta-model game-level values (product or average depending on model type)
+    logisticMetaNrfi: hh?.logisticMetaNrfi != null && ah?.logisticMetaNrfi != null
+      ? Math.max(0.05, Math.min(0.95, hh.logisticMetaNrfi * ah.logisticMetaNrfi))
+      : undefined,
+    nnInteractionNrfi: hh?.nnInteractionNrfi != null && ah?.nnInteractionNrfi != null
+      ? Math.max(0.05, Math.min(0.95, (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2))
+      : undefined,
+    hierarchicalBayesNrfi: hh?.hierarchicalBayesNrfi != null && ah?.hierarchicalBayesNrfi != null
+      ? Math.max(0.05, Math.min(0.95, (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2))
+      : undefined,
 
     modelInputs: {
       homePitcherNrfiRate:  pred.modelInputs.homePitcherNrfiRate,
@@ -530,11 +545,19 @@ export function computeExtendedAccuracy(
   }))
 
   // ── Per-model accuracy ───────────────────────────────────────────────────
+  // Each meta-model is gated on its own field so a missing value in one model
+  // never causes a non-null assertion failure in another.
+  const completeLogistic = complete.filter((p): p is TrackedPrediction & { logisticMetaNrfi: number }      => p.logisticMetaNrfi      != null)
+  const completeNn       = complete.filter((p): p is TrackedPrediction & { nnInteractionNrfi: number }     => p.nnInteractionNrfi     != null)
+  const completeHier     = complete.filter((p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null)
   const perModelAccuracy: PerModelAccuracy[] = [
-    modelAccuracyForModel(complete, (p) => p.poissonNrfi,  "Poisson"),
-    modelAccuracyForModel(complete, (p) => p.zipNrfi,      "ZIP"),
-    modelAccuracyForModel(complete, (p) => p.markovNrfi,   "Markov"),
-    modelAccuracyForModel(complete, (p) => p.ensembleNrfi, "Ensemble"),
+    modelAccuracyForModel(complete,          (p) => p.poissonNrfi,          "Poisson"),
+    modelAccuracyForModel(complete,          (p) => p.zipNrfi,              "ZIP"),
+    modelAccuracyForModel(complete,          (p) => p.markovNrfi,           "Markov"),
+    modelAccuracyForModel(complete,          (p) => p.ensembleNrfi,         "Ensemble"),
+    ...(completeLogistic.length > 0 ? [modelAccuracyForModel(completeLogistic, (p) => p.logisticMetaNrfi,      "Logistic Stack"    )] : []),
+    ...(completeNn.length       > 0 ? [modelAccuracyForModel(completeNn,       (p) => p.nnInteractionNrfi,     "NN Interaction"    )] : []),
+    ...(completeHier.length     > 0 ? [modelAccuracyForModel(completeHier,     (p) => p.hierarchicalBayesNrfi, "Hierarchical Bayes")] : []),
   ]
 
   return {

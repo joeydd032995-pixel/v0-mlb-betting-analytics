@@ -471,27 +471,40 @@ export function computeNRFIPrediction(
     awayPitcher, homeTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, awayMapreInputs
   )
 
+  // Intentional split: base-4 display fields (poissonNrfi … shrunkNrfiRate) come from
+  // computeHalfInningEnsemble (homeHalfRaw/awayHalfRaw) to preserve diagnostic outputs
+  // unique to that path — zipOmega, mapreLambdaAdj, bayesianDataWeight, shrunkNrfiRate.
+  // The headline nrfiProb and meta-model fields derive from compute7ModelEnsemble
+  // (homeHalf7/awayHalf7), which uses fully-optimised lambdas (vector weather, umpire
+  // bias, handedness splits).  halfInningConsensus reasons over the base-4 values, which
+  // is acceptable because the two paths share the same Bayesian-shrunk λ foundation.
   const homeHalfUI: HalfInningModelBreakdown = {
-    poissonNrfi:        homeHalfRaw.poissonNrfi,
-    zipNrfi:            homeHalfRaw.zipNrfi,
-    zipOmega:           homeHalfRaw.zipOmega,
-    zipLambda:          homeHalfRaw.zipLambda,
-    markovNrfi:         homeHalfRaw.markovNrfi,
-    mapreNrfi:          homeHalfRaw.mapreNrfi,
-    mapreLambdaAdj:     homeHalfRaw.mapreLambdaAdj,
-    bayesianDataWeight: homeHalfRaw.bayesianDataWeight,
-    shrunkNrfiRate:     homeHalfRaw.shrunkNrfiRate,
+    poissonNrfi:           homeHalfRaw.poissonNrfi,
+    zipNrfi:               homeHalfRaw.zipNrfi,
+    zipOmega:              homeHalfRaw.zipOmega,
+    zipLambda:             homeHalfRaw.zipLambda,
+    markovNrfi:            homeHalfRaw.markovNrfi,
+    mapreNrfi:             homeHalfRaw.mapreNrfi,
+    mapreLambdaAdj:        homeHalfRaw.mapreLambdaAdj,
+    bayesianDataWeight:    homeHalfRaw.bayesianDataWeight,
+    shrunkNrfiRate:        homeHalfRaw.shrunkNrfiRate,
+    logisticMetaNrfi:      homeHalf7.logisticMeta,
+    nnInteractionNrfi:     homeHalf7.nnInteraction,
+    hierarchicalBayesNrfi: homeHalf7.hierarchicalBayes,
   }
   const awayHalfUI: HalfInningModelBreakdown = {
-    poissonNrfi:        awayHalfRaw.poissonNrfi,
-    zipNrfi:            awayHalfRaw.zipNrfi,
-    zipOmega:           awayHalfRaw.zipOmega,
-    zipLambda:          awayHalfRaw.zipLambda,
-    markovNrfi:         awayHalfRaw.markovNrfi,
-    mapreNrfi:          awayHalfRaw.mapreNrfi,
-    mapreLambdaAdj:     awayHalfRaw.mapreLambdaAdj,
-    bayesianDataWeight: awayHalfRaw.bayesianDataWeight,
-    shrunkNrfiRate:     awayHalfRaw.shrunkNrfiRate,
+    poissonNrfi:           awayHalfRaw.poissonNrfi,
+    zipNrfi:               awayHalfRaw.zipNrfi,
+    zipOmega:              awayHalfRaw.zipOmega,
+    zipLambda:             awayHalfRaw.zipLambda,
+    markovNrfi:            awayHalfRaw.markovNrfi,
+    mapreNrfi:             awayHalfRaw.mapreNrfi,
+    mapreLambdaAdj:        awayHalfRaw.mapreLambdaAdj,
+    bayesianDataWeight:    awayHalfRaw.bayesianDataWeight,
+    shrunkNrfiRate:        awayHalfRaw.shrunkNrfiRate,
+    logisticMetaNrfi:      awayHalf7.logisticMeta,
+    nnInteractionNrfi:     awayHalf7.nnInteraction,
+    hierarchicalBayesNrfi: awayHalf7.hierarchicalBayes,
   }
   const consensus     = (halfInningConsensus(homeHalfUI) + halfInningConsensus(awayHalfUI)) / 2
   const legacyEnsemble = combineHalfInnings(homeHalfRaw, awayHalfRaw)
