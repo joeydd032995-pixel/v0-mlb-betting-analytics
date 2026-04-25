@@ -198,6 +198,28 @@ function ModelConsensusBadge({ consensus }: { consensus: number }) {
   )
 }
 
+function ModelRow({ name, p, detail }: { name: string; p: number; detail: string }) {
+  const pctVal = Math.round(p * 100)
+  const isNrfi = p >= 0.5
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-0.5">
+        <span className="w-24 text-[11px] font-semibold text-foreground/80">{name}</span>
+        <span className="flex-1 text-[10px] text-muted-foreground truncate">{detail}</span>
+        <span className={cn("text-xs font-bold tabular-nums", isNrfi ? "text-emerald-400" : "text-rose-400")}>
+          {pctVal}%
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted/50">
+        <div
+          className={cn("h-full rounded-full", isNrfi ? "bg-emerald-500" : "bg-rose-500")}
+          style={{ width: `${pctVal}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 /** Full model breakdown panel shown in the expanded section */
 function ModelBreakdownPanel({
   bd,
@@ -252,28 +274,6 @@ function ModelBreakdownPanel({
   const ensembleLabel = hasMeta ? "7-Model Ensemble" : "Model Ensemble"
 
   const { label, cls } = consensusLabel(bd.modelConsensus)
-
-  const ModelRow = ({ name, p, detail }: { name: string; p: number; detail: string }) => {
-    const pct = Math.round(p * 100)
-    const isNrfi = p >= 0.5
-    return (
-      <div>
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="w-24 text-[11px] font-semibold text-foreground/80">{name}</span>
-          <span className="flex-1 text-[10px] text-muted-foreground truncate">{detail}</span>
-          <span className={cn("text-xs font-bold tabular-nums", isNrfi ? "text-emerald-400" : "text-rose-400")}>
-            {pct}%
-          </span>
-        </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-muted/50">
-          <div
-            className={cn("h-full rounded-full", isNrfi ? "bg-emerald-500" : "bg-rose-500")}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/5 p-3">

@@ -226,8 +226,8 @@ function ModelAccuracyPanel({ perModel }: { perModel: PerModelAccuracy[] }) {
       </div>
       <p className="mt-2 text-[10px] text-muted-foreground">
         MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
-        Base models: Poisson, ZIP, Markov, MAPRE. Meta-models: Logistic Stack, NN Interaction, Hierarchical Bayes.
-        The Ensemble is the final blended prediction used for recommendations.
+        Base models tracked: Poisson, ZIP, Markov. Meta-models: Logistic Stack, NN Interaction, Hierarchical Bayes.
+        The Ensemble is the final blended prediction (including MAPRE) used for recommendations.
       </p>
     </div>
   )

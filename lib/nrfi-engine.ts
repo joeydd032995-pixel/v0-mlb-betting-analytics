@@ -471,6 +471,13 @@ export function computeNRFIPrediction(
     awayPitcher, homeTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, awayMapreInputs
   )
 
+  // Intentional split: base-4 display fields (poissonNrfi … shrunkNrfiRate) come from
+  // computeHalfInningEnsemble (homeHalfRaw/awayHalfRaw) to preserve diagnostic outputs
+  // unique to that path — zipOmega, mapreLambdaAdj, bayesianDataWeight, shrunkNrfiRate.
+  // The headline nrfiProb and meta-model fields derive from compute7ModelEnsemble
+  // (homeHalf7/awayHalf7), which uses fully-optimised lambdas (vector weather, umpire
+  // bias, handedness splits).  halfInningConsensus reasons over the base-4 values, which
+  // is acceptable because the two paths share the same Bayesian-shrunk λ foundation.
   const homeHalfUI: HalfInningModelBreakdown = {
     poissonNrfi:           homeHalfRaw.poissonNrfi,
     zipNrfi:               homeHalfRaw.zipNrfi,
@@ -481,7 +488,6 @@ export function computeNRFIPrediction(
     mapreLambdaAdj:        homeHalfRaw.mapreLambdaAdj,
     bayesianDataWeight:    homeHalfRaw.bayesianDataWeight,
     shrunkNrfiRate:        homeHalfRaw.shrunkNrfiRate,
-    // Meta-model half-inning values from the 7-model path
     logisticMetaNrfi:      homeHalf7.logisticMeta,
     nnInteractionNrfi:     homeHalf7.nnInteraction,
     hierarchicalBayesNrfi: homeHalf7.hierarchicalBayes,
@@ -496,7 +502,6 @@ export function computeNRFIPrediction(
     mapreLambdaAdj:        awayHalfRaw.mapreLambdaAdj,
     bayesianDataWeight:    awayHalfRaw.bayesianDataWeight,
     shrunkNrfiRate:        awayHalfRaw.shrunkNrfiRate,
-    // Meta-model half-inning values from the 7-model path
     logisticMetaNrfi:      awayHalf7.logisticMeta,
     nnInteractionNrfi:     awayHalf7.nnInteraction,
     hierarchicalBayesNrfi: awayHalf7.hierarchicalBayes,

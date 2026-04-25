@@ -279,13 +279,13 @@ export function buildTrackedPrediction(
 
     // Meta-model game-level values (product or average depending on model type)
     logisticMetaNrfi: hh?.logisticMetaNrfi != null && ah?.logisticMetaNrfi != null
-      ? hh.logisticMetaNrfi * ah.logisticMetaNrfi
+      ? Math.max(0.05, Math.min(0.95, hh.logisticMetaNrfi * ah.logisticMetaNrfi))
       : undefined,
     nnInteractionNrfi: hh?.nnInteractionNrfi != null && ah?.nnInteractionNrfi != null
-      ? (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2
+      ? Math.max(0.05, Math.min(0.95, (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2))
       : undefined,
     hierarchicalBayesNrfi: hh?.hierarchicalBayesNrfi != null && ah?.hierarchicalBayesNrfi != null
-      ? (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2
+      ? Math.max(0.05, Math.min(0.95, (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2))
       : undefined,
 
     modelInputs: {
@@ -545,18 +545,19 @@ export function computeExtendedAccuracy(
   }))
 
   // ── Per-model accuracy ───────────────────────────────────────────────────
-  const completeMeta = complete.filter((p) => p.logisticMetaNrfi != null)
+  // Each meta-model is gated on its own field so a missing value in one model
+  // never causes a non-null assertion failure in another.
+  const completeLogistic = complete.filter((p): p is TrackedPrediction & { logisticMetaNrfi: number }      => p.logisticMetaNrfi      != null)
+  const completeNn       = complete.filter((p): p is TrackedPrediction & { nnInteractionNrfi: number }     => p.nnInteractionNrfi     != null)
+  const completeHier     = complete.filter((p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null)
   const perModelAccuracy: PerModelAccuracy[] = [
-    modelAccuracyForModel(complete,     (p) => p.poissonNrfi,              "Poisson"),
-    modelAccuracyForModel(complete,     (p) => p.zipNrfi,                  "ZIP"),
-    modelAccuracyForModel(complete,     (p) => p.markovNrfi,               "Markov"),
-    modelAccuracyForModel(complete,     (p) => p.ensembleNrfi,             "Ensemble"),
-    // Meta-models only tracked when at least one completed prediction has the value
-    ...(completeMeta.length > 0 ? [
-      modelAccuracyForModel(completeMeta, (p) => p.logisticMetaNrfi!,       "Logistic Stack"),
-      modelAccuracyForModel(completeMeta, (p) => p.nnInteractionNrfi!,      "NN Interaction"),
-      modelAccuracyForModel(completeMeta, (p) => p.hierarchicalBayesNrfi!,  "Hierarchical Bayes"),
-    ] : []),
+    modelAccuracyForModel(complete,          (p) => p.poissonNrfi,          "Poisson"),
+    modelAccuracyForModel(complete,          (p) => p.zipNrfi,              "ZIP"),
+    modelAccuracyForModel(complete,          (p) => p.markovNrfi,           "Markov"),
+    modelAccuracyForModel(complete,          (p) => p.ensembleNrfi,         "Ensemble"),
+    ...(completeLogistic.length > 0 ? [modelAccuracyForModel(completeLogistic, (p) => p.logisticMetaNrfi,      "Logistic Stack"    )] : []),
+    ...(completeNn.length       > 0 ? [modelAccuracyForModel(completeNn,       (p) => p.nnInteractionNrfi,     "NN Interaction"    )] : []),
+    ...(completeHier.length     > 0 ? [modelAccuracyForModel(completeHier,     (p) => p.hierarchicalBayesNrfi, "Hierarchical Bayes")] : []),
   ]
 
   return {
