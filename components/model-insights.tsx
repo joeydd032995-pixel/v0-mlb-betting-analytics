@@ -35,7 +35,7 @@ interface PerformanceData {
   totalCorrect: number
   accuracy: number
   byConfidence: { High: ConfGroup | null; Medium: ConfGroup | null; Low: ConfGroup | null }
-  perModel: { Poisson: ModelStat; ZIP: ModelStat; Markov: ModelStat; Ensemble: ModelStat } | null
+  perModel: Record<string, ModelStat> | null
   monthly: MonthRow[]
   syncStatus: { totalGames: number; totalPredictions: number; latestDate: string | null }
 }
@@ -255,53 +255,76 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
         <Card>
           <CardHeader>
             <CardTitle>Ensemble Architecture</CardTitle>
-            <CardDescription>Four complementary models vote on each half-inning, then combine into one final probability</CardDescription>
+            <CardDescription>Seven complementary models vote on each half-inning, then combine into one final probability</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Final NRFI %</p>
-              <p className="font-mono text-sm text-emerald-400">P(NRFI) = 0.68 × ensembleNrfi + 0.32 × 0.618</p>
-              <p className="text-xs text-muted-foreground">68% inner model ensemble + 32% league anchor (61.8%). The anchor prevents extreme outputs in low-data situations.</p>
+              <p className="font-mono text-sm text-emerald-400">P(NRFI) = clamp(0.76 × ensembleNrfi + 0.24 × 0.614, 0.02, 0.98)</p>
+              <p className="text-xs text-muted-foreground">76% inner model ensemble + 24% league anchor (61.4%). The anchor prevents extreme outputs in low-data situations. Output clamped to [2%, 98%].</p>
             </div>
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Per-Model Calibration (applied before weighting)</p>
-              <p className="font-mono text-sm text-emerald-400">adj(model) = clamp(gameProb × scale + bias, 0, 1)</p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-1 text-xs text-muted-foreground font-mono">
-                <p>Poisson:  ×1.05 +0.03</p>
-                <p>ZIP:      ×1.12 +0.02</p>
-                <p>Markov:   ×0.92 −0.04</p>
-                <p>MAPRE:    ×1.08 +0.01</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Scale/bias correct each model&apos;s systematic over/under-confidence at game level before the weighted sum.</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Monotonic P-Spline Calibration</p>
+              <p className="font-mono text-sm text-emerald-400">calibrated = interp(raw, KNOTS)   // 19 knots · [0.05 → 0.95]</p>
+              <p className="text-xs text-muted-foreground">Fitted to 2024–2025 backtest data. Maps raw ensemble probability to calibrated probability via piecewise-linear interpolation, correcting over/under-confidence across the full range.</p>
             </div>
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Full Game</p>
               <p className="font-mono text-sm text-emerald-400">P(NRFI_game) = P(away scores 0 in top 1st) × P(home scores 0 in bot 1st)</p>
-              <p className="text-xs text-muted-foreground">Each half-inning is computed independently per model, multiplied at game level, then calibrated. Final output clamped to [5%, 95%].</p>
+              <p className="text-xs text-muted-foreground">Base models: each half-inning computed independently, probabilities multiplied. NN Interaction: half-inning values averaged (game-level signal). Final output clamped to [2%, 98%].</p>
             </div>
-            <div className="grid grid-cols-4 gap-2 text-center text-xs">
-              {[
-                { label: "Poisson", weight: "18%", color: "sky" },
-                { label: "ZIP", weight: "39%", color: "violet" },
-                { label: "Markov", weight: "31%", color: "amber" },
-                { label: "MAPRE", weight: "12%", color: "rose" },
-              ].map((m) => (
-                <div key={m.label} className={cn(
-                  "rounded-lg border p-3",
-                  m.color === "sky"    && "border-sky-500/30 bg-sky-500/10",
-                  m.color === "violet" && "border-violet-500/30 bg-violet-500/10",
-                  m.color === "amber"  && "border-amber-500/30 bg-amber-500/10",
-                  m.color === "rose"   && "border-rose-500/30 bg-rose-500/10",
-                )}>
-                  <p className={cn("font-bold text-base",
-                    m.color === "sky"    && "text-sky-400",
-                    m.color === "violet" && "text-violet-400",
-                    m.color === "amber"  && "text-amber-400",
-                    m.color === "rose"   && "text-rose-400",
-                  )}>{m.weight}</p>
-                  <p className="text-muted-foreground mt-0.5">{m.label}</p>
-                </div>
-              ))}
+            {/* Base models */}
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Base Models</p>
+              <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                {[
+                  { label: "Poisson", weight: "10.9%", color: "sky" },
+                  { label: "ZIP",     weight: "27.3%", color: "violet" },
+                  { label: "Markov",  weight: "43.6%", color: "amber" },
+                  { label: "MAPRE",   weight: "9.1%",  color: "rose" },
+                ].map((m) => (
+                  <div key={m.label} className={cn(
+                    "rounded-lg border p-3",
+                    m.color === "sky"    && "border-sky-500/30 bg-sky-500/10",
+                    m.color === "violet" && "border-violet-500/30 bg-violet-500/10",
+                    m.color === "amber"  && "border-amber-500/30 bg-amber-500/10",
+                    m.color === "rose"   && "border-rose-500/30 bg-rose-500/10",
+                  )}>
+                    <p className={cn("font-bold text-base",
+                      m.color === "sky"    && "text-sky-400",
+                      m.color === "violet" && "text-violet-400",
+                      m.color === "amber"  && "text-amber-400",
+                      m.color === "rose"   && "text-rose-400",
+                    )}>{m.weight}</p>
+                    <p className="text-muted-foreground mt-0.5">{m.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Meta-models */}
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Meta-Models (stacked on base layer)</p>
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                {[
+                  { label: "Logistic Stack",   weight: "4.5%", color: "fuchsia" },
+                  { label: "NN Interaction",   weight: "2.7%", color: "cyan"    },
+                  { label: "Hier. Bayes",      weight: "1.8%", color: "orange"  },
+                ].map((m) => (
+                  <div key={m.label} className={cn(
+                    "rounded-lg border p-3",
+                    m.color === "fuchsia" && "border-fuchsia-500/30 bg-fuchsia-500/10",
+                    m.color === "cyan"    && "border-cyan-500/30 bg-cyan-500/10",
+                    m.color === "orange"  && "border-orange-500/30 bg-orange-500/10",
+                  )}>
+                    <p className={cn("font-bold text-base",
+                      m.color === "fuchsia" && "text-fuchsia-400",
+                      m.color === "cyan"    && "text-cyan-400",
+                      m.color === "orange"  && "text-orange-400",
+                    )}>{m.weight}</p>
+                    <p className="text-muted-foreground mt-0.5">{m.label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -339,7 +362,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Prevents a 3-start 100% NRFI rate from being treated as elite. The shrunk rate feeds into all four models below.</p>
+            <p className="text-xs text-muted-foreground">Prevents a 3-start 100% NRFI rate from being treated as elite. The shrunk rate feeds into all seven models below.</p>
           </CardContent>
         </Card>
 
@@ -349,7 +372,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500/20 text-xs font-bold text-sky-400">1</span>
               Poisson Model
-              <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">18% weight</span>
+              <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">10.9% weight</span>
             </CardTitle>
             <CardDescription>Standard run-expectancy model. Acts as the numerical anchor.</CardDescription>
           </CardHeader>
@@ -380,7 +403,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20 text-xs font-bold text-violet-400">2</span>
               Zero-Inflated Poisson (ZIP)
-              <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">39% weight</span>
+              <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">27.3% weight</span>
             </CardTitle>
             <CardDescription>Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.</CardDescription>
           </CardHeader>
@@ -411,7 +434,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-xs font-bold text-amber-400">3</span>
               Markov Chain (24-state)
-              <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">31% weight</span>
+              <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">43.6% weight</span>
             </CardTitle>
             <CardDescription>Simulates the inning plate-by-plate across all 24 base-out states using Bill James Log-5 matchup probabilities.</CardDescription>
           </CardHeader>
@@ -444,7 +467,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20 text-xs font-bold text-rose-400">4</span>
               MAPRE — Multi-Factor Adjusted Poisson Run Expectancy
-              <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">12% weight</span>
+              <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">9.1% weight</span>
             </CardTitle>
             <CardDescription>Injects seven hidden 1st-inning factors on top of the Bayesian lambda. Applied at game level with cross-half correlation.</CardDescription>
           </CardHeader>
@@ -475,14 +498,119 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           </CardContent>
         </Card>
 
+        {/* Model 5: Logistic Stack */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-fuchsia-500/20 text-xs font-bold text-fuchsia-400">5</span>
+              Logistic Stack (Meta-Model)
+              <span className="ml-auto text-xs font-semibold text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded px-2 py-0.5">4.5% weight</span>
+            </CardTitle>
+            <CardDescription>Stacks the four base model outputs as features in a logistic regression. Corrects systematic biases without introducing new raw inputs.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 space-y-2">
+              <p className="font-mono text-xs text-fuchsia-300">baseAvg = 0.109×poisson + 0.273×zip + 0.436×markov + 0.091×mapre</p>
+              <p className="font-mono text-sm text-fuchsia-300 mt-1">P(NRFI_half) = σ(−2.3 + 4.1 × baseAvg)</p>
+              <p className="font-mono text-xs text-fuchsia-300">where σ(x) = 1 / (1 + e^(−x))</p>
+              <p className="font-mono text-xs text-fuchsia-300 mt-1">Game level: homeHalf × awayHalf</p>
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p><span className="text-foreground font-medium">α = −2.3</span> — captures the natural log-odds baseline for a zero-run half-inning</p>
+              <p><span className="text-foreground font-medium">β = 4.1</span> — stretches the weighted base-4 average across the full probability range</p>
+              <p><span className="text-foreground font-medium">σ (sigmoid)</span> — ensures output stays in (0, 1); smoothly penalises overconfident base-4 predictions</p>
+            </div>
+            <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">Example:</span> Base-4 avg = 0.645 → logit input = −2.3 + 4.1×0.645 = 0.34 → P(NRFI_half) = σ(0.34) ≈ 59%
+            </div>
+            <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-fuchsia-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={63} color="bg-fuchsia-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Model 6: NN Interaction */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/20 text-xs font-bold text-cyan-400">6</span>
+              NN Interaction (Meta-Model)
+              <span className="ml-auto text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-0.5">2.7% weight</span>
+            </CardTitle>
+            <CardDescription>Captures the cross-model synergy between Poisson and Markov — two independent models. When both agree strongly, confidence rises.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-2">
+              <p className="font-mono text-sm text-cyan-300">P(NRFI_half) = clamp(poissonNrfi_half × markovNrfi_half / 0.67, 0.02, 0.98)</p>
+              <p className="font-mono text-xs text-cyan-300 mt-1">Game level: (homeHalf + awayHalf) / 2   ← averaged, not multiplied</p>
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p><span className="text-foreground font-medium">0.67</span> — normalisation constant ≈ geometric mean of two league-average half-inning NRFI probabilities (0.82²)</p>
+              <p><span className="text-foreground font-medium">Division</span> — converts the multiplicative interaction into a probability-scale signal centred on league average</p>
+              <p><span className="text-foreground font-medium">Game average</span> — NN Interaction is a joint-game environment signal; averaging captures overall game tone rather than sequential independence</p>
+            </div>
+            <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">Example:</span> poissonNrfi_half = 0.72, markovNrfi_half = 0.75 → 0.72×0.75 / 0.67 = 0.806 → clamped to 0.80 per half → game avg ≈ 0.80
+            </div>
+            <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={66} color="bg-cyan-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Model 7: Hierarchical Bayes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/20 text-xs font-bold text-orange-400">7</span>
+              Hierarchical Bayes (Meta-Model)
+              <span className="ml-auto text-xs font-semibold text-orange-400 bg-orange-500/10 border border-orange-500/30 rounded px-2 py-0.5">1.8% weight</span>
+            </CardTitle>
+            <CardDescription>Dynamic-prior Bayesian model with tenure-adjusted shrinkage. Veterans get higher data-trust; rookies stay closer to the league prior.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-4 space-y-2">
+              <p className="font-mono text-xs text-orange-300">w_dynamic = starts / (starts + k)   where k = 1.14 × (1 + tenurePenalty)</p>
+              <p className="font-mono text-sm text-orange-300 mt-1">P(NRFI_half) = w_dynamic × θ̂ + (1 − w_dynamic) × 0.516</p>
+              <p className="font-mono text-xs text-orange-300">Game level: homeHalf × awayHalf</p>
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p><span className="text-foreground font-medium">k</span> — shrinkage strength; expands for rookies (high tenurePenalty), shrinks for veterans (→ 1.14)</p>
+              <p><span className="text-foreground font-medium">0.516</span> — league-average NRFI rate anchor; same as step 0 prior</p>
+              <p><span className="text-foreground font-medium">More granular than step 0</span> — per-pitcher dynamic k vs fixed global k = 1.14 in the pre-processing shrinkage</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs text-center mt-1">
+              {[
+                { starts: "2 starts", weight: "~64%", note: "data trust" },
+                { starts: "10 starts", weight: "~90%", note: "data trust" },
+                { starts: "18+ starts", weight: "~94%", note: "data trust" },
+              ].map((r) => (
+                <div key={r.starts} className="rounded border border-border/30 bg-card/50 p-2">
+                  <p className="font-semibold text-foreground">{r.weight}</p>
+                  <p className="text-muted-foreground">{r.starts}</p>
+                </div>
+              ))}
+            </div>
+            <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">Example:</span> 14-start pitcher, 70% observed NRFI rate → w_dynamic ≈ 0.92 → P = 0.92×0.70 + 0.08×0.516 = 68.4% per half
+            </div>
+            <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-orange-400 uppercase tracking-wide">Sample Output</p>
+              <NrfiYrfiBar nrfi={64} color="bg-orange-500" />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Recent Form Multiplier */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">5</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">8</span>
               Recent Form Multiplier
             </CardTitle>
-            <CardDescription>Applied to lambda before all four models. Adjusts for hot/cold streaks vs a pitcher's season baseline.</CardDescription>
+            <CardDescription>Applied to lambda before all seven models. Adjusts for hot/cold streaks vs a pitcher's season baseline.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
@@ -501,7 +629,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
         <Card>
           <CardHeader>
             <CardTitle>Combined Model Output</CardTitle>
-            <CardDescription>How the four models are weighted and blended into the final NRFI / YRFI %</CardDescription>
+            <CardDescription>How all seven models are weighted and blended into the final NRFI / YRFI %</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
 
@@ -518,11 +646,29 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/20">
+                  {/* Base models */}
                   {[
-                    { model: "Poisson",  color: "text-sky-400",    weight: "18%", nrfi: 64, yrfi: 36, weighted: 11.5 },
-                    { model: "ZIP",      color: "text-violet-400", weight: "39%", nrfi: 67, yrfi: 33, weighted: 26.1 },
-                    { model: "Markov",   color: "text-amber-400",  weight: "31%", nrfi: 65, yrfi: 35, weighted: 20.2 },
-                    { model: "MAPRE",    color: "text-rose-400",   weight: "12%", nrfi: 62, yrfi: 38, weighted: 7.4 },
+                    { model: "Poisson",        color: "text-sky-400",     weight: "10.9%", nrfi: 64, yrfi: 36, weighted: 7.0 },
+                    { model: "ZIP",            color: "text-violet-400",  weight: "27.3%", nrfi: 67, yrfi: 33, weighted: 18.3 },
+                    { model: "Markov",         color: "text-amber-400",   weight: "43.6%", nrfi: 65, yrfi: 35, weighted: 28.3 },
+                    { model: "MAPRE",          color: "text-rose-400",    weight: "9.1%",  nrfi: 62, yrfi: 38, weighted: 5.6 },
+                  ].map((row) => (
+                    <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
+                      <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
+                      <td className="px-3 py-2 text-center text-muted-foreground">{row.weight}</td>
+                      <td className="px-3 py-2 text-center font-semibold text-emerald-400">{row.nrfi}%</td>
+                      <td className="px-3 py-2 text-center font-semibold text-rose-400">{row.yrfi}%</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{row.weighted.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                  {/* Meta-models separator */}
+                  <tr className="bg-muted/10">
+                    <td colSpan={5} className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meta-models</td>
+                  </tr>
+                  {[
+                    { model: "Logistic Stack", color: "text-fuchsia-400", weight: "4.5%",  nrfi: 63, yrfi: 37, weighted: 2.8 },
+                    { model: "NN Interaction", color: "text-cyan-400",    weight: "2.7%",  nrfi: 66, yrfi: 34, weighted: 1.8 },
+                    { model: "Hier. Bayes",    color: "text-orange-400",  weight: "1.8%",  nrfi: 64, yrfi: 36, weighted: 1.2 },
                   ].map((row) => (
                     <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
                       <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
@@ -534,9 +680,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   ))}
                   <tr className="bg-muted/20 border-t border-border/40">
                     <td className="px-3 py-2 font-bold text-foreground" colSpan={2}>Ensemble (sum)</td>
-                    <td className="px-3 py-2 text-center font-bold text-emerald-400">65.2%</td>
-                    <td className="px-3 py-2 text-center font-bold text-rose-400">34.8%</td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">65.2%</td>
+                    <td className="px-3 py-2 text-center font-bold text-emerald-400">65.0%</td>
+                    <td className="px-3 py-2 text-center font-bold text-rose-400">35.0%</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">65.0%</td>
                   </tr>
                 </tbody>
               </table>
@@ -544,8 +690,8 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
 
             {/* Final blend */}
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2 text-xs">
-              <p className="font-semibold text-foreground mb-2">Final blend (68% ensemble + 32% league anchor 61.8%)</p>
-              <p className="font-mono text-muted-foreground">P(NRFI) = 0.68 × 65.2% + 0.32 × 61.8% = 44.3% + 19.8% = <span className="text-emerald-400 font-bold">64.1%</span></p>
+              <p className="font-semibold text-foreground mb-2">Final blend (76% ensemble + 24% league anchor 61.4%)</p>
+              <p className="font-mono text-muted-foreground">P(NRFI) = 0.76 × 65.0% + 0.24 × 61.4% = 49.4% + 14.7% = <span className="text-emerald-400 font-bold">64.1%</span></p>
               <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 64.1% = <span className="text-rose-400 font-bold">35.9%</span></p>
             </div>
 
@@ -933,21 +1079,43 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/20">
-                        {(["Poisson", "ZIP", "Markov", "Ensemble"] as const).map((name) => {
-                          const m = perfData.perModel![name]
-                          const colors = { Poisson: "text-sky-400", ZIP: "text-violet-400", Markov: "text-amber-400", Ensemble: "text-emerald-400" }
-                          return (
-                            <tr key={name} className="bg-card/30">
-                              <td className={cn("px-3 py-2 font-semibold", colors[name])}>{name}</td>
-                              <td className="px-3 py-2 text-center text-muted-foreground">{m?.correct ?? "—"}/{m?.total ?? "—"}</td>
-                              <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
-                            </tr>
-                          )
-                        })}
+                        {(["Poisson", "ZIP", "Markov", "Ensemble", "Logistic Stack", "NN Interaction", "Hierarchical Bayes"] as const)
+                          .filter((name) => perfData.perModel![name] != null)
+                          .map((name, i, arr) => {
+                            const m = perfData.perModel![name]
+                            const colorMap: Record<string, string> = {
+                              Poisson:             "text-sky-400",
+                              ZIP:                 "text-violet-400",
+                              Markov:              "text-amber-400",
+                              Ensemble:            "text-emerald-400",
+                              "Logistic Stack":    "text-fuchsia-400",
+                              "NN Interaction":    "text-cyan-400",
+                              "Hierarchical Bayes":"text-orange-400",
+                            }
+                            const isFirstMeta = name === "Logistic Stack" && arr.some((n) => ["Poisson","ZIP","Markov","Ensemble"].includes(n))
+                            return (
+                              <>
+                                {isFirstMeta && (
+                                  <tr key={`${name}-sep`} className="bg-muted/10">
+                                    <td colSpan={4} className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meta-models</td>
+                                  </tr>
+                                )}
+                                <tr key={name} className="bg-card/30 hover:bg-card/50 transition-colors">
+                                  <td className={cn("px-3 py-2 font-semibold", colorMap[name])}>{name}</td>
+                                  <td className="px-3 py-2 text-center text-muted-foreground">{m?.correct ?? "—"}/{m?.total ?? "—"}</td>
+                                  <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
+                                  <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
+                                </tr>
+                              </>
+                            )
+                          })}
                       </tbody>
                     </table>
                   </div>
+                  <p className="mt-2 text-[10px] text-muted-foreground">
+                    MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
+                    Meta-models (Logistic Stack, NN Interaction, Hierarchical Bayes) appear only after sufficient tracking data accumulates.
+                  </p>
                 </CardContent>
               </Card>
             )}
