@@ -22,6 +22,8 @@ import {
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
+import { SectionLabel } from "@/components/diamond/SectionLabel"
+import { KpiCard } from "@/components/diamond/KpiCard"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 
@@ -474,11 +476,44 @@ export default function HomePage() {
   }, [predictions, todayGames, teamMap, pitcherMap, filters])
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
       {/* Main content */}
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
-        {/* Stats header */}
-        <PredictionHeader predictions={predictions} accuracy={trackingAccuracy} />
+      <main className="mx-auto max-w-[1480px] space-y-6 px-7 py-7">
+        {/* KPI row */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <KpiCard
+            metric="Season Accuracy"
+            value={trackingAccuracy ? `${trackingAccuracy.accuracy.toFixed(1)}%` : "—"}
+            delta="vs 51.6% baseline"
+            deltaPositive={(trackingAccuracy?.accuracy ?? 0) > 51.6}
+            variant="cy"
+          />
+          <KpiCard
+            metric="Today's Games"
+            value={predictions.length || "—"}
+            delta={liveData?.date ?? ""}
+            variant="bl"
+          />
+          <KpiCard
+            metric="High Confidence"
+            value={predictions.filter(p => p.confidence === "High").length || "—"}
+            delta="of today's slate"
+            variant="gr"
+          />
+          <KpiCard
+            metric="Value Bets"
+            value={predictions.filter(p => p.valueAnalysis?.recommendedBet !== "NO_BET").length || "—"}
+            delta="edge ≥ 3%"
+            variant="tl"
+          />
+          <KpiCard
+            metric="Model ROI"
+            value={trackingAccuracy ? `${trackingAccuracy.roi > 0 ? "+" : ""}${trackingAccuracy.roi.toFixed(1)}%` : "—"}
+            delta="season to date"
+            deltaPositive={(trackingAccuracy?.roi ?? 0) >= 0}
+            variant="cy"
+          />
+        </div>
 
         {/* Tabs */}
         <Tabs defaultValue="games">
@@ -503,6 +538,7 @@ export default function HomePage() {
 
           {/* ── Games Tab ── */}
           <TabsContent value="games" className="mt-4 space-y-4">
+            <SectionLabel index="01">Today&apos;s Slate</SectionLabel>
             <FilterBar filters={filters} onChange={setFilters} />
 
             {loading ? (

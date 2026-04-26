@@ -1,8 +1,30 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+
+/* ─── Diamond Stats v2 design tokens (ds- prefix avoids shadcn collision) ── */
+:root {
+  --ds-bg: #070e1a;
+  --ds-bg-2: #050a14;
+  --ds-panel: #0e1628;
+  --ds-panel-2: #121c34;
+  --ds-ink: #e8f1ff;
+  --ds-ink-2: #c6d6f0;
+  --ds-muted: #7990b5;
+  --ds-dim: #4b5e82;
+  --ds-line: #1b2846;
+  --ds-line-2: #15223d;
+  --ds-cy: #22d3ee;
+  --ds-cy-2: #06b6d4;
+  --ds-gr: #10b981;
+  --ds-gr-2: #14b8a6;
+  --ds-bl: #3b82f6;
+  --ds-bl-2: #1d4ed8;
+  --ds-warn: #f59e0b;
+  --ds-bad: #f97373;
+}
 
 :root {
   --background: oklch(1 0 0);
@@ -78,6 +100,27 @@
 @theme inline {
   --font-sans: "Inter", "Geist", "Geist Fallback", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-jet: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  /* Diamond Stats color tokens */
+  --color-ds-bg: var(--ds-bg);
+  --color-ds-bg-2: var(--ds-bg-2);
+  --color-ds-panel: var(--ds-panel);
+  --color-ds-panel-2: var(--ds-panel-2);
+  --color-ds-ink: var(--ds-ink);
+  --color-ds-ink-2: var(--ds-ink-2);
+  --color-ds-muted: var(--ds-muted);
+  --color-ds-dim: var(--ds-dim);
+  --color-ds-line: var(--ds-line);
+  --color-ds-line-2: var(--ds-line-2);
+  --color-ds-cy: var(--ds-cy);
+  --color-ds-cy-2: var(--ds-cy-2);
+  --color-ds-gr: var(--ds-gr);
+  --color-ds-gr-2: var(--ds-gr-2);
+  --color-ds-bl: var(--ds-bl);
+  --color-ds-bl-2: var(--ds-bl-2);
+  --color-ds-warn: var(--ds-warn);
+  --color-ds-bad: var(--ds-bad);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -163,6 +206,135 @@
   }
 }
 
+/* ─── Diamond Stats v2 layout utilities ──────────────────────────────────── */
+@layer utilities {
+  .font-display { font-family: var(--font-display); }
+  .font-jet     { font-family: var(--font-jet); font-variant-numeric: tabular-nums; }
+
+  /* Panel — matches reference HTML .panel */
+  .ds-panel {
+    background: linear-gradient(180deg, var(--ds-panel) 0%, var(--ds-panel-2) 100%);
+    border: 1px solid var(--ds-line);
+    border-radius: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ds-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(600px 160px at 100% 0%, rgba(34,211,238,.07), transparent 60%);
+  }
+
+  /* KPI card accent bar */
+  .ds-kpi-bar::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--ds-cy), var(--ds-bl));
+    opacity: 0.8;
+  }
+  .ds-kpi-bar-gr::after {
+    background: linear-gradient(90deg, var(--ds-gr), var(--ds-cy));
+  }
+  .ds-kpi-bar-bl::after {
+    background: linear-gradient(90deg, var(--ds-bl), var(--ds-cy));
+  }
+
+  /* Section label */
+  .ds-section-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--ds-muted);
+    font-family: var(--font-jet);
+    font-weight: 500;
+  }
+  .ds-section-label::before {
+    content: '';
+    width: 24px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--ds-cy), transparent);
+  }
+  .ds-section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--ds-line), transparent);
+  }
+
+  /* Recommendation pill colours */
+  .ds-pill-cy  { border-color: rgba(34,211,238,.4); color: var(--ds-cy); background: rgba(34,211,238,.08); }
+  .ds-pill-gr  { border-color: rgba(16,185,129,.4); color: var(--ds-gr); background: rgba(16,185,129,.08); }
+  .ds-pill-bl  { border-color: rgba(59,130,246,.4); color: var(--ds-bl); background: rgba(59,130,246,.08); }
+  .ds-pill-bad { border-color: rgba(249,115,115,.4); color: var(--ds-bad); background: rgba(249,115,115,.08); }
+
+  /* Live dot pulse */
+  .ds-live-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--ds-gr);
+    box-shadow: 0 0 12px var(--ds-gr);
+    animation: ds-pulse 2s ease-in-out infinite;
+  }
+  @keyframes ds-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 12px var(--ds-gr); }
+    50%       { opacity: 0.6; box-shadow: 0 0 6px var(--ds-gr); }
+  }
+
+  /* Status chip */
+  .ds-chip {
+    background: #0a1426;
+    border: 1px solid var(--ds-line);
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: var(--ds-ink-2);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    font-family: var(--font-jet);
+  }
+  .ds-chip-active {
+    border-color: var(--ds-cy);
+    color: var(--ds-cy);
+  }
+
+  /* Topbar nav pill */
+  .ds-nav-pill {
+    background: transparent;
+    border: 0;
+    color: var(--ds-muted);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: all 0.15s;
+  }
+  .ds-nav-pill-active {
+    background: linear-gradient(90deg, var(--ds-cy), var(--ds-bl));
+    color: #041018;
+    font-weight: 600;
+  }
+
+  /* Game log tile colours */
+  .ds-log-w  { background: linear-gradient(135deg,rgba(16,185,129,.45),rgba(16,185,129,.12)); border-color: rgba(16,185,129,.55); color: #d1f5e4; }
+  .ds-log-l  { background: linear-gradient(135deg,rgba(249,115,115,.4),rgba(249,115,115,.1)); border-color: rgba(249,115,115,.55); color: #ffdcdc; }
+  .ds-log-nd { background: linear-gradient(135deg,rgba(59,130,246,.4),rgba(59,130,246,.1)); border-color: rgba(59,130,246,.55); color: #d1e0ff; }
+
+  /* Body density variants */
+  body[data-density="sparse"] .ds-optional { display: none !important; }
+  body[data-density="dense"]  .ds-extra    { display: block !important; }
+  .ds-extra { display: none; }
+}
+
+/* ─── Respect reduced-motion ──────────────────────────────────────────────── */
 /* Respect reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *,

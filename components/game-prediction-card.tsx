@@ -3,6 +3,7 @@
 import type { Game, NRFIPrediction, Team, Pitcher, ModelBreakdown } from "@/lib/types"
 import { METRIC_GLOSSARY } from "@/lib/types"
 import { Card } from "@/components/ui/card"
+import Link from "next/link"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -666,6 +667,31 @@ export function GamePredictionCard({
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Ensemble deep-dive footer link */}
+      <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: "var(--ds-line)" }}>
+        <div className="flex flex-wrap gap-1.5">
+          {prediction.factors.slice(0, 3).map((f, i) => (
+            <span
+              key={i}
+              className="ds-chip text-[9px]"
+              style={{
+                borderColor: f.impact === "positive" ? "rgba(16,185,129,.35)" : f.impact === "negative" ? "rgba(249,115,115,.35)" : undefined,
+                color: f.impact === "positive" ? "var(--ds-gr)" : f.impact === "negative" ? "var(--ds-bad)" : undefined,
+              }}
+            >
+              {f.name}
+            </span>
+          ))}
+        </div>
+        <Link
+          href={`/ensemble/${game.id}`}
+          className="font-jet text-[10px] uppercase tracking-[0.15em] transition-colors hover:text-ds-cy"
+          style={{ color: "var(--ds-muted)" }}
+        >
+          Ensemble ›
+        </Link>
+      </div>
     </Card>
   )
 }

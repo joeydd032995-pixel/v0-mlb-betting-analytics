@@ -151,6 +151,26 @@ export interface ModelInputs {
   recentFormMultiplier?: number
 }
 
+// ─── New types for Phase 2+ (ensemble deep dive, sensitivity, Markov UI) ─────
+
+export interface SensitivityAdjustments {
+  /** ±mph added to game.weather.windSpeed */
+  windSpeedDelta: number
+  /** ±°F added to game.weather.temperature */
+  temperatureDelta: number
+  /** Override for umpire nrfiFactor, clamped to [-0.5, 0.5] */
+  umpireNrfiFactor: number
+  /** Multiplies pitcher startCount for shrinkage weight (0.5–2.0) */
+  sampleSizeMultiplier: number
+}
+
+export interface EnsembleDiagnostics {
+  gameId: string
+  rawEnsemble7: number
+  calibratedBeforeBlend: number
+  finalBlended: number
+}
+
 /** Per-half-inning breakdown from the 7-model ensemble */
 export interface HalfInningModelBreakdown {
   /** Base Poisson P(no score) using Bayesian-shrunk rate */
@@ -178,6 +198,15 @@ export interface HalfInningModelBreakdown {
   nnInteractionNrfi?: number
   /** Hierarchical Bayes meta-model P(no score) — dynamic-prior shrunk pitcher rate */
   hierarchicalBayesNrfi?: number
+  /** PA outcomes used to build the Markov chain — enables MarkovDiamond interactive UI */
+  paOutcomes?: {
+    outProb: number
+    walkProb: number
+    singleProb: number
+    doubleProb: number
+    tripleProb: number
+    hrProb: number
+  }
 }
 
 /** Full multi-model breakdown for a game prediction */

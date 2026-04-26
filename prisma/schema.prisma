@@ -90,3 +90,25 @@ model ModelPrediction {
   @@index([status])
   @@map("model_predictions")
 }
+
+// Written only when ENABLE_DIAGNOSTICS=true — tracks per-game ensemble diagnostics.
+model EnsembleDiagnostic {
+  id              String   @id @default(cuid())
+  gameId          String
+  date            String
+  poissonWeight   Float
+  zipWeight       Float
+  markovWeight    Float
+  mapreWeight     Float
+  logisticWeight  Float
+  nnWeight        Float
+  hierBayesWeight Float
+  rawEnsemble7    Float
+  calibrated      Float
+  finalBlended    Float
+  createdAt       DateTime @default(now())
+
+  @@index([date])
+  @@index([gameId])
+  @@map("ensemble_diagnostics")
+}
