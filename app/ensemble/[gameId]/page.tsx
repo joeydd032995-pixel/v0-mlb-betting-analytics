@@ -1,7 +1,6 @@
 // app/ensemble/[gameId]/page.tsx — Server Component
 
 import { cache } from "react"
-import { unstable_cache } from "next/cache"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { EnsembleDeepDive } from "@/components/ensemble/EnsembleDeepDive"
 import { computeNRFIPrediction } from "@/lib/nrfi-engine"
@@ -10,13 +9,11 @@ import { getLiveGameSlate } from "@/lib/api/live-data"
 import { mockGames, mockTeams, mockPitchers } from "@/lib/mock-data"
 import Link from "next/link"
 
-// Shared slate cache: all /ensemble/[gameId] renders on the same revalidation
-// cycle share one upstream fetch instead of each triggering their own.
-const getCachedSlate = unstable_cache(
-  cache((date: string) => getLiveGameSlate(date)),
-  ["live-game-slate"],
-  { revalidate: 300, tags: ["live-slate"] },
-)
+// React cache deduplicates getLiveGameSlate calls within the same render pass
+// (e.g. multiple /ensemble/[gameId] segments rendered concurrently).
+// Cannot use unstable_cache here — it JSON-serializes the return value,
+// which destroys Map objects (pitchers/teams would become {}).
+const getCachedSlate = cache((date: string) => getLiveGameSlate(date))
 
 interface PageProps {
   params: Promise<{ gameId: string }>
