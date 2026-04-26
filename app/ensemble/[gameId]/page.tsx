@@ -1,48 +1,51 @@
 // app/ensemble/[gameId]/page.tsx — Server Component
 
+import { cache } from "react"
+import { unstable_cache } from "next/cache"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { EnsembleDeepDive } from "@/components/ensemble/EnsembleDeepDive"
 import { computeNRFIPrediction } from "@/lib/nrfi-engine"
 import { computeMarkovStateSnapshot } from "@/lib/nrfi-models"
+import { getLiveGameSlate } from "@/lib/api/live-data"
 import { mockGames, mockTeams, mockPitchers } from "@/lib/mock-data"
 import Link from "next/link"
+
+// Shared slate cache: all /ensemble/[gameId] renders on the same revalidation
+// cycle share one upstream fetch instead of each triggering their own.
+const getCachedSlate = unstable_cache(
+  cache((date: string) => getLiveGameSlate(date)),
+  ["live-game-slate"],
+  { revalidate: 300, tags: ["live-slate"] },
+)
 
 interface PageProps {
   params: Promise<{ gameId: string }>
 }
 
+export const revalidate = 300
+
 export default async function EnsemblePage({ params }: PageProps) {
   const { gameId } = await params
 
-  // 1. Try to find the game from mock data first
+  // 1. Try mock data first (dev / fallback)
   let game = mockGames.find(g => g.id === gameId)
   let pitchers = mockPitchers
   let teams = mockTeams
 
-  // 2. Optionally fetch live data from /api/games?gameId=...
+  // 2. If not in mock data, fetch live slate (cached per date, shared across gameIds)
   if (!game) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const baseUrl = ((globalThis as any).process?.env?.NEXT_PUBLIC_APP_URL as string | undefined) ?? "http://localhost:3000"
-      const res = await fetch(
-        `${baseUrl}/api/games?gameId=${encodeURIComponent(gameId)}`,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { next: { revalidate: 300 } } as any
-      )
-      if (res.ok) {
-        const data = await res.json()
-        if (data.game) {
-          game = data.game
-          if (data.pitchersById) {
-            pitchers = new Map(Object.entries(data.pitchersById))
-          }
-          if (data.teamsById) {
-            teams = new Map(Object.entries(data.teamsById))
-          }
-        }
+      const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      const live = await getCachedSlate(date)
+      const liveGame = live.games.find(g => g.id === gameId)
+      if (liveGame) {
+        game = liveGame
+        pitchers = live.pitchers
+        teams = live.teams
       }
-    } catch {
-      // fall through
+    } catch (err) {
+      console.error(`[ensemble/${gameId}] getLiveGameSlate failed`, err)
+      // fall through to "not found"
     }
   }
 

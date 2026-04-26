@@ -39,7 +39,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const inner = (
-    <html lang="en" className="dark bg-background">
+    <html lang="en" className="dark" style={{ background: "var(--ds-bg)" }}>
       <body className="font-sans antialiased flex flex-col min-h-screen" style={{ background: "var(--ds-bg)", color: "var(--ds-ink)" }}>
         <DensityProvider>
         <TooltipProvider>
