@@ -51,8 +51,8 @@ export default async function PitcherPage({ params }: PageProps) {
           bbRate: apiStats.gamesStarted > 0
             ? (apiStats.baseOnBalls / (apiStats.gamesStarted * 3.5 || 1))
             : 0.08,
-          hrPer9: parseFloat(apiStats.inningsPitched || "1") > 0
-            ? (apiStats.homeRuns / (parseFloat(apiStats.inningsPitched) / 9))
+          hrPer9: (apiStats.inningsPitched ?? 0) > 0
+            ? (apiStats.homeRuns / (apiStats.inningsPitched / 9))
             : 1.0,
           babip: 0.290,
           nrfiRate: Math.exp(-(apiStats.era ?? 4.0) * 0.95 / 9),
@@ -69,13 +69,13 @@ export default async function PitcherPage({ params }: PageProps) {
           fip: (apiStats.era ?? 4.0) - 0.2,
           xfip: (apiStats.era ?? 4.0) + 0.1,
           whip: apiStats.whip ?? 1.25,
-          kPer9: parseFloat(apiStats.inningsPitched || "1") > 0
-            ? (apiStats.strikeOuts / (parseFloat(apiStats.inningsPitched) / 9))
+          kPer9: (apiStats.inningsPitched ?? 0) > 0
+            ? (apiStats.strikeOuts / (apiStats.inningsPitched / 9))
             : 8.5,
-          bbPer9: parseFloat(apiStats.inningsPitched || "1") > 0
-            ? (apiStats.baseOnBalls / (parseFloat(apiStats.inningsPitched) / 9))
+          bbPer9: (apiStats.inningsPitched ?? 0) > 0
+            ? (apiStats.baseOnBalls / (apiStats.inningsPitched / 9))
             : 2.8,
-          innings: parseFloat(apiStats.inningsPitched || "0"),
+          innings: apiStats.inningsPitched ?? 0,
           wins: apiStats.wins ?? 0,
           losses: apiStats.losses ?? 0,
         },

@@ -29,9 +29,10 @@ export function SensitivityControls({ defaults, onResult, isComputing }: Props) 
     timer.current = setTimeout(() => onResult(next), 300)
   }
 
-  // Emit defaults on mount
+  // Emit defaults on mount; clean up debounce timer on unmount
   useEffect(() => {
     onResult({ ...DEFAULT_ADJ, ...defaults })
+    return () => { if (timer.current) clearTimeout(timer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

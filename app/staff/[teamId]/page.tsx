@@ -21,7 +21,8 @@ export default async function StaffPage({ params }: PageProps) {
   const team = mockTeams.get(teamId)
   const allPitchers = Array.from(mockPitchers.values()).filter(p => p.teamId === teamId)
 
-  // Fetch live predictions to pick up actual pitchers for today's games
+  // Fetch live predictions to pick up actual pitchers for today's games,
+  // then merge with mock roster (live data takes priority, mock fills gaps)
   let livePitchers = allPitchers
   try {
     const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/predictions`, {
@@ -30,10 +31,16 @@ export default async function StaffPage({ params }: PageProps) {
     if (res.ok) {
       const data = await res.json()
       const pitchersById: Record<string, unknown> = data.pitchersById ?? {}
-      const teamPitchers = Object.values(pitchersById).filter(
+      const todayPitchers = Object.values(pitchersById).filter(
         (p: unknown) => (p as { teamId?: string }).teamId === teamId
       ) as typeof allPitchers
-      if (teamPitchers.length > 0) livePitchers = teamPitchers
+      if (todayPitchers.length > 0) {
+        const liveIds = new Set(todayPitchers.map(p => p.id))
+        livePitchers = [
+          ...todayPitchers,
+          ...allPitchers.filter(p => !liveIds.has(p.id)),
+        ]
+      }
     }
   } catch {
     // Fall through to mock data

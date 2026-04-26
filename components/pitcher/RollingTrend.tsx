@@ -10,7 +10,7 @@ interface Props {
 
 export function RollingTrend({ pitcher }: Props) {
   const fi = pitcher.firstInning
-  // Build a rolling trend from last5RunsAllowed (recent → older)
+  // last5RunsAllowed is newest-first; reverse to display oldest→newest (left→right)
   const data = fi.last5RunsAllowed
     .slice()
     .reverse()

@@ -15,16 +15,24 @@ interface Props {
   kRate: number
 }
 
-const ESTIMATED_PITCHES = (kRate: number): PitchEntry[] => [
-  { name: "Four-Seam FB", usage: 0.42, velocityMph: 94.2, color: "var(--ds-cy)"  },
-  { name: "Slider",       usage: 0.25, velocityMph: 86.5, color: "var(--ds-bl)"  },
-  { name: "Changeup",     usage: 0.18, velocityMph: 83.1, color: "var(--ds-gr)"  },
-  { name: "Curveball",    usage: 0.15, velocityMph: 78.8, color: "var(--ds-warn)" },
-]
+const ESTIMATED_PITCHES = (kRate: number): PitchEntry[] => {
+  // Scale breaking-ball share up with strikeout rate; higher K% → more sliders/curves
+  const breakBallBonus = Math.max(0, (kRate - 0.20) * 2)
+  const fbUsage   = Math.max(0.30, 0.46 - breakBallBonus * 0.15)
+  const slUsage   = Math.min(0.35, 0.22 + breakBallBonus * 0.10)
+  const cbUsage   = Math.min(0.20, 0.13 + breakBallBonus * 0.05)
+  const chUsage   = Math.max(0.05, 1 - fbUsage - slUsage - cbUsage)
+  return [
+    { name: "Four-Seam FB", usage: fbUsage, velocityMph: 93.5 + kRate * 5, color: "var(--ds-cy)"  },
+    { name: "Slider",       usage: slUsage, velocityMph: 85.5, color: "var(--ds-bl)"  },
+    { name: "Changeup",     usage: chUsage, velocityMph: 83.0, color: "var(--ds-gr)"  },
+    { name: "Curveball",    usage: cbUsage, velocityMph: 78.5, color: "var(--ds-warn)" },
+  ]
+}
 
 export function PitchMixDonut({ pitches, kRate }: Props) {
-  const data = pitches ?? ESTIMATED_PITCHES(kRate)
-  const topPitch = data.reduce((a, b) => a.usage > b.usage ? a : b)
+  const data = (pitches && pitches.length > 0) ? pitches : ESTIMATED_PITCHES(kRate)
+  const topPitch = data.reduce((a, b) => a.usage > b.usage ? a : b, data[0])
 
   return (
     <Panel title="Pitch Mix" chip={pitches ? "Statcast" : "Est. from K%"} className="h-full">

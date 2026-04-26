@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from "react"
 import {
   AreaChart,
   Area,
@@ -8,9 +9,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
-  defs,
-  linearGradient,
-  stop,
 } from "recharts"
 import { cn } from "@/lib/utils"
 
@@ -41,17 +39,20 @@ export function HfSpark({
   className,
   showGrid = false,
 }: HfSparkProps) {
+  const uid = useId()
+  const gradId1 = `sparkGrad1-${uid}`
+  const gradId2 = `sparkGrad2-${uid}`
   return (
     <div className={cn("w-full", className)}>
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
           <defs>
-            <linearGradient id="sparkGrad1" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradId1} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={color} stopOpacity={0.3} />
               <stop offset="95%" stopColor={color} stopOpacity={0} />
             </linearGradient>
             {label2 && (
-              <linearGradient id="sparkGrad2" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={gradId2} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={color2} stopOpacity={0.25} />
                 <stop offset="95%" stopColor={color2} stopOpacity={0} />
               </linearGradient>
@@ -86,7 +87,7 @@ export function HfSpark({
             name={label}
             stroke={color}
             strokeWidth={2}
-            fill="url(#sparkGrad1)"
+            fill={`url(#${gradId1})`}
             dot={false}
             activeDot={{ r: 3, fill: color }}
           />
@@ -97,7 +98,7 @@ export function HfSpark({
               name={label2}
               stroke={color2}
               strokeWidth={2}
-              fill="url(#sparkGrad2)"
+              fill={`url(#${gradId2})`}
               dot={false}
               activeDot={{ r: 3, fill: color2 }}
             />

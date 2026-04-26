@@ -98,7 +98,7 @@ export default async function EnsemblePage({ params }: PageProps) {
           triple: (homePA.tripleProb + awayPA.tripleProb) / 2,
           hr:     (homePA.hrProb     + awayPA.hrProb)     / 2,
         }
-      : homePA ? toMarkovPA(homePA) : defaultPA
+      : homePA ? toMarkovPA(homePA) : awayPA ? toMarkovPA(awayPA) : defaultPA
 
   const markovSnapshot = computeMarkovStateSnapshot(snapshotPA)
 

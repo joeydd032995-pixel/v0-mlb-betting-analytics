@@ -60,7 +60,7 @@ export function FeatureImportanceChart() {
   return (
     <Panel title="Feature Importance" chip="SHAP-style attribution">
       <p className="font-jet text-[10px] text-ds-muted mb-3">
-        Correlation of each input feature with (predicted NRFI − 61.4% league baseline).
+        Illustrative SHAP-style attribution — shows each feature&apos;s estimated influence on (predicted NRFI − 61.4% baseline).
         Positive (green) = increases NRFI probability. Negative (red) = decreases NRFI probability.
       </p>
       <div style={{ height: 300 }}>
@@ -100,7 +100,7 @@ export function FeatureImportanceChart() {
         </ResponsiveContainer>
       </div>
       <p className="font-jet text-[9px] text-ds-dim mt-2">
-        Importance values are empirical correlations from backtested data. Not causal — features that the engine weights heavily appear at the top.
+        Illustrative placeholder values — representative of typical SHAP attribution magnitudes. Real values require per-prediction SHAP computation from backtested data.
       </p>
     </Panel>
   )

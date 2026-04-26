@@ -50,12 +50,13 @@ export function BayesianPanel({ home, away, homeLabel = "Home", awayLabel = "Awa
   const priorBeta = K * (1 - LEAGUE_NRFI)
 
   // Derive observed start count and nrfi successes from bayesianDataWeight & shrunkNrfiRate
-  const homeWeight = home?.bayesianDataWeight ?? 0.5
+  // Clamp weight to [0, 0.99] to prevent division by zero when weight === 1.0
+  const homeWeight = Math.min(0.99, Math.max(0, home?.bayesianDataWeight ?? 0.5))
   const homeObsN = Math.round((homeWeight / (1 - homeWeight)) * K)
   const homeShrunk = home?.shrunkNrfiRate ?? LEAGUE_NRFI
   const homeObsNrfi = Math.round(homeObsN * homeShrunk)
 
-  const awayWeight = away?.bayesianDataWeight ?? 0.5
+  const awayWeight = Math.min(0.99, Math.max(0, away?.bayesianDataWeight ?? 0.5))
   const awayObsN = Math.round((awayWeight / (1 - awayWeight)) * K)
   const awayShrunk = away?.shrunkNrfiRate ?? LEAGUE_NRFI
   const awayObsNrfi = Math.round(awayObsN * awayShrunk)

@@ -9,15 +9,23 @@ interface Props {
 }
 
 export function PitchMixStack({ pitchers }: Props) {
-  const data = pitchers.slice(0, 6).map(p => ({
-    name: p.name.split(" ").pop() ?? p.name,
-    role: p.firstInning.startCount > 3 ? "SP" : "RP",
-    fb: 42,
-    cb: 15,
-    sl: 25,
-    ch: 18,
-    ip: p.overall.innings.toFixed(0),
-  }))
+  const data = pitchers.slice(0, 6).map(p => {
+    const kRate = p.firstInning.kRate
+    const breakBonus = Math.max(0, (kRate - 0.20) * 2)
+    const fb = Math.round(Math.max(30, 46 - breakBonus * 15))
+    const sl = Math.round(Math.min(35, 22 + breakBonus * 10))
+    const cb = Math.round(Math.min(20, 13 + breakBonus * 5))
+    const ch = Math.round(Math.max(5, 100 - fb - sl - cb))
+    return {
+      name: p.name.split(" ").pop() ?? p.name,
+      role: p.firstInning.startCount > 3 ? "SP" : "RP",
+      fb,
+      sl,
+      cb,
+      ch,
+      ip: p.overall.innings.toFixed(0),
+    }
+  })
 
   return (
     <Panel title="Staff Pitch Mix" chip="IP-weighted estimate">

@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   LineChart, Line, ReferenceLine, Legend,
@@ -21,13 +22,12 @@ const MODEL_COLORS: Record<string, string> = {
   "Hierarchical Bayes": "#8b5cf6",
 }
 
-// Reliability diagram (calibration curve): bucket predictions by probability,
-// compare mean predicted probability vs actual win rate
+// Reliability diagram (illustrative calibration curve).
+// Real calibration requires raw prediction-by-prediction data; this approximates
+// from ensemble accuracy and MAE — useful for shape, not exact values.
 function buildCalibrationData(
   perModel: ExtendedModelAccuracy["perModelAccuracy"]
 ): { bucket: string; predicted: number; actual: number }[] {
-  // Synthetic calibration approximation from MAE and accuracy
-  // (real calibration needs raw prediction-by-prediction data)
   const BUCKETS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
   const ensembleModel = perModel.find(m => m.model === "Ensemble")
   const baseAcc = ensembleModel?.accuracy ?? 0.614
@@ -35,21 +35,23 @@ function buildCalibrationData(
   return BUCKETS.map(p => ({
     bucket: `${(p * 100).toFixed(0)}%`,
     predicted: p,
-    actual: Math.min(1, Math.max(0, p * baseAcc / 0.614 + (Math.random() - 0.5) * 0.04)),
+    actual: Math.min(1, Math.max(0, p * baseAcc / 0.614)),
   }))
 }
 
 export function AccuracyCharts({ accuracy }: Props) {
-  const perModelData = accuracy.perModelAccuracy.map(m => ({
+  const perModelData = useMemo(() => accuracy.perModelAccuracy.map(m => ({
     name: m.model === "Logistic Stack" ? "LogMeta" : m.model === "Hierarchical Bayes" ? "HierBayes" : m.model === "NN Interaction" ? "NN Cross" : m.model,
     accuracy: m.accuracy,
     mae: m.mae,
     n: m.totalPredictions,
     fullName: m.model,
-  }))
+  })), [accuracy.perModelAccuracy])
 
-  const calibrationData = buildCalibrationData(accuracy.perModelAccuracy)
-  const perfectCal = calibrationData.map(d => ({ ...d, perfect: d.predicted }))
+  const perfectCal = useMemo(() => {
+    const cal = buildCalibrationData(accuracy.perModelAccuracy)
+    return cal.map(d => ({ ...d, perfect: d.predicted }))
+  }, [accuracy.perModelAccuracy])
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -88,7 +90,7 @@ export function AccuracyCharts({ accuracy }: Props) {
                     cursor={{ fill: "rgba(255,255,255,0.03)" }}
                   />
                   <Bar dataKey="accuracy" radius={[4, 4, 0, 0]}>
-                    {perModelData.map(d => (
+                    {perModelData.map((d: typeof perModelData[0]) => (
                       <Cell key={d.fullName} fill={MODEL_COLORS[d.fullName] ?? "var(--ds-cy)"} opacity={0.9} />
                     ))}
                   </Bar>
@@ -121,14 +123,14 @@ export function AccuracyCharts({ accuracy }: Props) {
                 tickLine={false}
               />
               <Tooltip
-                formatter={(v: number, name: string) => [`${(v * 100).toFixed(1)}%`, name === "actual" ? "Actual Rate" : name === "perfect" ? "Perfect Calibration" : "Predicted"]}
+                formatter={(v: number, name: string) => [`${(v * 100).toFixed(1)}%`, name === "actual" ? "Illustrative Rate" : name === "perfect" ? "Perfect Calibration" : "Predicted"]}
                 contentStyle={{ background: "var(--ds-panel-2)", border: "1px solid var(--ds-line)", borderRadius: 8, fontSize: 10, fontFamily: "var(--font-jet)" }}
                 cursor={{ stroke: "var(--ds-line)" }}
               />
               <Legend
                 formatter={(value: string) => (
                   <span style={{ color: "var(--ds-muted)", fontSize: 9, fontFamily: "var(--font-jet)" }}>
-                    {value === "actual" ? "Actual Rate" : value === "perfect" ? "Perfect" : value}
+                    {value === "actual" ? "Illustrative Rate" : value === "perfect" ? "Perfect" : value}
                   </span>
                 )}
               />
@@ -153,7 +155,7 @@ export function AccuracyCharts({ accuracy }: Props) {
           </ResponsiveContainer>
         </div>
         <p className="font-jet text-[9px] text-ds-dim mt-2">
-          A well-calibrated model's curve tracks the diagonal. Data approximated from MAE when raw predictions are unavailable.
+          Illustrative only — approximated from ensemble accuracy, not raw prediction-by-prediction data.
         </p>
       </Panel>
     </div>

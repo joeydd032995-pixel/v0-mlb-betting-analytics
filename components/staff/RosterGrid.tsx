@@ -63,9 +63,9 @@ export function RosterGrid({ pitchers }: Props) {
             nameA={pitcherA.name.split(" ").pop() ?? "A"}
             nameB={pitcherB.name.split(" ").pop() ?? "B"}
             items={[
-              { label: "ERA (1st)",  valueA: pitcherA.firstInning.era.toFixed(2),   valueB: pitcherB.firstInning.era.toFixed(2),   fracA: 1 - pitcherA.firstInning.era / (pitcherA.firstInning.era + pitcherB.firstInning.era) },
+              { label: "ERA (1st)",  valueA: pitcherA.firstInning.era.toFixed(2),   valueB: pitcherB.firstInning.era.toFixed(2),   fracA: (pitcherA.firstInning.era + pitcherB.firstInning.era) > 0 ? 1 - pitcherA.firstInning.era / (pitcherA.firstInning.era + pitcherB.firstInning.era) : 0.5 },
               { label: "K%",        valueA: `${(pitcherA.firstInning.kRate * 100).toFixed(1)}%`, valueB: `${(pitcherB.firstInning.kRate * 100).toFixed(1)}%` },
-              { label: "WHIP",      valueA: pitcherA.firstInning.whip.toFixed(3),   valueB: pitcherB.firstInning.whip.toFixed(3),  fracA: 1 - pitcherA.firstInning.whip / (pitcherA.firstInning.whip + pitcherB.firstInning.whip) },
+              { label: "WHIP",      valueA: pitcherA.firstInning.whip.toFixed(3),   valueB: pitcherB.firstInning.whip.toFixed(3),  fracA: (pitcherA.firstInning.whip + pitcherB.firstInning.whip) > 0 ? 1 - pitcherA.firstInning.whip / (pitcherA.firstInning.whip + pitcherB.firstInning.whip) : 0.5 },
               { label: "NRFI Rate", valueA: `${(pitcherA.firstInning.nrfiRate * 100).toFixed(1)}%`, valueB: `${(pitcherB.firstInning.nrfiRate * 100).toFixed(1)}%` },
               { label: "Starts",    valueA: pitcherA.firstInning.startCount, valueB: pitcherB.firstInning.startCount },
             ]}
@@ -78,7 +78,7 @@ export function RosterGrid({ pitchers }: Props) {
 
       {pitcherA && !pitcherB && (
         <p className="font-jet text-[11px] text-ds-muted text-center py-2">
-          Shift-click a second pitcher to compare
+          Click a second pitcher to compare
         </p>
       )}
     </div>

@@ -13,8 +13,9 @@ function oddsToProb(americanOdds: number): number {
 }
 
 function probToAmerican(prob: number): string {
-  if (prob >= 0.5) return `-${Math.round(prob / (1 - prob) * 100)}`
-  return `+${Math.round((1 - prob) / prob * 100)}`
+  const p = Math.min(0.999, Math.max(0.001, prob))
+  if (p >= 0.5) return `-${Math.round(p / (1 - p) * 100)}`
+  return `+${Math.round((1 - p) / p * 100)}`
 }
 
 export function EnsembleHeadline({ prediction, marketNrfiOdds = -115 }: Props) {

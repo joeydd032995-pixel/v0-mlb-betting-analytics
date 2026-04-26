@@ -228,6 +228,7 @@
   }
 
   /* KPI card accent bar */
+  .ds-kpi-bar { position: relative; }
   .ds-kpi-bar::after {
     content: '';
     position: absolute;

@@ -10,7 +10,7 @@ interface HfBarProps {
 }
 
 export function HfBar({ value, label, sublabel, color = "var(--ds-cy)", className }: HfBarProps) {
-  const heightPct = Math.round(value * 100)
+  const heightPct = Math.round(Math.min(1, Math.max(0, value)) * 100)
   return (
     <div className={cn("flex flex-col items-center gap-2 h-full justify-end", className)}>
       <span className="font-jet text-[10px] text-ds-muted tracking-[0.05em]">{heightPct}%</span>
@@ -20,7 +20,6 @@ export function HfBar({ value, label, sublabel, color = "var(--ds-cy)", classNam
           height: `${Math.max(6, heightPct * 1.8)}px`,
           background: color,
           boxShadow: `0 0 28px -6px ${color}`,
-          color,
         }}
       />
       <div className="text-center font-jet text-[10px] text-ds-muted uppercase tracking-[0.1em] leading-[1.4]">

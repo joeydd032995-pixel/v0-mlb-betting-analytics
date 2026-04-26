@@ -34,16 +34,25 @@ export function ZipPanel({ home, away, homeLabel = "Home", awayLabel = "Away" }:
     })
   }
 
-  // Compute effective omegas: locked cells override; unlocked = base
-  // We show a 5x5 grid: rows = home omega scenarios, cols = away omega scenarios
-  const lockedHomeSteps = OMEGA_STEPS.filter((_, i) => locked.has(`r${i}`))
-  const lockedAwaySteps = OMEGA_STEPS.filter((_, i) => locked.has(`c${i}`))
+  // Compute effective omegas: locked cells OR locked row/col headers override base
+  // Row locks → home omega; col locks → away omega; cell locks → both axes
+  const lockedCellHomeSteps = OMEGA_STEPS.filter((_, ri) =>
+    OMEGA_STEPS.some((_, ci) => locked.has(`${ri}-${ci}`))
+  )
+  const lockedCellAwaySteps = OMEGA_STEPS.filter((_, ci) =>
+    OMEGA_STEPS.some((_, ri) => locked.has(`${ri}-${ci}`))
+  )
+  const lockedRowSteps = OMEGA_STEPS.filter((_, i) => locked.has(`r${i}`))
+  const lockedColSteps = OMEGA_STEPS.filter((_, i) => locked.has(`c${i}`))
 
-  const effectiveOmegaHome = lockedHomeSteps.length > 0
-    ? lockedHomeSteps.reduce((a, b) => a + b, 0) / lockedHomeSteps.length
+  const allLockedHomeSteps = [...new Set([...lockedRowSteps, ...lockedCellHomeSteps])]
+  const allLockedAwaySteps = [...new Set([...lockedColSteps, ...lockedCellAwaySteps])]
+
+  const effectiveOmegaHome = allLockedHomeSteps.length > 0
+    ? allLockedHomeSteps.reduce((a, b) => a + b, 0) / allLockedHomeSteps.length
     : baseOmegaHome
-  const effectiveOmegaAway = lockedAwaySteps.length > 0
-    ? lockedAwaySteps.reduce((a, b) => a + b, 0) / lockedAwaySteps.length
+  const effectiveOmegaAway = allLockedAwaySteps.length > 0
+    ? allLockedAwaySteps.reduce((a, b) => a + b, 0) / allLockedAwaySteps.length
     : baseOmegaAway
 
   const combinedNrfi = zipNrfi(effectiveOmegaHome, baseLambdaHome) *

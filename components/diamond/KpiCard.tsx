@@ -36,10 +36,10 @@ export function KpiCard({ metric, value, delta, deltaPositive, variant = "cy", c
         <div
           className={cn(
             "font-jet text-[10px] mt-[6px] uppercase tracking-[0.05em]",
-            deltaPositive !== false ? "text-ds-gr" : "text-ds-bad"
+            deltaPositive === true ? "text-ds-gr" : deltaPositive === false ? "text-ds-bad" : "text-ds-muted"
           )}
         >
-          {deltaPositive !== false ? "▲" : "▼"} {delta}
+          {deltaPositive === true ? "▲ " : deltaPositive === false ? "▼ " : ""}{delta}
         </div>
       )}
     </div>

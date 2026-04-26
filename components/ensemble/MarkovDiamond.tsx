@@ -323,8 +323,11 @@ export function MarkovDiamond({ snapshot }: Props) {
 
           {/* Run distribution from selected state */}
           <div>
-            <div className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted mb-1.5">
+            <div className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted mb-0.5">
               Run Distribution from State
+            </div>
+            <div className="font-jet text-[8px] text-ds-dim mb-1.5">
+              Approx. (Poisson λ = diagnostic E[R], not true PMF)
             </div>
             <div style={{ height: 100 }}>
               <ResponsiveContainer width="100%" height="100%">

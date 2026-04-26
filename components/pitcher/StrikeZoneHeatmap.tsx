@@ -32,7 +32,7 @@ export function StrikeZoneHeatmap({ values, kRate }: Props) {
       <HfZone
         values={data}
         caption="Whiff rate by zone location"
-        maxValue={kRate}
+        maxValue={Math.max(...data)}
       />
     </Panel>
   )

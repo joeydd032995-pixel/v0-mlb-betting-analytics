@@ -21,21 +21,21 @@ export function TeamBand({ team, pitcherCount }: Props) {
         metric="Offense Factor"
         value={fi.offenseFactor.toFixed(3)}
         delta={fi.offenseFactor > 1.05 ? "Above avg lineup" : "Below avg lineup"}
-        deltaPositive={fi.offenseFactor < 1.0}
+        deltaPositive={fi.offenseFactor > 1.0}
         variant="gr"
       />
       <KpiCard
         metric="OPS"
         value={fi.ops.toFixed(3)}
         delta="batting line"
-        deltaPositive={fi.ops < 0.720}
+        deltaPositive={fi.ops >= 0.720}
         variant="bl"
       />
       <KpiCard
         metric="K Rate"
         value={`${(fi.kRate * 100).toFixed(1)}%`}
         delta={pitcherCount ? `${pitcherCount} pitchers` : "team avg"}
-        deltaPositive={fi.kRate > 0.22}
+        deltaPositive={fi.kRate < 0.22}
         variant="tl"
       />
     </div>

@@ -483,34 +483,34 @@ export default function HomePage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <KpiCard
             metric="Season Accuracy"
-            value={trackingAccuracy ? `${trackingAccuracy.accuracy.toFixed(1)}%` : "—"}
+            value={trackingAccuracy ? `${(trackingAccuracy.accuracy * 100).toFixed(1)}%` : "—"}
             delta="vs 51.6% baseline"
-            deltaPositive={(trackingAccuracy?.accuracy ?? 0) > 51.6}
+            deltaPositive={trackingAccuracy ? trackingAccuracy.accuracy > 0.516 : undefined}
             variant="cy"
           />
           <KpiCard
             metric="Today's Games"
-            value={predictions.length || "—"}
+            value={predictions.length > 0 ? predictions.length : "—"}
             delta={liveData?.date ?? ""}
             variant="bl"
           />
           <KpiCard
             metric="High Confidence"
-            value={predictions.filter(p => p.confidence === "High").length || "—"}
+            value={(() => { const n = predictions.filter(p => p.confidence === "High").length; return n > 0 ? n : "—" })()}
             delta="of today's slate"
             variant="gr"
           />
           <KpiCard
             metric="Value Bets"
-            value={predictions.filter(p => p.valueAnalysis?.recommendedBet !== "NO_BET").length || "—"}
+            value={(() => { const n = predictions.filter(p => p.valueAnalysis?.recommendedBet !== "NO_BET").length; return n > 0 ? n : "—" })()}
             delta="edge ≥ 3%"
             variant="tl"
           />
           <KpiCard
             metric="Model ROI"
-            value={trackingAccuracy ? `${trackingAccuracy.roi > 0 ? "+" : ""}${trackingAccuracy.roi.toFixed(1)}%` : "—"}
+            value={trackingAccuracy ? `${trackingAccuracy.roi > 0 ? "+" : ""}${(trackingAccuracy.roi * 100).toFixed(1)}%` : "—"}
             delta="season to date"
-            deltaPositive={(trackingAccuracy?.roi ?? 0) >= 0}
+            deltaPositive={trackingAccuracy ? trackingAccuracy.roi >= 0 : undefined}
             variant="cy"
           />
         </div>

@@ -28,11 +28,14 @@ export function RosterCard({
   className,
 }: RosterCardProps) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
+      aria-pressed={selected}
       className={cn(
-        "relative overflow-hidden bg-[#0a1426] border border-ds-line rounded-xl p-[14px] flex gap-3 items-center cursor-pointer transition-all duration-150",
+        "relative overflow-hidden bg-[#0a1426] border border-ds-line rounded-xl p-[14px] flex gap-3 items-center w-full text-left cursor-pointer transition-all duration-150",
         "hover:border-ds-cy hover:-translate-y-px hover:shadow-[0_10px_30px_-15px_rgba(34,211,238,0.3)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ds-cy",
         selected && "border-ds-cy bg-gradient-to-br from-ds-cy/10 to-ds-bl/5 shadow-[0_0_30px_-10px_var(--ds-cy)]",
         compare && "border-ds-gr bg-gradient-to-br from-ds-gr/10 to-ds-gr-2/5",
         className
@@ -67,6 +70,6 @@ export function RosterCard({
           {tag}
         </span>
       )}
-    </div>
+    </button>
   )
 }

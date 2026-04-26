@@ -11,12 +11,12 @@ interface Props {
 export function SituationalRadar({ pitcher }: Props) {
   const fi = pitcher.firstInning
   const data = [
-    { subject: "vs RHB", A: fi.awayNrfiRate },
     { subject: "Home", A: fi.homeNrfiRate },
     { subject: "NRFI Overall", A: fi.nrfiRate },
     { subject: "Away", A: fi.awayNrfiRate },
-    { subject: "vs LHB", A: fi.homeNrfiRate },
     { subject: "K%", A: Math.min(1, fi.kRate * 2.5) },
+    { subject: "WHIP−", A: Math.max(0, 1 - fi.whip / 2) },
+    { subject: "ERA−", A: Math.max(0, 1 - fi.era / 9) },
   ]
 
   return (

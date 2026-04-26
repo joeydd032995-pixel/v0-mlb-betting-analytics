@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const gameId = searchParams.get("gameId")
-    const date   = searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+    const date   = searchParams.get("date") ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
 
     const { games, pitchers, teams } = await getLiveGameSlate(date)
 
@@ -44,8 +44,7 @@ export async function GET(request: Request) {
       gameCount: games.length,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error"
-    console.error("[/api/games]", message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error("[/api/games]", err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: "Failed to load game data" }, { status: 500 })
   }
 }

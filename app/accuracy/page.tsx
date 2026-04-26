@@ -46,13 +46,13 @@ export default function AccuracyPage() {
               />
               <KpiCard
                 metric="NRFI Accuracy"
-                value={`${accuracy.nrfiTotal > 0 ? ((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1) : "–"}%`}
+                value={accuracy.nrfiTotal > 0 ? `${((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1)}%` : "—"}
                 delta={`${accuracy.nrfiTotal} tracked`}
                 variant="gr"
               />
               <KpiCard
                 metric="High-Conf Accuracy"
-                value={`${accuracy.highConfTotal > 0 ? ((accuracy.highConfCorrect / accuracy.highConfTotal) * 100).toFixed(1) : "–"}%`}
+                value={accuracy.highConfTotal > 0 ? `${((accuracy.highConfCorrect / accuracy.highConfTotal) * 100).toFixed(1)}%` : "—"}
                 delta={`${accuracy.highConfTotal} bets`}
                 variant="bl"
               />

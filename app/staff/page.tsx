@@ -12,7 +12,7 @@ const MLB_TEAMS = [
   { abbr: "hou", name: "Houston Astros" },
   { abbr: "atl", name: "Atlanta Braves" },
   { abbr: "chc", name: "Chicago Cubs" },
-  { abbr: "nyM", name: "New York Mets" },
+  { abbr: "nym", name: "New York Mets" },
   { abbr: "phi", name: "Philadelphia Phillies" },
   { abbr: "sdp", name: "San Diego Padres" },
 ]

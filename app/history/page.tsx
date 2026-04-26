@@ -84,7 +84,7 @@ export default function HistoryPage() {
               />
               <KpiCard
                 metric="NRFI Win Rate"
-                value={`${accuracy.nrfiTotal > 0 ? ((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1) : "–"}%`}
+                value={accuracy.nrfiTotal > 0 ? `${((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1)}%` : "—"}
                 delta={`${accuracy.nrfiTotal} NRFI bets`}
                 variant="cy"
               />
