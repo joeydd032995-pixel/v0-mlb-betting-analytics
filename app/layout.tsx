@@ -7,6 +7,8 @@ import { Toaster } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
+import { DensityProvider } from "@/lib/density-context"
+import { TweaksPanel } from "@/components/tweaks-panel"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -38,13 +40,15 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const inner = (
     <html lang="en" className="dark bg-background">
-      <body className="font-sans antialiased flex flex-col min-h-screen">
+      <body className="font-sans antialiased flex flex-col min-h-screen" style={{ background: "var(--ds-bg)", color: "var(--ds-ink)" }}>
+        <DensityProvider>
         <TooltipProvider>
         <SiteHeader />
         <main className="flex-1">
           {children}
         </main>
         <SiteFooter />
+        <TweaksPanel />
 
         <Toaster
           theme="dark"
@@ -62,6 +66,7 @@ export default function RootLayout({
 
         <Analytics />
         </TooltipProvider>
+        </DensityProvider>
       </body>
     </html>
   )

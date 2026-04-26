@@ -2,120 +2,127 @@
 
 import { useEffect, useState } from "react"
 import { HistoryTable } from "@/components/history-table"
+import { PnLChart } from "@/components/history/PnLChart"
+import { SectionLabel } from "@/components/diamond/SectionLabel"
+import { KpiCard } from "@/components/diamond/KpiCard"
 import {
   loadTrackedPredictions,
   computeExtendedAccuracy,
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
-import { Calendar } from "lucide-react"
 
 export default function HistoryPage() {
   const [predictions, setPredictions] = useState<TrackedPrediction[]>([])
   const [accuracy, setAccuracy] = useState<ExtendedModelAccuracy | null>(null)
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(null)
+  const [selectedDays, setSelectedDays] = useState<number | null>(90)
 
   useEffect(() => {
-    // Load tracked predictions from localStorage
     const loaded = loadTrackedPredictions()
     setPredictions(loaded)
     setAccuracy(computeExtendedAccuracy(loaded))
 
-    // Set default date range to last 90 days
     const today = new Date()
     const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000)
-    setDateRange({
-      from: ninetyDaysAgo,
-      to: today,
-    })
-
+    setDateRange({ from: ninetyDaysAgo, to: today })
     setLoading(false)
   }, [])
 
   const handleDateRangeChange = (days: number | null) => {
+    setSelectedDays(days)
     if (days === null) {
       setDateRange(null)
       return
     }
-
     const today = new Date()
-    const fromDate = new Date(today.getTime() - days * 24 * 60 * 60 * 1000)
-    setDateRange({
-      from: fromDate,
-      to: today,
-    })
+    setDateRange({ from: new Date(today.getTime() - days * 24 * 60 * 60 * 1000), to: today })
   }
 
+  const FILTER_OPTIONS = [
+    { label: "All Time", days: null },
+    { label: "Last 30D", days: 30 },
+    { label: "Last 90D", days: 90 },
+    { label: "Last Year", days: 365 },
+  ]
+
   return (
-    <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
-        {/* Header */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-500/20 text-sky-400">
-              <Calendar className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Prediction History</h1>
-              <p className="text-sm text-muted-foreground">
-                View all your tracked NRFI/YRFI predictions with results and performance metrics.
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
+      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
+        <SectionLabel index="01">Prediction History</SectionLabel>
 
-        {/* Date range filter */}
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs font-medium text-muted-foreground">Filter:</p>
-          <div className="flex gap-2">
-            {[
-              { label: "All Time", days: null },
-              { label: "Last 30 Days", days: 30 },
-              { label: "Last 90 Days", days: 90 },
-              { label: "Last Year", days: 365 },
-            ].map((option) => (
-              <button
-                key={option.label}
-                onClick={() => handleDateRangeChange(option.days)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  dateRange === null && option.days === null
-                    ? "bg-primary text-primary-foreground"
-                    : dateRange && option.days &&
-                      dateRange.from.getTime() === new Date(new Date().getTime() - option.days * 24 * 60 * 60 * 1000).getTime()
-                      ? "bg-primary text-primary-foreground"
-                      : "border border-border/30 text-muted-foreground hover:bg-muted/30"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* History table */}
         {loading ? (
-          <div className="rounded-lg border border-border/30 bg-card/50 p-8 text-center">
-            <p className="text-sm text-muted-foreground">Loading prediction history...</p>
+          <div
+            className="rounded-[14px] border border-ds-line p-8 text-center"
+            style={{ background: "var(--ds-panel)" }}
+          >
+            <p className="font-jet text-[12px] text-ds-muted">Loading prediction history…</p>
           </div>
         ) : accuracy ? (
-          <HistoryTable
-            predictions={predictions}
-            accuracy={accuracy}
-            onRecordResult={(id, homeRuns, awayRuns) => {
-              // This would typically be handled by the parent component
-              // For now, we'll just show a placeholder
-              console.log(`Record result for ${id}: ${homeRuns}-${awayRuns}`)
-            }}
-            onDelete={(id) => {
-              // This would typically be handled by the parent component
-              console.log(`Delete prediction ${id}`)
-            }}
-            dateRange={dateRange || undefined}
-            onExportCSV={() => {
-              // Export is handled within HistoryTable
-            }}
-          />
+          <>
+            {/* KPI row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiCard
+                metric="Total Tracked"
+                value={String(accuracy.totalTracked)}
+                delta={`${accuracy.pendingCount} pending`}
+                variant="cy"
+              />
+              <KpiCard
+                metric="Correct"
+                value={`${(accuracy.accuracy * 100).toFixed(1)}%`}
+                delta={`${accuracy.totalTracked - accuracy.pendingCount} settled`}
+                variant="gr"
+              />
+              <KpiCard
+                metric="High-Conf P/L"
+                value={`${accuracy.highConfPnL >= 0 ? "+" : ""}${accuracy.highConfPnL.toFixed(1)}u`}
+                deltaPositive={accuracy.highConfPnL >= 0}
+                delta={`${accuracy.highConfTotal} bets`}
+                variant="bl"
+              />
+              <KpiCard
+                metric="NRFI Win Rate"
+                value={accuracy.nrfiTotal > 0 ? `${((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1)}%` : "—"}
+                delta={`${accuracy.nrfiTotal} NRFI bets`}
+                variant="cy"
+              />
+            </div>
+
+            {/* P/L chart */}
+            <SectionLabel index="02">Cumulative P/L</SectionLabel>
+            <PnLChart predictions={predictions} />
+
+            {/* Filter chips */}
+            <div className="flex gap-2 flex-wrap items-center">
+              <span className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Period:</span>
+              {FILTER_OPTIONS.map(opt => (
+                <button
+                  key={opt.label}
+                  onClick={() => handleDateRangeChange(opt.days)}
+                  className={`ds-chip ${selectedDays === opt.days ? "ds-chip-active" : ""}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Existing history table */}
+            <SectionLabel index="03">Bet Log</SectionLabel>
+            <HistoryTable
+              predictions={predictions}
+              accuracy={accuracy}
+              onRecordResult={(id, homeRuns, awayRuns) => {
+                console.log(`Record result for ${id}: ${homeRuns}-${awayRuns}`)
+              }}
+              onDelete={(id) => {
+                console.log(`Delete prediction ${id}`)
+              }}
+              dateRange={dateRange || undefined}
+              onExportCSV={() => {}}
+            />
+          </>
         ) : null}
       </main>
     </div>

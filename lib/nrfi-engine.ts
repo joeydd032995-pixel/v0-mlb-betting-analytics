@@ -567,3 +567,46 @@ export function computeAllPredictions(
   }
   return results
 }
+
+// ─── Sensitivity Analysis (Phase 6: Ensemble Deep Dive) ──────────────────────
+
+import type { SensitivityAdjustments } from "./types"
+
+/**
+ * Recompute a prediction with sensitivity adjustments applied to the inputs.
+ * Constructs modified copies of game/pitchers with the adjustments, then
+ * delegates entirely to computeNRFIPrediction — no model logic is duplicated.
+ */
+export function recomputeWithAdjustments(
+  game:     Game,
+  pitchers: Map<string, Pitcher>,
+  teams:    Map<string, Team>,
+  adj:      SensitivityAdjustments
+): NRFIPrediction | null {
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+  const modGame: Game = {
+    ...game,
+    weather: {
+      ...game.weather,
+      windSpeed:   Math.max(0, game.weather.windSpeed + adj.windSpeedDelta),
+      temperature: game.weather.temperature + adj.temperatureDelta,
+    },
+    umpire: {
+      nrfiFactor: clamp(adj.umpireNrfiFactor, -0.5, 0.5),
+    },
+  }
+
+  const modPitchers = new Map<string, Pitcher>()
+  for (const [id, p] of pitchers) {
+    modPitchers.set(id, {
+      ...p,
+      firstInning: {
+        ...p.firstInning,
+        startCount: Math.max(1, Math.round(p.firstInning.startCount * adj.sampleSizeMultiplier)),
+      },
+    })
+  }
+
+  return computeNRFIPrediction(modGame, modPitchers, teams)
+}

@@ -832,3 +832,139 @@ export function compute7ModelEnsemble(
 
   return { poisson, zip, markov, mapre, logisticMeta, nnInteraction, hierarchicalBayes }
 }
+
+// ─── Markov State Snapshot (Phase 6: interactive MarkovDiamond UI) ────────────
+
+/** Metadata for a single base-out state in the interactive Markov diamond. */
+export interface MarkovStateInfo {
+  outs: number
+  /** Bitmask: bit0=1st, bit1=2nd, bit2=3rd */
+  runners: number
+  /** P(0 runs from this state to end of inning | currently here with 0 runs so far) */
+  conditionalNrfiProb: number
+  /** Diagnostic partial expected-runs figure (run-scoring branches only). */
+  conditionalExpectedRuns: number
+  /** Human-readable description of the base configuration. */
+  baseDescription: string
+}
+
+export interface MarkovStateSnapshot {
+  /** All 24 non-terminal states with their conditional NRFI probabilities. */
+  states: MarkovStateInfo[]
+  /** The PA outcomes used to generate this snapshot. */
+  paOutcomes: PAOutcomes
+  /** Overall P(NRFI) from the standard start (0 outs, bases empty). */
+  nrfiProb: number
+}
+
+const BASE_DESCRIPTIONS = [
+  "Bases empty",
+  "Runner on 1st",
+  "Runner on 2nd",
+  "1st and 2nd",
+  "Runner on 3rd",
+  "1st and 3rd",
+  "2nd and 3rd",
+  "Bases loaded",
+]
+
+/**
+ * Run the Markov forward-propagation starting from a specific (outs, runners) state.
+ * Identical to computeMarkovNrfi except for the initial probability assignment.
+ * This enables computing conditional P(NRFI | current state) without duplicating
+ * any transition logic.
+ */
+function computeMarkovNrfiFromState(
+  pa:          PAOutcomes,
+  initOuts:    number,
+  initRunners: number
+): MarkovResult {
+  const stateProb: number[][] = [
+    new Array(8).fill(0),
+    new Array(8).fill(0),
+    new Array(8).fill(0),
+  ]
+  stateProb[initOuts][initRunners] = 1.0
+
+  let nrfiAccum = 0
+  let runScoredBranchWeight = 0
+
+  for (let iter = 0; iter < 30; iter++) {
+    const next: number[][] = [
+      new Array(8).fill(0),
+      new Array(8).fill(0),
+      new Array(8).fill(0),
+    ]
+
+    for (let outs = 0; outs < 3; outs++) {
+      for (let runners = 0; runners < 8; runners++) {
+        const p = stateProb[outs][runners]
+        if (p < 1e-10) continue
+
+        const newOuts = outs + 1
+        if (newOuts === 3) {
+          nrfiAccum += p * pa.out
+        } else {
+          next[newOuts][runners] += p * pa.out
+        }
+
+        const [wR, wRuns] = applyWalk(runners)
+        if (wRuns === 0) next[outs][wR] += p * pa.walk
+        else runScoredBranchWeight += p * pa.walk * wRuns
+
+        const [sR, sRuns] = applySingle(runners)
+        if (sRuns === 0) next[outs][sR] += p * pa.single
+        else runScoredBranchWeight += p * pa.single * sRuns
+
+        const [dR, dRuns] = applyDouble(runners)
+        if (dRuns === 0) next[outs][dR] += p * pa.double
+        else runScoredBranchWeight += p * pa.double * dRuns
+
+        const [tR, tRuns] = applyTriple(runners)
+        if (tRuns === 0) next[outs][tR] += p * pa.triple
+        else runScoredBranchWeight += p * pa.triple * tRuns
+
+        // HR always scores ≥1 run
+        const [, hRuns] = applyHR(runners)
+        runScoredBranchWeight += p * pa.hr * hRuns
+      }
+    }
+
+    for (let o = 0; o < 3; o++)
+      for (let r = 0; r < 8; r++)
+        stateProb[o][r] = next[o][r]
+
+    const remaining = stateProb.flat().reduce((a, b) => a + b, 0)
+    if (remaining < 1e-5) break
+  }
+
+  return {
+    nrfiProb: Math.max(0.1, Math.min(0.98, nrfiAccum)),
+    runScoredBranchWeight,
+  }
+}
+
+/**
+ * Compute the full 24-state Markov snapshot for the interactive MarkovDiamond component.
+ * For each of the 24 non-terminal base-out states, computes conditional P(NRFI)
+ * by running the Markov chain with probability mass starting at that state.
+ *
+ * This reuses computeMarkovNrfiFromState for all 24 states — no Markov logic is duplicated.
+ */
+export function computeMarkovStateSnapshot(pa: PAOutcomes): MarkovStateSnapshot {
+  const states: MarkovStateInfo[] = []
+  for (let outs = 0; outs < 3; outs++) {
+    for (let runners = 0; runners < 8; runners++) {
+      const result = computeMarkovNrfiFromState(pa, outs, runners)
+      states.push({
+        outs,
+        runners,
+        conditionalNrfiProb:     result.nrfiProb,
+        conditionalExpectedRuns: result.runScoredBranchWeight,
+        baseDescription:         BASE_DESCRIPTIONS[runners],
+      })
+    }
+  }
+  const baseResult = computeMarkovNrfi(pa)
+  return { states, paOutcomes: pa, nrfiProb: baseResult.nrfiProb }
+}

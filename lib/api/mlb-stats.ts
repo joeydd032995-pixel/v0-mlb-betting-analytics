@@ -62,6 +62,8 @@ export interface MLBPitcherSeasonStats {
   inningsPitched: number
   hits: number
   homeRuns: number
+  wins: number
+  losses: number
 }
 
 /**
