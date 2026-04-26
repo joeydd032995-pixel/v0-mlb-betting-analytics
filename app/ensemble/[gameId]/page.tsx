@@ -1,5 +1,7 @@
 // app/ensemble/[gameId]/page.tsx — Server Component
 
+import { cache } from "react"
+import { unstable_cache } from "next/cache"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { EnsembleDeepDive } from "@/components/ensemble/EnsembleDeepDive"
 import { computeNRFIPrediction } from "@/lib/nrfi-engine"
@@ -7,6 +9,14 @@ import { computeMarkovStateSnapshot } from "@/lib/nrfi-models"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { mockGames, mockTeams, mockPitchers } from "@/lib/mock-data"
 import Link from "next/link"
+
+// Shared slate cache: all /ensemble/[gameId] renders on the same revalidation
+// cycle share one upstream fetch instead of each triggering their own.
+const getCachedSlate = unstable_cache(
+  cache((date: string) => getLiveGameSlate(date)),
+  ["live-game-slate"],
+  { revalidate: 300, tags: ["live-slate"] },
+)
 
 interface PageProps {
   params: Promise<{ gameId: string }>
@@ -22,18 +32,19 @@ export default async function EnsemblePage({ params }: PageProps) {
   let pitchers = mockPitchers
   let teams = mockTeams
 
-  // 2. If not in mock data, call getLiveGameSlate directly (no HTTP self-fetch)
+  // 2. If not in mock data, fetch live slate (cached per date, shared across gameIds)
   if (!game) {
     try {
       const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
-      const live = await getLiveGameSlate(date)
+      const live = await getCachedSlate(date)
       const liveGame = live.games.find(g => g.id === gameId)
       if (liveGame) {
         game = liveGame
         pitchers = live.pitchers
         teams = live.teams
       }
-    } catch {
+    } catch (err) {
+      console.error(`[ensemble/${gameId}] getLiveGameSlate failed`, err)
       // fall through to "not found"
     }
   }
