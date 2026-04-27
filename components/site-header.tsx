@@ -1,30 +1,17 @@
 // components/site-header.tsx
-// Global sticky header — Diamond Stats brand, centered nav pills, live indicator.
+// Global sticky header — Diamond Stats brand, search, live indicator, nav + auth.
 
 "use client"
 
 import { useState, useEffect } from "react"
 import { Search } from "lucide-react"
-import { usePathname } from "next/navigation"
-import Link from "next/link"
 import dynamic from "next/dynamic"
 import { GlobalSearch } from "@/components/global-search"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
 const AuthNav = dynamic(() => import("@/components/auth-nav").then(m => ({ default: m.AuthNav })), { ssr: false })
 
-const NAV_ITEMS = [
-  { label: "Today",    href: "/" },
-  { label: "Pitcher",  href: "/pitcher" },
-  { label: "Staff",    href: "/staff" },
-  { label: "Ensemble", href: "/ensemble" },
-  { label: "History",  href: "/history" },
-  { label: "Insights", href: "/insights" },
-]
-
 export function SiteHeader() {
-  const pathname = usePathname()
   const [dateStr, setDateStr] = useState("")
 
   useEffect(() => {
@@ -44,7 +31,7 @@ export function SiteHeader() {
           borderBottom: "1px solid var(--ds-line)",
         }}
       >
-        <div className="mx-auto flex max-w-[1480px] items-center justify-between gap-4 flex-wrap px-7 py-4">
+        <div className="mx-auto flex max-w-[1480px] items-center justify-between gap-4 px-7 py-4">
 
           {/* Brand */}
           <div className="flex items-center gap-3 shrink-0">
@@ -64,31 +51,6 @@ export function SiteHeader() {
               </div>
             </div>
           </div>
-
-          {/* Center nav pills */}
-          <nav
-            className="flex gap-1 bg-[#0a1426] border border-ds-line rounded-full p-1"
-            aria-label="Main navigation"
-          >
-            {NAV_ITEMS.map(({ label, href }) => {
-              const active =
-                href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(href)
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={cn(
-                    "ds-nav-pill text-[12px] font-medium px-4 py-2 rounded-full transition-all duration-150",
-                    active ? "ds-nav-pill-active" : "hover:text-ds-ink-2"
-                  )}
-                >
-                  {label}
-                </Link>
-              )
-            })}
-          </nav>
 
           {/* Right side */}
           <div className="flex items-center gap-2.5 text-[12px] shrink-0">
