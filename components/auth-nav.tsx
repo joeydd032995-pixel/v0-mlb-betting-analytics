@@ -12,7 +12,9 @@ import { LogIn, UserPlus, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
+  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useState } from "react"
@@ -65,7 +67,7 @@ const TOOLS_NAV = [
 ]
 
 function isActive(href: string, pathname: string) {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href)
+  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/")
 }
 
 interface NavSectionProps {
@@ -117,7 +119,7 @@ export function AuthNav() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-8 px-0 text-ds-muted hover:text-ds-ink hover:bg-[var(--ds-panel)]"
+            className="h-10 w-10 px-0 text-ds-muted hover:text-ds-ink hover:bg-[var(--ds-panel)]"
             aria-label="Open navigation"
           >
             <Menu className="h-4 w-4" />
@@ -127,16 +129,17 @@ export function AuthNav() {
         <DialogContent
           className="w-[280px] p-0 border-ds-line"
           style={{ background: "var(--ds-panel)" }}
+          showCloseButton={false}
         >
           {/* Header */}
           <div
             className="flex items-center justify-between px-4 py-3"
             style={{ borderBottom: "1px solid var(--ds-line)" }}
           >
-            <span className="font-jet text-[11px] uppercase tracking-[0.2em] text-ds-muted">
+            <DialogTitle className="font-jet text-[11px] uppercase tracking-[0.2em] text-ds-muted leading-none">
               Navigation
-            </span>
-            <DialogTrigger asChild>
+            </DialogTitle>
+            <DialogClose asChild>
               <Button
                 variant="ghost"
                 size="sm"
@@ -145,7 +148,7 @@ export function AuthNav() {
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
-            </DialogTrigger>
+            </DialogClose>
           </div>
 
           {/* Nav sections */}
