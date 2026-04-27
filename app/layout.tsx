@@ -12,9 +12,9 @@ import { TweaksPanel } from "@/components/tweaks-panel"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "NRFI/YRFI Prediction Engine — MLB",
+  title: "Homeplate Metrics — NRFI/YRFI Prediction Engine",
   description:
-    "Advanced Poisson-based NRFI/YRFI prediction calculator for MLB. First-inning run probability with pitcher analysis, team stats, and value bet identification.",
+    "Advanced 7-model ensemble NRFI/YRFI prediction engine for MLB. First-inning run probability with pitcher analysis, team stats, and value bet identification.",
   generator: "v0.app",
   icons: {
     icon: [
