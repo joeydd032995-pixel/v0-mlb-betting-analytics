@@ -1,5 +1,5 @@
 // components/site-header.tsx
-// Global sticky header — Diamond Stats brand, search, live indicator, nav + auth.
+// Global sticky header — Homeplate Metrics brand, search, live indicator, nav + auth.
 
 "use client"
 
@@ -42,10 +42,10 @@ export function SiteHeader() {
                 boxShadow: "0 10px 32px -10px var(--ds-cy), inset 0 1px 0 rgba(255,255,255,.3)",
               }}
             >
-              DS
+              HM
             </div>
             <div>
-              <div className="font-display font-semibold text-[16px] leading-none text-ds-ink">DIAMOND STATS</div>
+              <div className="font-display font-semibold text-[16px] leading-none text-ds-ink">HOMEPLATE METRICS</div>
               <div className="font-jet text-[10px] text-ds-muted uppercase tracking-[0.2em] mt-1">
                 NRFI · YRFI Ensemble
               </div>

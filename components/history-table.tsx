@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Card } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { CheckCircle2, XCircle, ClipboardList, ChevronDown, ChevronRight, Trash2, Download } from "lucide-react"
 import type { TrackedPrediction, ExtendedModelAccuracy, PerModelAccuracy } from "@/lib/prediction-store"
@@ -466,6 +467,159 @@ function CompletedRow({ pred, onDelete }: { pred: TrackedPrediction; onDelete: (
   )
 }
 
+// ─── Completed predictions panel (tabbed by type + won/lost filter) ──────────
+
+type ResultFilter = "all" | "won" | "lost"
+
+function CompletedPanel({
+  completed,
+  onDelete,
+}: {
+  completed: TrackedPrediction[]
+  onDelete: (id: string) => void
+}) {
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("all")
+
+  const applyFilter = (list: TrackedPrediction[]) => {
+    if (resultFilter === "won")  return list.filter(p => p.correct === true)
+    if (resultFilter === "lost") return list.filter(p => p.correct === false)
+    return list
+  }
+
+  const nrfiPreds = applyFilter(completed.filter(p => p.prediction === "NRFI"))
+  const yrfiPreds = applyFilter(completed.filter(p => p.prediction === "YRFI"))
+
+  function renderTable(list: TrackedPrediction[]) {
+    if (list.length === 0) {
+      return (
+        <div className="rounded-lg border border-border/40 bg-muted/10 py-10 text-center">
+          <p className="text-sm font-medium text-foreground">No predictions match this filter</p>
+        </div>
+      )
+    }
+    return (
+      <>
+        {/* Desktop table */}
+        <div className="hidden overflow-x-auto rounded-lg border border-border/50 md:block">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/20">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matchup</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pitchers</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">NRFI%</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prediction</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Result</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Conf</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">1st Inn</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Odds</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">P/L</th>
+                <th className="px-2 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((r) => (
+                <CompletedRow key={r.id} pred={r} onDelete={() => onDelete(r.id)} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {/* Mobile cards */}
+        <div className="grid gap-3 md:hidden">
+          {list.map((r) => (
+            <Card key={r.id} className="border border-border/50 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">{r.date}</p>
+                  <p className="mt-0.5 font-medium">{r.awayTeam} @ {r.homeTeam}</p>
+                  <p className="text-xs text-muted-foreground">{r.awayPitcher} vs {r.homePitcher}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {r.actualResult ? (
+                    r.prediction === r.actualResult ? (
+                      <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-rose-400" />
+                    )
+                  ) : null}
+                  <button onClick={() => onDelete(r.id)} className="rounded p-1 text-muted-foreground hover:text-rose-400 transition-colors">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className={cn("rounded px-2 py-0.5 font-semibold", r.prediction === "NRFI" ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300")}>
+                  {r.prediction}
+                </span>
+                <span className="text-muted-foreground">{pct(r.nrfiProbability)} NRFI</span>
+                <ConfBadge level={r.confidence} />
+                {r.profitLoss != null && (
+                  <span className={cn("font-medium", r.profitLoss > 0 ? "text-emerald-400" : "text-rose-400")}>
+                    {formatPnL(r.profitLoss)}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Result: {r.actualResult} · 1st inning:{" "}
+                {r.runsFirstInning ? `${r.runsFirstInning.away}–${r.runsFirstInning.home}` : "—"}
+              </p>
+              <div className="mt-2 border-t border-border/20 pt-2">
+                <ModelBreakdownRow pred={r} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Won / Lost / All filter */}
+      <div className="flex items-center gap-2">
+        {(["all", "won", "lost"] as ResultFilter[]).map((f) => (
+          <button
+            key={f}
+            onClick={() => setResultFilter(f)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors capitalize",
+              resultFilter === f
+                ? f === "won"
+                  ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+                  : f === "lost"
+                    ? "border-rose-500/50 bg-rose-500/15 text-rose-300"
+                    : "border-ds-cy/50 bg-ds-cy/10 text-ds-cy"
+                : "border-border/40 text-muted-foreground hover:text-foreground hover:border-border/60"
+            )}
+          >
+            {f === "all" ? "All" : f === "won" ? "Won" : "Lost"}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {applyFilter(completed).length} result{applyFilter(completed).length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      <Tabs defaultValue="nrfi">
+        <TabsList className="grid w-full grid-cols-2 max-w-xs">
+          <TabsTrigger value="nrfi">
+            NRFI <span className="ml-1.5 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">{applyFilter(completed.filter(p => p.prediction === "NRFI")).length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="yrfi">
+            YRFI <span className="ml-1.5 rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] text-rose-300">{applyFilter(completed.filter(p => p.prediction === "YRFI")).length}</span>
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="nrfi" className="mt-4">
+          {renderTable(nrfiPreds)}
+        </TabsContent>
+        <TabsContent value="yrfi" className="mt-4">
+          {renderTable(yrfiPreds)}
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, dateRange, onExportCSV }: Props) {
@@ -601,7 +755,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       )}
       <PendingSection pending={pending} onRecordResult={onRecordResult} onDelete={onDelete} />
 
-      {/* ── Completed predictions table ── */}
+      {/* ── Completed predictions (NRFI / YRFI tabs + won/lost filter) ── */}
       <div>
         <h3 className="mb-3 text-sm font-semibold text-foreground">Completed Predictions</h3>
 
@@ -613,100 +767,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
             </p>
           </div>
         ) : (
-          <>
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto rounded-lg border border-border/50 md:block">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/50 bg-muted/20">
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matchup</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pitchers</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">NRFI%</th>
-                    <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prediction</th>
-                    <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Result</th>
-                    <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Conf</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">1st Inn</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Odds</th>
-                    <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">P/L</th>
-                    <th className="px-2 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {completed.map((r) => (
-                    <CompletedRow
-                      key={r.id}
-                      pred={r}
-                      onDelete={() => onDelete(r.id)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-            <div className="grid gap-3 md:hidden">
-              {completed.map((r) => (
-                <Card key={r.id} className="border border-border/50 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs text-muted-foreground">{r.date}</p>
-                      <p className="mt-0.5 font-medium">{r.awayTeam} @ {r.homeTeam}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {r.awayPitcher} vs {r.homePitcher}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {r.actualResult ? (
-                        r.prediction === r.actualResult ? (
-                          <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                        ) : (
-                          <XCircle className="h-5 w-5 text-rose-400" />
-                        )
-                      ) : null}
-                      <button
-                        onClick={() => onDelete(r.id)}
-                        className="rounded p-1 text-muted-foreground hover:text-rose-400 transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span
-                      className={cn(
-                        "rounded px-2 py-0.5 font-semibold",
-                        r.prediction === "NRFI"
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : "bg-rose-500/15 text-rose-300"
-                      )}
-                    >
-                      {r.prediction}
-                    </span>
-                    <span className="text-muted-foreground">{pct(r.nrfiProbability)} NRFI</span>
-                    <ConfBadge level={r.confidence} />
-                    {r.profitLoss != null && (
-                      <span
-                        className={cn(
-                          "font-medium",
-                          r.profitLoss > 0 ? "text-emerald-400" : "text-rose-400"
-                        )}
-                      >
-                        {formatPnL(r.profitLoss)}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Result: {r.actualResult} · 1st inning:{" "}
-                    {r.runsFirstInning ? `${r.runsFirstInning.away}–${r.runsFirstInning.home}` : "—"}
-                  </p>
-                  <div className="mt-2 border-t border-border/20 pt-2">
-                    <ModelBreakdownRow pred={r} />
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </>
+          <CompletedPanel completed={completed} onDelete={onDelete} />
         )}
       </div>
 

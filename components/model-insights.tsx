@@ -1061,64 +1061,75 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             )}
 
             {/* Per-model accuracy */}
-            {perfData.perModel && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Per-Model Accuracy</CardTitle>
-                  <CardDescription>How each model performs independently vs the final ensemble</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="rounded-lg border border-border/30 overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border/30 bg-muted/30">
-                          <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Model</th>
-                          <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Correct</th>
-                          <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Accuracy</th>
-                          <th className="text-right px-3 py-2 font-semibold text-muted-foreground">MAE</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/20">
-                        {(["Poisson", "ZIP", "Markov", "Ensemble", "Logistic Stack", "NN Interaction", "Hierarchical Bayes"] as const)
-                          .filter((name) => perfData.perModel![name] != null)
-                          .map((name, i, arr) => {
-                            const m = perfData.perModel![name]
-                            const colorMap: Record<string, string> = {
-                              Poisson:             "text-sky-400",
-                              ZIP:                 "text-violet-400",
-                              Markov:              "text-amber-400",
-                              Ensemble:            "text-emerald-400",
-                              "Logistic Stack":    "text-fuchsia-400",
-                              "NN Interaction":    "text-cyan-400",
-                              "Hierarchical Bayes":"text-orange-400",
-                            }
-                            const isFirstMeta = name === "Logistic Stack" && arr.some((n) => ["Poisson","ZIP","Markov","Ensemble"].includes(n))
-                            return (
-                              <>
-                                {isFirstMeta && (
-                                  <tr key={`${name}-sep`} className="bg-muted/10">
-                                    <td colSpan={4} className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meta-models</td>
-                                  </tr>
-                                )}
-                                <tr key={name} className="bg-card/30 hover:bg-card/50 transition-colors">
-                                  <td className={cn("px-3 py-2 font-semibold", colorMap[name])}>{name}</td>
-                                  <td className="px-3 py-2 text-center text-muted-foreground">{m?.correct ?? "—"}/{m?.total ?? "—"}</td>
-                                  <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
-                                  <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
-                                </tr>
-                              </>
-                            )
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="mt-2 text-[10px] text-muted-foreground">
-                    MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
-                    Meta-models (Logistic Stack, NN Interaction, Hierarchical Bayes) appear only after sufficient tracking data accumulates.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Per-Model Accuracy</CardTitle>
+                <CardDescription>How each model performs independently vs the final ensemble</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border border-border/30 overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border/30 bg-muted/30">
+                        <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Model</th>
+                        <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Correct</th>
+                        <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Accuracy</th>
+                        <th className="text-right px-3 py-2 font-semibold text-muted-foreground">MAE</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20">
+                      {/* Base models */}
+                      {(["Poisson", "ZIP", "Markov", "Ensemble"] as const).map((name) => {
+                        const m = perfData?.perModel?.[name]
+                        const colorMap: Record<string, string> = {
+                          Poisson:  "text-sky-400",
+                          ZIP:      "text-violet-400",
+                          Markov:   "text-amber-400",
+                          Ensemble: "text-emerald-400",
+                        }
+                        return (
+                          <tr key={name} className="bg-card/30 hover:bg-card/50 transition-colors">
+                            <td className={cn("px-3 py-2 font-semibold", colorMap[name])}>{name}</td>
+                            <td className="px-3 py-2 text-center text-muted-foreground">{m ? `${m.correct}/${m.total}` : "—/—"}</td>
+                            <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
+                          </tr>
+                        )
+                      })}
+                      {/* Meta-models separator */}
+                      <tr className="bg-muted/10">
+                        <td colSpan={4} className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                          Meta-Models
+                        </td>
+                      </tr>
+                      {/* Meta-models — always shown; "—" until enough data accumulates */}
+                      {([
+                        { name: "Logistic Stack",    color: "text-fuchsia-400", desc: "Logistic regression stacked on base-4 avg" },
+                        { name: "NN Interaction",    color: "text-cyan-400",    desc: "Poisson × Markov cross-term interaction" },
+                        { name: "Hierarchical Bayes",color: "text-orange-400",  desc: "Dynamic-prior Bayesian shrinkage model" },
+                      ] as const).map(({ name, color, desc }) => {
+                        const m = perfData?.perModel?.[name]
+                        return (
+                          <tr key={name} className="bg-card/30 hover:bg-card/50 transition-colors">
+                            <td className="px-3 py-2">
+                              <span className={cn("font-semibold", color)}>{name}</span>
+                              <span className="block text-[10px] text-muted-foreground/70 mt-0.5">{desc}</span>
+                            </td>
+                            <td className="px-3 py-2 text-center text-muted-foreground">{m ? `${m.correct}/${m.total}` : "—/—"}</td>
+                            <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                  MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
+                  Meta-model values populate automatically once sufficient tracking data is synced.
+                </p>
+              </CardContent>
+            </Card>
 
             {/* Monthly breakdown */}
             {perfData.monthly.length > 0 && (
