@@ -4,6 +4,7 @@ import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { mockGames, mockPitchers, mockTeams } from "@/lib/mock-data"
+import type { Game, Pitcher, Team } from "@/lib/types"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 
@@ -14,23 +15,26 @@ export const revalidate = 300
 function pct(n: number) { return `${(n * 100).toFixed(1)}%` }
 
 export default async function EnsembleListPage() {
-  let games  = mockGames
-  let pitchers = mockPitchers
-  let teams    = mockTeams
+  let games: Game[]                  = []
+  let pitchers: Map<string, Pitcher> = new Map()
+  let teams: Map<string, Team>       = new Map()
 
   try {
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
     const live = await getCachedSlate(date)
-    if (live.games.length > 0) {
-      games    = live.games
-      pitchers = live.pitchers
-      teams    = live.teams
-    }
+    games    = live.games
+    pitchers = live.pitchers
+    teams    = live.teams
   } catch {
-    // fall through to mock data
+    if (process.env.NODE_ENV !== "production") {
+      games    = mockGames
+      pitchers = mockPitchers
+      teams    = mockTeams
+    }
   }
 
   const predictions = computeAllPredictions(games, pitchers, teams)
+  const gameMap     = new Map(games.map(g => [g.id, g]))
 
   return (
     <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
@@ -48,15 +52,18 @@ export default async function EnsembleListPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {predictions.map((pred) => {
-              const game    = games.find(g => g.id === pred.gameId) ?? games[predictions.indexOf(pred)]
-              const homeTm  = teams.get(game.homeTeamId)
-              const awayTm  = teams.get(game.awayTeamId)
+              const game = gameMap.get(pred.gameId)
+              if (!game) return null
+
+              const homeTm   = teams.get(game.homeTeamId)
+              const awayTm   = teams.get(game.awayTeamId)
               const homeAbbr = homeTm?.abbreviation ?? game.homeTeamId.toUpperCase()
               const awayAbbr = awayTm?.abbreviation ?? game.awayTeamId.toUpperCase()
-              const nrfi    = pred.nrfiProbability
-              const rec     = pred.recommendation
-              const isNrfi  = rec?.includes("NRFI")
-              const isStrong = rec?.includes("STRONG")
+              const nrfi     = pred.nrfiProbability
+              const rec      = pred.recommendation
+              const isNrfi   = rec === "STRONG_NRFI" || rec === "LEAN_NRFI"
+              const isStrong = rec === "STRONG_NRFI" || rec === "STRONG_YRFI"
+              const isTossUp = rec === "TOSS_UP"
 
               return (
                 <Link
@@ -75,12 +82,14 @@ export default async function EnsembleListPage() {
                     <span
                       className={cn(
                         "font-jet text-[11px] font-semibold px-2.5 py-1 rounded-full border",
-                        isNrfi
+                        isTossUp
+                          ? "text-ds-warn border-ds-warn/40 bg-ds-warn/10"
+                          : isNrfi
                           ? "text-ds-gr border-ds-gr/40 bg-ds-gr/10"
                           : "text-ds-bad border-ds-bad/40 bg-ds-bad/10"
                       )}
                     >
-                      {isStrong ? "STRONG " : "LEAN "}{isNrfi ? "NRFI" : "YRFI"}
+                      {isTossUp ? "TOSS UP" : `${isStrong ? "STRONG " : "LEAN "}${isNrfi ? "NRFI" : "YRFI"}`}
                     </span>
                   </div>
 

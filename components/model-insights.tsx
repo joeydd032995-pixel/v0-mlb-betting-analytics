@@ -1090,9 +1090,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                         return (
                           <tr key={name} className="bg-card/30 hover:bg-card/50 transition-colors">
                             <td className={cn("px-3 py-2 font-semibold", colorMap[name])}>{name}</td>
-                            <td className="px-3 py-2 text-center text-muted-foreground">{m ? `${m.correct}/${m.total}` : "—/—"}</td>
-                            <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
+                            <td className="px-3 py-2 text-center text-muted-foreground">{m && m.total > 0 ? `${m.correct}/${m.total}` : "—/—"}</td>
+                            <td className="px-3 py-2 text-center font-semibold text-foreground">{m && Number.isFinite(m.accuracy) ? pct(m.accuracy) : "—"}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{m && Number.isFinite(m.mae) ? m.mae.toFixed(3) : "—"}</td>
                           </tr>
                         )
                       })}
@@ -1115,9 +1115,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                               <span className={cn("font-semibold", color)}>{name}</span>
                               <span className="block text-[10px] text-muted-foreground/70 mt-0.5">{desc}</span>
                             </td>
-                            <td className="px-3 py-2 text-center text-muted-foreground">{m ? `${m.correct}/${m.total}` : "—/—"}</td>
-                            <td className="px-3 py-2 text-center font-semibold text-foreground">{m ? pct(m.accuracy) : "—"}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{m ? m.mae.toFixed(3) : "—"}</td>
+                            <td className="px-3 py-2 text-center text-muted-foreground">{m && m.total > 0 ? `${m.correct}/${m.total}` : "—/—"}</td>
+                            <td className="px-3 py-2 text-center font-semibold text-foreground">{m && Number.isFinite(m.accuracy) ? pct(m.accuracy) : "—"}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{m && Number.isFinite(m.mae) ? m.mae.toFixed(3) : "—"}</td>
                           </tr>
                         )
                       })}

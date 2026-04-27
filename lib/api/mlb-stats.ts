@@ -330,6 +330,95 @@ export async function fetchPitcherStats(
   }
 }
 
+// ─── Active Starters ─────────────────────────────────────────────────────────
+
+export interface ActiveStarter {
+  id: string
+  name: string
+  teamAbbr: string
+  teamName: string
+  division: string
+}
+
+const TEAM_ROSTER_IDS = [
+  { numericId: 110, abbr: "BAL", name: "Baltimore Orioles",      division: "AL East"    },
+  { numericId: 111, abbr: "BOS", name: "Boston Red Sox",         division: "AL East"    },
+  { numericId: 147, abbr: "NYY", name: "New York Yankees",       division: "AL East"    },
+  { numericId: 139, abbr: "TB",  name: "Tampa Bay Rays",         division: "AL East"    },
+  { numericId: 141, abbr: "TOR", name: "Toronto Blue Jays",      division: "AL East"    },
+  { numericId: 145, abbr: "CWS", name: "Chicago White Sox",      division: "AL Central" },
+  { numericId: 114, abbr: "CLE", name: "Cleveland Guardians",    division: "AL Central" },
+  { numericId: 116, abbr: "DET", name: "Detroit Tigers",         division: "AL Central" },
+  { numericId: 118, abbr: "KC",  name: "Kansas City Royals",     division: "AL Central" },
+  { numericId: 142, abbr: "MIN", name: "Minnesota Twins",        division: "AL Central" },
+  { numericId: 117, abbr: "HOU", name: "Houston Astros",         division: "AL West"    },
+  { numericId: 108, abbr: "LAA", name: "Los Angeles Angels",     division: "AL West"    },
+  { numericId: 133, abbr: "OAK", name: "Oakland Athletics",      division: "AL West"    },
+  { numericId: 136, abbr: "SEA", name: "Seattle Mariners",       division: "AL West"    },
+  { numericId: 140, abbr: "TEX", name: "Texas Rangers",          division: "AL West"    },
+  { numericId: 144, abbr: "ATL", name: "Atlanta Braves",         division: "NL East"    },
+  { numericId: 146, abbr: "MIA", name: "Miami Marlins",          division: "NL East"    },
+  { numericId: 121, abbr: "NYM", name: "New York Mets",          division: "NL East"    },
+  { numericId: 143, abbr: "PHI", name: "Philadelphia Phillies",  division: "NL East"    },
+  { numericId: 120, abbr: "WSH", name: "Washington Nationals",   division: "NL East"    },
+  { numericId: 112, abbr: "CHC", name: "Chicago Cubs",           division: "NL Central" },
+  { numericId: 113, abbr: "CIN", name: "Cincinnati Reds",        division: "NL Central" },
+  { numericId: 158, abbr: "MIL", name: "Milwaukee Brewers",      division: "NL Central" },
+  { numericId: 134, abbr: "PIT", name: "Pittsburgh Pirates",     division: "NL Central" },
+  { numericId: 138, abbr: "STL", name: "St. Louis Cardinals",    division: "NL Central" },
+  { numericId: 109, abbr: "ARI", name: "Arizona Diamondbacks",   division: "NL West"    },
+  { numericId: 115, abbr: "COL", name: "Colorado Rockies",       division: "NL West"    },
+  { numericId: 119, abbr: "LAD", name: "Los Angeles Dodgers",    division: "NL West"    },
+  { numericId: 135, abbr: "SD",  name: "San Diego Padres",       division: "NL West"    },
+  { numericId: 137, abbr: "SF",  name: "San Francisco Giants",   division: "NL West"    },
+]
+
+type RosterResponse = {
+  roster: Array<{
+    person: { id: number; fullName: string }
+    position: { abbreviation: string }
+  }>
+}
+
+/**
+ * Fetches all active starting pitchers from every MLB team via the roster endpoint.
+ * Runs all 30 team requests in parallel via Promise.allSettled.
+ * Returns an empty array on total failure — caller should use a static fallback.
+ */
+export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
+  const results = await Promise.allSettled(
+    TEAM_ROSTER_IDS.map(async (team) => {
+      const data = await mlbFetch<RosterResponse>(
+        `/teams/${team.numericId}/roster?rosterType=active&season=${SEASON}`,
+        3600
+      )
+      if (!data?.roster) return []
+      return data.roster
+        .filter((p) => p.position.abbreviation === "SP")
+        .map((p) => ({
+          id:       String(p.person.id),
+          name:     p.person.fullName,
+          teamAbbr: team.abbr,
+          teamName: team.name,
+          division: team.division,
+        }))
+    })
+  )
+
+  const starters: ActiveStarter[] = []
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      starters.push(...result.value)
+    }
+  }
+
+  starters.sort((a, b) =>
+    a.teamAbbr.localeCompare(b.teamAbbr) || a.name.localeCompare(b.name)
+  )
+
+  return starters
+}
+
 /**
  * Fetches a team's current-season hitting stats via:
  *   /teams/{id}/stats?stats=season&group=hitting&season=YYYY

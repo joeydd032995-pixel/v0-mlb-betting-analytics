@@ -603,10 +603,10 @@ function CompletedPanel({
       <Tabs defaultValue="nrfi">
         <TabsList className="grid w-full grid-cols-2 max-w-xs">
           <TabsTrigger value="nrfi">
-            NRFI <span className="ml-1.5 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">{applyFilter(completed.filter(p => p.prediction === "NRFI")).length}</span>
+            NRFI <span className="ml-1.5 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">{nrfiPreds.length}</span>
           </TabsTrigger>
           <TabsTrigger value="yrfi">
-            YRFI <span className="ml-1.5 rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] text-rose-300">{applyFilter(completed.filter(p => p.prediction === "YRFI")).length}</span>
+            YRFI <span className="ml-1.5 rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] text-rose-300">{yrfiPreds.length}</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="nrfi" className="mt-4">
