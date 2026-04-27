@@ -377,7 +377,7 @@ type PlayersResponse = {
   people: Array<{
     id: number
     fullName: string
-    primaryPosition: { abbreviation: string }
+    primaryPosition?: { abbreviation?: string }
     currentTeam?: { id: number; name?: string }
   }>
 }
@@ -392,7 +392,7 @@ export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
   if (!data?.people) return []
 
   return data.people
-    .filter((p) => p.primaryPosition.abbreviation === "SP")
+    .filter((p) => p.primaryPosition?.abbreviation === "SP")
     .map((p) => {
       const team = p.currentTeam ? teamMap.get(p.currentTeam.id) : undefined
       const rawName = p.currentTeam?.name ?? ""
@@ -400,7 +400,7 @@ export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
         id:       String(p.id),
         name:     p.fullName,
         teamAbbr: team?.abbr     ?? (rawName ? rawName.slice(0, 3).toUpperCase() : "UNK"),
-        teamName: team?.name     ?? rawName || "Unknown",
+        teamName: team?.name     ?? (rawName || "Unknown"),
         division: team?.division ?? "Unknown",
       }
     })
