@@ -375,11 +375,12 @@ const TEAM_ROSTER_IDS = [
 
 type RosterResponse = {
   roster: Array<{
-    person: {
-      id: number
-      fullName: string
-      primaryPosition?: { abbreviation?: string }
-    }
+    person: { id: number; fullName: string }
+    position?: { abbreviation?: string }
+    stats?: Array<{
+      group?: { displayName?: string }
+      splits?: Array<{ stat?: { gamesStarted?: number } }>
+    }>
   }>
 }
 
@@ -387,12 +388,17 @@ export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
   const results = await Promise.allSettled(
     TEAM_ROSTER_IDS.map(async (team) => {
       const data = await mlbFetch<RosterResponse>(
-        `/teams/${team.numericId}/roster?rosterType=active&season=${SEASON}&hydrate=person`,
+        `/teams/${team.numericId}/roster?rosterType=active&season=${SEASON}` +
+        `&hydrate=stats(group=pitching,type=season,season=${SEASON})`,
         3600
       )
       if (!data?.roster) return []
       return data.roster
-        .filter((p) => p.person.primaryPosition?.abbreviation === "SP")
+        .filter((p) => {
+          if (p.position?.abbreviation === "SP") return true
+          const pitching = p.stats?.find(s => s.group?.displayName === "pitching")
+          return (pitching?.splits?.[0]?.stat?.gamesStarted ?? 0) >= 1
+        })
         .map((p) => ({
           id:       String(p.person.id),
           name:     p.person.fullName,
@@ -404,8 +410,12 @@ export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
   )
 
   const starters: ActiveStarter[] = []
-  for (const result of results) {
-    if (result.status === "fulfilled") starters.push(...result.value)
+  for (const [i, result] of results.entries()) {
+    if (result.status === "fulfilled") {
+      starters.push(...result.value)
+    } else {
+      console.error(`[mlb-stats] roster fetch failed for ${TEAM_ROSTER_IDS[i].abbr}:`, result.reason)
+    }
   }
   return starters.sort((a, b) =>
     a.teamAbbr.localeCompare(b.teamAbbr) || a.name.localeCompare(b.name)
