@@ -373,50 +373,37 @@ const TEAM_ROSTER_IDS = [
   { numericId: 137, abbr: "SF",  name: "San Francisco Giants",   division: "NL West"    },
 ]
 
-type RosterResponse = {
-  roster: Array<{
-    person: { id: number; fullName: string }
-    position: { abbreviation: string }
+type PlayersResponse = {
+  people: Array<{
+    id: number
+    fullName: string
+    primaryPosition: { abbreviation: string }
+    currentTeam: { id: number; name: string }
   }>
 }
 
-/**
- * Fetches all active starting pitchers from every MLB team via the roster endpoint.
- * Runs all 30 team requests in parallel via Promise.allSettled.
- * Returns an empty array on total failure — caller should use a static fallback.
- */
 export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
-  const results = await Promise.allSettled(
-    TEAM_ROSTER_IDS.map(async (team) => {
-      const data = await mlbFetch<RosterResponse>(
-        `/teams/${team.numericId}/roster?rosterType=active&season=${SEASON}`,
-        3600
-      )
-      if (!data?.roster) return []
-      return data.roster
-        .filter((p) => p.position.abbreviation === "SP")
-        .map((p) => ({
-          id:       String(p.person.id),
-          name:     p.person.fullName,
-          teamAbbr: team.abbr,
-          teamName: team.name,
-          division: team.division,
-        }))
+  const teamMap = new Map(TEAM_ROSTER_IDS.map(t => [t.numericId, t]))
+
+  const data = await mlbFetch<PlayersResponse>(
+    `/sports/1/players?season=${SEASON}&gameType=R`,
+    3600
+  )
+  if (!data?.people) return []
+
+  return data.people
+    .filter((p) => p.primaryPosition.abbreviation === "SP")
+    .map((p) => {
+      const team = teamMap.get(p.currentTeam.id)
+      return {
+        id:       String(p.id),
+        name:     p.fullName,
+        teamAbbr: team?.abbr     ?? p.currentTeam.name.slice(0, 3).toUpperCase(),
+        teamName: team?.name     ?? p.currentTeam.name,
+        division: team?.division ?? "Unknown",
+      }
     })
-  )
-
-  const starters: ActiveStarter[] = []
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      starters.push(...result.value)
-    }
-  }
-
-  starters.sort((a, b) =>
-    a.teamAbbr.localeCompare(b.teamAbbr) || a.name.localeCompare(b.name)
-  )
-
-  return starters
+    .sort((a, b) => a.teamAbbr.localeCompare(b.teamAbbr) || a.name.localeCompare(b.name))
 }
 
 /**
