@@ -1,9 +1,6 @@
 // components/auth-nav.tsx
 // Global navigation + auth controls — rendered in the site header.
-//
-// Navigation: Dashboard | Grid | Accuracy | History | Insights | Glossary
-// Auth: Sign In / Sign Up for guests, Clerk UserButton for members
-// Mobile: Hamburger menu via Radix Dialog
+// Hamburger opens a popup with two sections: Navigation (primary routes) + Tools.
 
 "use client"
 
@@ -21,7 +18,6 @@ import {
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
-// Clerk UserButton appearance — keeps the avatar consistent with the dark theme.
 const userButtonAppearance = {
   baseTheme: dark,
   variables: {
@@ -35,9 +31,7 @@ const userButtonAppearance = {
     fontFamily: '"Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif',
   },
   elements: {
-    // The trigger avatar button
     avatarBox: "ring-2 ring-border hover:ring-primary/50 transition-all",
-    // Dropdown card
     userButtonPopoverCard:
       "border border-[oklch(0.269_0_0)] bg-[oklch(0.205_0_0)] shadow-2xl",
     userButtonPopoverActions: "border-t border-[oklch(0.269_0_0)]",
@@ -50,104 +44,137 @@ const userButtonAppearance = {
   },
 } as const
 
-const NAV_ITEMS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/grid", label: "Grid" },
-  { href: "/accuracy", label: "Accuracy" },
-  { href: "/history", label: "History" },
+const PRIMARY_NAV = [
+  { href: "/",         label: "Today" },
+  { href: "/pitcher",  label: "Pitcher" },
+  { href: "/staff",    label: "Staff" },
+  { href: "/ensemble", label: "Ensemble" },
+  { href: "/history",  label: "History" },
   { href: "/insights", label: "Insights" },
-  { href: "/odds", label: "Odds & EV" },
-  { href: "/weather", label: "Weather" },
-  { href: "/resources", label: "Resources" },
-  { href: "/community", label: "Community" },
-  { href: "/weekly-recap", label: "Weekly" },
-  { href: "/glossary", label: "Glossary" },
 ]
 
-function NavLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
-  const isActive = pathname === href
+const TOOLS_NAV = [
+  { href: "/accuracy",     label: "Accuracy" },
+  { href: "/grid",         label: "Grid" },
+  { href: "/odds",         label: "Odds & EV" },
+  { href: "/weather",      label: "Weather" },
+  { href: "/resources",    label: "Resources" },
+  { href: "/community",    label: "Community" },
+  { href: "/weekly-recap", label: "Weekly Recap" },
+  { href: "/glossary",     label: "Glossary" },
+]
+
+function isActive(href: string, pathname: string) {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href)
+}
+
+interface NavSectionProps {
+  label: string
+  items: { href: string; label: string }[]
+  pathname: string
+  onNavigate: () => void
+}
+
+function NavSection({ label, items, pathname, onNavigate }: NavSectionProps) {
   return (
-    <Link
-      href={href}
-      className={cn(
-        "text-sm font-medium transition-colors px-3 py-2 rounded-md relative",
-        isActive
-          ? "text-primary"
-          : "text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {label}
-      {isActive && (
-        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
-      )}
-    </Link>
+    <div>
+      <p className="font-jet text-[10px] uppercase tracking-[0.2em] text-ds-dim px-3 mb-2">
+        {label}
+      </p>
+      <div className="space-y-0.5">
+        {items.map((item) => {
+          const active = isActive(item.href, pathname)
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              className={cn(
+                "block px-3 py-2 rounded-md text-[13px] font-medium transition-colors",
+                active
+                  ? "bg-[var(--ds-panel-2)] text-ds-cy"
+                  : "text-ds-muted hover:text-ds-ink hover:bg-[var(--ds-panel)]"
+              )}
+            >
+              {item.label}
+            </Link>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
 export function AuthNav() {
   const pathname = usePathname()
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [open, setOpen] = useState(false)
 
   return (
-    <div className="flex items-center gap-4">
-      {/* ── Desktop nav ─────────────────────────────────────────────────────── */}
-      <nav className="hidden md:flex items-center gap-1">
-        {NAV_ITEMS.map((item) => (
-          <NavLink key={item.href} {...item} pathname={pathname} />
-        ))}
-      </nav>
-
-      {/* ── Mobile hamburger ────────────────────────────────────────────────── */}
-      <Dialog open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+    <div className="flex items-center gap-2">
+      {/* Hamburger — visible on all screen sizes */}
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden h-7 w-7 px-0 text-muted-foreground hover:text-foreground"
+            className="h-8 w-8 px-0 text-ds-muted hover:text-ds-ink hover:bg-[var(--ds-panel)]"
+            aria-label="Open navigation"
           >
             <Menu className="h-4 w-4" />
-            <span className="sr-only">Toggle menu</span>
           </Button>
         </DialogTrigger>
-        <DialogContent className="w-[80vw] max-w-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold">Navigation</h2>
+
+        <DialogContent
+          className="w-[280px] p-0 border-ds-line"
+          style={{ background: "var(--ds-panel)" }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-4 py-3"
+            style={{ borderBottom: "1px solid var(--ds-line)" }}
+          >
+            <span className="font-jet text-[11px] uppercase tracking-[0.2em] text-ds-muted">
+              Navigation
+            </span>
             <DialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                <X className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-ds-muted hover:text-ds-ink"
+                aria-label="Close navigation"
+              >
+                <X className="h-3.5 w-3.5" />
               </Button>
             </DialogTrigger>
           </div>
-          <nav className="space-y-1">
-            {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={cn(
-                    "block px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  {item.label}
-                </Link>
-              )
-            })}
-          </nav>
+
+          {/* Nav sections */}
+          <div className="px-3 py-3 space-y-4">
+            <NavSection
+              label="Main"
+              items={PRIMARY_NAV}
+              pathname={pathname}
+              onNavigate={() => setOpen(false)}
+            />
+            <div style={{ borderTop: "1px solid var(--ds-line-2)" }} className="pt-4">
+              <NavSection
+                label="Tools"
+                items={TOOLS_NAV}
+                pathname={pathname}
+                onNavigate={() => setOpen(false)}
+              />
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* ── Auth controls ───────────────────────────────────────────────────── */}
+      {/* Auth controls */}
       <SignedOut>
         <Button
           asChild
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          className="h-7 gap-1.5 px-2.5 text-xs text-ds-muted hover:text-ds-ink"
         >
           <Link href="/sign-in">
             <LogIn className="h-3.5 w-3.5" />
