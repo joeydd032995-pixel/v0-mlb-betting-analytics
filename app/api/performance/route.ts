@@ -117,12 +117,12 @@ export async function GET() {
       "NN Interaction": modelStats((p) => {
         const pH = halfProb(p.poissonNrfi)
         const mH = halfProb(p.markovNrfi)
-        return Math.max(0.02, Math.min(0.98, 0.5 + 0.3 * (pH * mH - 0.5)))
+        return Math.max(0.05, Math.min(0.95, 0.5 + 0.3 * (pH * mH - 0.5)))
       }),
       "Hierarchical Bayes": modelStats((p) => {
         // Approximation: shrink markov half-inning estimate 75% toward league average
         const mH = halfProb(p.markovNrfi)
-        return Math.max(0.05, Math.min(0.95, 0.5 + 0.75 * (mH - 0.5)))
+        return Math.max(0.05, Math.min(0.95, 0.5 + 0.25 * (mH - 0.5)))
       }),
     } : null
 
