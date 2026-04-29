@@ -96,11 +96,34 @@ export async function GET() {
         ? { accuracy: correct / withResult.length, mae: maeSum / withResult.length, total: withResult.length, correct }
         : null
     }
+    // Approximate half-inning probability from game-level (product of two symmetric halves)
+    const halfProb = (game: number) => Math.sqrt(Math.max(0.001, game))
+
     const perModel = withResult.length > 0 ? {
       Poisson:  modelStats((p) => p.poissonNrfi),
       ZIP:      modelStats((p) => p.zipNrfi),
       Markov:   modelStats((p) => p.markovNrfi),
       Ensemble: modelStats((p) => p.ensembleNrfi),
+      // Meta-models: approximated from stored base-model values.
+      // Stored values are game-level joint probabilities (product of two half-innings);
+      // sqrt recovers the symmetric half-inning estimate used in the original formulas.
+      "Logistic Stack": modelStats((p) => {
+        const pH = halfProb(p.poissonNrfi)
+        const zH = halfProb(p.zipNrfi)
+        const mH = halfProb(p.markovNrfi)
+        const half = 1 / (1 + Math.exp(-(-2.3 + 4.1 * (pH + zH + mH) / 3)))
+        return Math.max(0.05, Math.min(0.95, half * half))
+      }),
+      "NN Interaction": modelStats((p) => {
+        const pH = halfProb(p.poissonNrfi)
+        const mH = halfProb(p.markovNrfi)
+        return Math.max(0.02, Math.min(0.98, 0.5 + 0.3 * (pH * mH - 0.5)))
+      }),
+      "Hierarchical Bayes": modelStats((p) => {
+        // Approximation: shrink markov half-inning estimate 75% toward league average
+        const mH = halfProb(p.markovNrfi)
+        return Math.max(0.05, Math.min(0.95, 0.5 + 0.75 * (mH - 0.5)))
+      }),
     } : null
 
     // ── 6. Monthly breakdown ──────────────────────────────────────────────
