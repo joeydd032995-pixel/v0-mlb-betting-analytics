@@ -6,7 +6,14 @@
     "build": "node scripts/db-push.js && prisma generate && next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "lint:fix": "eslint . --fix",
+    "type-check": "tsc --noEmit",
+    "build:prod": "npm run type-check && npm run lint && next build",
+    "start": "next start",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": ["eslint --fix"]
   },
   "dependencies": {
     "@clerk/nextjs": "^6.0.0",
@@ -65,10 +72,15 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.1.9",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^16.2.4",
+    "husky": "^9",
+    "lint-staged": "^15",
     "postcss": "^8.5",
     "prisma": "^5.22.0",
     "tailwindcss": "^4.1.9",

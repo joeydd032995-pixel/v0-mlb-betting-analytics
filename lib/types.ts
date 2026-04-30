@@ -288,6 +288,7 @@ export interface FilterOptions {
   league: "all" | "AL" | "NL"
   sortBy: "probability" | "confidence" | "edge" | "time"
   showValueOnly: boolean
+  minEdge?: number
 }
 
 export const METRIC_GLOSSARY: Record<string, string> = {

@@ -7,37 +7,67 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── User (Clerk sync) ────────────────────────────────────────────────────────
+// id = Clerk's external userId string (e.g. "user_2xyz...").
+// Using the Clerk ID directly as PK avoids a translation layer — existing
+// userId String fields in Bet/Bankroll/WatchlistItem relate directly.
+model User {
+  id        String   @id           // Clerk userId
+  email     String   @unique
+  name      String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bets                 Bet[]
+  bankroll             Bankroll?
+  watchlist            WatchlistItem[]
+  bankrollTransactions BankrollTransaction[]
+  backtestRuns         BacktestRun[]
+
+  @@map("users")
+}
+
+// ─── Watchlist ────────────────────────────────────────────────────────────────
 model WatchlistItem {
   id        String   @id @default(cuid())
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   gameId    String
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, gameId])
   @@index([userId])
   @@map("watchlist")
 }
 
+// ─── Bets ─────────────────────────────────────────────────────────────────────
 model Bet {
-  id        String   @id @default(cuid())
-  userId    String
-  gameId    String
-  amount    Float
-  odds      Float
-  prediction String   // "NRFI" or "YRFI"
-  result    String?  // "NRFI" or "YRFI" or null if pending
-  pnl       Float?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameId     String
+  amount     Float
+  odds       Float
+  prediction String   // "NRFI" | "YRFI"
+  result     String?  // "NRFI" | "YRFI" | null when pending
+  pnl        Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  bankrollTransaction BankrollTransaction?
 
   @@index([userId])
   @@index([gameId])
   @@map("bets")
 }
 
+// ─── Bankroll ─────────────────────────────────────────────────────────────────
 model Bankroll {
   id              String   @id @default(cuid())
   userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   startingBalance Float
   currentBalance  Float
   updatedAt       DateTime @updatedAt
@@ -45,6 +75,26 @@ model Bankroll {
   @@map("bankroll")
 }
 
+// ─── Bankroll Transactions (per-transaction ledger) ───────────────────────────
+model BankrollTransaction {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "deposit" | "withdrawal" | "win" | "loss" | "adjustment"
+  type    String
+  amount  Float
+  balance Float    // running balance after this transaction
+  betId   String?  @unique
+  bet     Bet?     @relation(fields: [betId], references: [id], onDelete: SetNull)
+  note    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("bankroll_transactions")
+}
+
+// ─── Historical Game Results (global — not user-scoped) ───────────────────────
 model GameResult {
   gamePk   Int      @id
   date     String
@@ -61,8 +111,10 @@ model GameResult {
   @@map("game_results")
 }
 
+// ─── Model Predictions (system-wide; optionally user-scoped when saved) ───────
 model ModelPrediction {
   id              String   @id
+  userId          String?  // null = system/shared; set when a user explicitly saves
   date            String
   season          Int
   homeTeam        String
@@ -88,9 +140,11 @@ model ModelPrediction {
   @@index([date])
   @@index([season])
   @@index([status])
+  @@index([userId])
   @@map("model_predictions")
 }
 
+// ─── Ensemble Diagnostics ─────────────────────────────────────────────────────
 // Written only when ENABLE_DIAGNOSTICS=true — tracks per-game ensemble diagnostics.
 model EnsembleDiagnostic {
   id              String   @id @default(cuid())
@@ -111,4 +165,30 @@ model EnsembleDiagnostic {
   @@index([date])
   @@index([gameId])
   @@map("ensemble_diagnostics")
+}
+
+// ─── Backtest Runs (Phase 3: walk-forward validation framework) ───────────────
+model BacktestRun {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seasonStart Int
+  seasonEnd   Int
+  totalGames  Int      @default(0)
+  brierScore  Float?
+  accuracy    Float?
+  roiKelly    Float?
+  roiFlat     Float?
+  sharpe      Float?
+  maxDrawdown Float?
+  // "pending" | "running" | "done" | "error"
+  status      String   @default("pending")
+  // Rich metrics blob: calibration points, monthly breakdown, ablation results, etc.
+  results     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("backtest_runs")
 }

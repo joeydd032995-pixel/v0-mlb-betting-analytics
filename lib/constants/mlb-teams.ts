@@ -8,6 +8,8 @@ export interface MLBTeamInfo {
   league: League
   division: Division
   primaryColor: string
+  /** MLB Stats API numeric team ID — used for team hitting stats lookups */
+  apiId?: number
 }
 
 export const MLB_TEAMS: Record<string, MLBTeamInfo> = {

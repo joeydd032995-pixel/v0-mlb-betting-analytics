@@ -273,6 +273,8 @@ export async function fetchPitcherStats(
       inningsPitched?: string
       hits?: number
       homeRuns?: number
+      wins?: number
+      losses?: number
     }
   }
   type RawStatGroup = {
@@ -314,6 +316,8 @@ export async function fetchPitcherStats(
       inningsPitched: 0,
       hits: 0,
       homeRuns: 0,
+      wins: 0,
+      losses: 0,
     }
   }
 
@@ -327,6 +331,8 @@ export async function fetchPitcherStats(
     inningsPitched: parseFloat(pitchingSplit.inningsPitched ?? "0") || 0,
     hits: pitchingSplit.hits ?? 0,
     homeRuns: pitchingSplit.homeRuns ?? 0,
+    wins: pitchingSplit.wins ?? 0,
+    losses: pitchingSplit.losses ?? 0,
   }
 }
 

@@ -555,9 +555,9 @@ export function computeExtendedAccuracy(
     modelAccuracyForModel(complete,          (p) => p.zipNrfi,              "ZIP"),
     modelAccuracyForModel(complete,          (p) => p.markovNrfi,           "Markov"),
     modelAccuracyForModel(complete,          (p) => p.ensembleNrfi,         "Ensemble"),
-    ...(completeLogistic.length > 0 ? [modelAccuracyForModel(completeLogistic, (p) => p.logisticMetaNrfi,      "Logistic Stack"    )] : []),
-    ...(completeNn.length       > 0 ? [modelAccuracyForModel(completeNn,       (p) => p.nnInteractionNrfi,     "NN Interaction"    )] : []),
-    ...(completeHier.length     > 0 ? [modelAccuracyForModel(completeHier,     (p) => p.hierarchicalBayesNrfi, "Hierarchical Bayes")] : []),
+    ...(completeLogistic.length > 0 ? [modelAccuracyForModel(completeLogistic, (p) => p.logisticMetaNrfi!,      "Logistic Stack"    )] : []),
+    ...(completeNn.length       > 0 ? [modelAccuracyForModel(completeNn,       (p) => p.nnInteractionNrfi!,     "NN Interaction"    )] : []),
+    ...(completeHier.length     > 0 ? [modelAccuracyForModel(completeHier,     (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")] : []),
   ]
 
   return {

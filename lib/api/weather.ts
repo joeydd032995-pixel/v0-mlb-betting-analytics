@@ -30,13 +30,6 @@ function mapWindDirection(degrees: number, speedMph: number, venue: string): Win
     return "crosswind"
   }
 
-  if (orientation === "in-to-cf") {
-    // Reversed: wind from behind home plate blows toward home = "in"
-    if (degrees >= 315 || degrees <= 45) return "in"
-    if (degrees >= 135 && degrees <= 225) return "out"
-    return "crosswind"
-  }
-
   return "crosswind"
 }
 
