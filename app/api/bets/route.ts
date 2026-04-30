@@ -2,7 +2,7 @@
  * /api/bets
  *
  * GET  — list the authenticated user's bets (newest first)
- * POST — place a new bet; also creates an opening BankrollTransaction debit
+ * POST — place a new bet; atomically debits bankroll and writes a ledger entry
  */
 
 import { NextResponse } from "next/server"
@@ -47,43 +47,45 @@ export async function POST(request: Request) {
 
   const { gameId, amount, odds, prediction } = parsed.data
 
-  // Ensure user row exists (graceful upsert — covers users who signed up before
-  // the webhook was configured)
+  // Ensure user row exists (covers users who signed up before the webhook was configured)
   await prisma.user.upsert({
     where: { id: userId },
     create: { id: userId, email: `${userId}@placeholder.local` },
     update: {},
   })
 
-  // Get or create bankroll so we can record the debit
-  const bankroll = await prisma.bankroll.upsert({
-    where: { userId },
-    create: { userId, startingBalance: 0, currentBalance: 0 },
-    update: {},
-  })
+  // Interactive transaction: bet creation, bankroll debit, and ledger entry are atomic.
+  // Using tx.bankroll.update's return value for the post-debit balance avoids stale reads.
+  const bet = await prisma.$transaction(async (tx) => {
+    // Ensure bankroll row exists
+    await tx.bankroll.upsert({
+      where: { userId },
+      create: { userId, startingBalance: 0, currentBalance: 0 },
+      update: {},
+    })
 
-  const [bet] = await prisma.$transaction([
-    prisma.bet.create({
+    const newBet = await tx.bet.create({
       data: { userId, gameId, amount, odds, prediction },
-    }),
-    // Debit the wager from the bankroll
-    prisma.bankroll.update({
+    })
+
+    const updatedBankroll = await tx.bankroll.update({
       where: { userId },
       data: { currentBalance: { decrement: amount } },
-    }),
-  ])
+    })
 
-  // Record the debit ledger entry (outside transaction — non-critical)
-  await prisma.bankrollTransaction.create({
-    data: {
-      userId,
-      type: "loss",          // treated as a pending debit; flipped to "win" on settle
-      amount: -amount,
-      balance: bankroll.currentBalance - amount,
-      betId: bet.id,
-      note: `Placed ${prediction} bet on game ${gameId}`,
-    },
-  }).catch((err) => console.error("[bets] Ledger entry failed:", err))
+    await tx.bankrollTransaction.create({
+      data: {
+        userId,
+        type: "wager",
+        amount: -amount,
+        balance: updatedBankroll.currentBalance,
+        betId: newBet.id,
+        note: `Placed ${prediction} bet on game ${gameId}`,
+      },
+    })
+
+    return newBet
+  })
 
   return NextResponse.json({ bet }, { status: 201 })
 }

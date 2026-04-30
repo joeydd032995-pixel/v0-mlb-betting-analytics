@@ -3,7 +3,7 @@
  *
  * GET   — return the authenticated user's bankroll (null if not yet initialized)
  * POST  — initialize bankroll with a starting balance
- * PATCH — update the current balance (used for manual deposits/withdrawals)
+ * PATCH — deposit / withdrawal / adjustment with atomic balance update
  */
 
 import { NextResponse } from "next/server"
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   return NextResponse.json({ bankroll }, { status: 201 })
 }
 
-// ─── PATCH (deposit / withdrawal) ─────────────────────────────────────────────
+// ─── PATCH (deposit / withdrawal / adjustment) ────────────────────────────────
 
 const AdjustSchema = z.object({
   amount: z.number(),
@@ -91,27 +91,31 @@ export async function PATCH(request: Request) {
 
   const { amount, type, note } = parsed.data
 
-  const bankroll = await prisma.bankroll.findUnique({ where: { userId } })
-  if (!bankroll) return NextResponse.json({ error: "Bankroll not initialized" }, { status: 404 })
+  const exists = await prisma.bankroll.findUnique({ where: { userId } })
+  if (!exists) return NextResponse.json({ error: "Bankroll not initialized" }, { status: 404 })
 
   const delta = type === "withdrawal" ? -Math.abs(amount) : Math.abs(amount)
-  const newBalance = bankroll.currentBalance + delta
 
-  const [updated] = await prisma.$transaction([
-    prisma.bankroll.update({
+  // Interactive transaction: atomic increment avoids concurrent-write races.
+  // The updated bankroll is returned so the ledger entry uses the correct post-op balance.
+  const updated = await prisma.$transaction(async (tx) => {
+    const bankroll = await tx.bankroll.update({
       where: { userId },
-      data: { currentBalance: newBalance },
-    }),
-    prisma.bankrollTransaction.create({
+      data: { currentBalance: { increment: delta } },
+    })
+
+    await tx.bankrollTransaction.create({
       data: {
         userId,
         type,
         amount: delta,
-        balance: newBalance,
+        balance: bankroll.currentBalance,
         note: note ?? null,
       },
-    }),
-  ])
+    })
+
+    return bankroll
+  })
 
   return NextResponse.json({ bankroll: updated })
 }

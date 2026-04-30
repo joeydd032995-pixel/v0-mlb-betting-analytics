@@ -1,8 +1,8 @@
 /**
  * /api/bets/[id]
  *
- * PATCH  — settle a bet (set result + pnl); updates bankroll and ledger
- * DELETE — remove a bet and reverse any bankroll debit
+ * PATCH  — settle a bet (set result + pnl); atomically updates bankroll and ledger
+ * DELETE — remove a bet and surface any error when reversing the bankroll debit
  */
 
 import { NextResponse } from "next/server"
@@ -41,32 +41,36 @@ export async function PATCH(
   if (existing.userId !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   if (existing.result) return NextResponse.json({ error: "Bet already settled" }, { status: 409 })
 
-  const bankroll = await prisma.bankroll.findUnique({ where: { userId } })
-  const currentBalance = bankroll?.currentBalance ?? 0
+  // On a win return the principal + profit; on a loss nothing is credited
+  // (the wager was already debited at placement time).
+  const returnAmount = pnl > 0 ? pnl + existing.amount : 0
 
-  const [bet] = await prisma.$transaction([
-    prisma.bet.update({
+  // Interactive transaction: settle bet, credit bankroll, and write ledger entry atomically.
+  const bet = await prisma.$transaction(async (tx) => {
+    const settled = await tx.bet.update({
       where: { id },
       data: { result, pnl },
-    }),
-    prisma.bankroll.upsert({
-      where: { userId },
-      create: { userId, startingBalance: 0, currentBalance: pnl },
-      update: { currentBalance: { increment: pnl > 0 ? pnl + existing.amount : 0 } },
-    }),
-  ])
+    })
 
-  // Credit/loss ledger entry
-  await prisma.bankrollTransaction.create({
-    data: {
-      userId,
-      type: pnl > 0 ? "win" : "loss",
-      amount: pnl > 0 ? pnl + existing.amount : 0,  // return principal + profit on win
-      balance: currentBalance + (pnl > 0 ? pnl + existing.amount : 0),
-      betId: id,
-      note: `Settled ${existing.prediction} bet: ${result} (P&L $${pnl.toFixed(2)})`,
-    },
-  }).catch((err) => console.error("[bets] Settle ledger entry failed:", err))
+    const updatedBankroll = await tx.bankroll.upsert({
+      where: { userId },
+      create: { userId, startingBalance: 0, currentBalance: returnAmount },
+      update: { currentBalance: { increment: returnAmount } },
+    })
+
+    await tx.bankrollTransaction.create({
+      data: {
+        userId,
+        type: pnl > 0 ? "win" : "loss",
+        amount: returnAmount,
+        balance: updatedBankroll.currentBalance,
+        betId: id,
+        note: `Settled ${existing.prediction} bet: ${result} (P&L $${pnl.toFixed(2)})`,
+      },
+    })
+
+    return settled
+  })
 
   return NextResponse.json({ bet })
 }
@@ -86,12 +90,18 @@ export async function DELETE(
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
   if (existing.userId !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  // If the bet is still pending, reverse the debit on the bankroll
+  // Reverse the wager debit before deleting. Surface errors so the bet is NOT
+  // deleted when the refund fails — preventing silent money loss.
   if (!existing.result) {
-    await prisma.bankroll.update({
-      where: { userId },
-      data: { currentBalance: { increment: existing.amount } },
-    }).catch(() => {})
+    try {
+      await prisma.bankroll.update({
+        where: { userId },
+        data: { currentBalance: { increment: existing.amount } },
+      })
+    } catch (err) {
+      console.error("[bets] Failed to reverse bankroll debit on delete:", err)
+      return NextResponse.json({ error: "Failed to reverse bankroll debit" }, { status: 500 })
+    }
   }
 
   await prisma.bet.delete({ where: { id } })

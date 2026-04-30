@@ -25,12 +25,14 @@ type ClerkUserPayload = {
   image_url: string
 }
 
+// Throws if no email can be found so callers never create users with blank emails.
 function primaryEmail(payload: ClerkUserPayload): string {
-  return (
-    payload.email_addresses.find(
+  const email =
+    payload.email_addresses?.find(
       (e) => e.id === payload.primary_email_address_id
-    )?.email_address ?? payload.email_addresses[0]?.email_address ?? ""
-  )
+    )?.email_address ?? payload.email_addresses?.[0]?.email_address
+  if (!email) throw new Error(`No email address for Clerk user ${payload.id}`)
+  return email
 }
 
 function displayName(payload: ClerkUserPayload): string | null {
@@ -84,9 +86,14 @@ export async function POST(request: Request) {
       })
       console.log(`[clerk-webhook] Updated user ${data.id}`)
     } else if (type === "user.deleted") {
-      // onDelete: Cascade propagates to bets, bankroll, watchlist, transactions, backtest runs
-      await prisma.user.delete({ where: { id: data.id } })
-      console.log(`[clerk-webhook] Deleted user ${data.id}`)
+      // deleteMany is idempotent — returns { count: 0 } instead of throwing P2025
+      // when a duplicate delivery or manual cleanup already removed the user.
+      const { count } = await prisma.user.deleteMany({ where: { id: data.id } })
+      if (count > 0) {
+        console.log(`[clerk-webhook] Deleted user ${data.id}`)
+      } else {
+        console.log(`[clerk-webhook] user.deleted: ${data.id} was already absent — no-op`)
+      }
     }
   } catch (err) {
     console.error(`[clerk-webhook] DB error for ${type}:`, err)

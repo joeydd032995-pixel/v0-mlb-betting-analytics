@@ -19,15 +19,12 @@ export async function DELETE(
 
   const { gameId } = await params
 
-  const existing = await prisma.watchlistItem.findUnique({
-    where: { userId_gameId: { userId, gameId } },
+  // deleteMany is atomic and avoids the findUnique + delete race condition.
+  const { count } = await prisma.watchlistItem.deleteMany({
+    where: { userId, gameId },
   })
 
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  await prisma.watchlistItem.delete({
-    where: { userId_gameId: { userId, gameId } },
-  })
+  if (count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   return new NextResponse(null, { status: 204 })
 }
