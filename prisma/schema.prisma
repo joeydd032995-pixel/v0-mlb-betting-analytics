@@ -24,6 +24,7 @@ model User {
   watchlist            WatchlistItem[]
   bankrollTransactions BankrollTransaction[]
   backtestRuns         BacktestRun[]
+  modelPredictions     ModelPrediction[]
 
   @@map("users")
 }
@@ -116,6 +117,7 @@ model GameResult {
 model ModelPrediction {
   id              String   @id
   userId          String?  // null = system/shared; set when a user explicitly saves
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   date            String
   season          Int
   homeTeam        String
