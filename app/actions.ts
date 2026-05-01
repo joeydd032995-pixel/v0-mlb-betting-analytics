@@ -156,17 +156,32 @@ export async function deleteBetAction(betId: string): Promise<ActionResult> {
 
   if (!existing.result) {
     try {
-      await prisma.bankroll.update({
-        where: { userId },
-        data: { currentBalance: { increment: existing.amount } },
+      await prisma.$transaction(async (tx) => {
+        const updatedBankroll = await tx.bankroll.update({
+          where: { userId },
+          data: { currentBalance: { increment: existing.amount } },
+        })
+
+        await tx.bankrollTransaction.create({
+          data: {
+            userId,
+            type: "refund",
+            amount: existing.amount,
+            balance: updatedBankroll.currentBalance,
+            betId,
+            note: `Cancelled ${existing.prediction} bet on game ${existing.gameId}`,
+          },
+        })
+
+        await tx.bet.delete({ where: { id: betId } })
       })
     } catch (err) {
       console.error("[deleteBetAction] Failed to reverse bankroll debit:", err)
       return { ok: false, error: "Failed to reverse bankroll debit" }
     }
+  } else {
+    await prisma.bet.delete({ where: { id: betId } })
   }
-
-  await prisma.bet.delete({ where: { id: betId } })
 
   revalidatePath("/bets")
   revalidatePath("/bankroll")

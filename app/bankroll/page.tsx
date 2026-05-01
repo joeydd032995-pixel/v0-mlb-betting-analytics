@@ -18,7 +18,10 @@ function fmtDate(iso: string): string {
 }
 
 function fmtMoney(n: number): string {
-  return `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 const TYPE_STYLES: Record<string, string> = {
@@ -60,7 +63,7 @@ export default async function BankrollPage() {
   }))
 
   const roi =
-    bankroll
+    bankroll && bankroll.startingBalance > 0
       ? ((bankroll.currentBalance - bankroll.startingBalance) / bankroll.startingBalance) * 100
       : 0
 

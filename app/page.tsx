@@ -344,9 +344,12 @@ export default function HomePage() {
           setTrackedPredictions(updated)
           setTrackingAccuracy(computeExtendedAccuracy(updated))
 
-          // Write-through to DB when authenticated (fire-and-forget, no UI block)
+          // Write-through to DB using merged rows so already-settled predictions
+          // are not overwritten with fresh pending state from the live API.
           if (isSignedInRef.current && incoming.length > 0) {
-            savePredictionsToDBAction(incoming).catch(console.error)
+            const incomingIds = new Set(incoming.map((p) => p.id))
+            const mergedIncoming = updated.filter((p) => incomingIds.has(p.id))
+            savePredictionsToDBAction(mergedIncoming).catch(console.error)
           }
         }
       })

@@ -65,24 +65,25 @@ export async function POST(request: Request) {
   const { type, data } = event
 
   try {
+    // upsert is idempotent — retries and out-of-order events won't cause P2002/P2025.
+    const userData = {
+      email: primaryEmail(data),
+      name: displayName(data),
+      imageUrl: data.image_url || null,
+    }
+
     if (type === "user.created") {
-      await prisma.user.create({
-        data: {
-          id: data.id,
-          email: primaryEmail(data),
-          name: displayName(data),
-          imageUrl: data.image_url || null,
-        },
+      await prisma.user.upsert({
+        where: { id: data.id },
+        create: { id: data.id, ...userData },
+        update: userData,
       })
       console.log(`[clerk-webhook] Created user ${data.id}`)
     } else if (type === "user.updated") {
-      await prisma.user.update({
+      await prisma.user.upsert({
         where: { id: data.id },
-        data: {
-          email: primaryEmail(data),
-          name: displayName(data),
-          imageUrl: data.image_url || null,
-        },
+        create: { id: data.id, ...userData },
+        update: userData,
       })
       console.log(`[clerk-webhook] Updated user ${data.id}`)
     } else if (type === "user.deleted") {

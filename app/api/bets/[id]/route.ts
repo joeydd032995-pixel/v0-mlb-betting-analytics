@@ -90,21 +90,36 @@ export async function DELETE(
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
   if (existing.userId !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  // Reverse the wager debit before deleting. Surface errors so the bet is NOT
-  // deleted when the refund fails — preventing silent money loss.
+  // Atomically reverse the wager debit, write a compensating ledger entry,
+  // and delete the bet in one transaction to prevent double-credits on retry.
   if (!existing.result) {
     try {
-      await prisma.bankroll.update({
-        where: { userId },
-        data: { currentBalance: { increment: existing.amount } },
+      await prisma.$transaction(async (tx) => {
+        const updatedBankroll = await tx.bankroll.update({
+          where: { userId },
+          data: { currentBalance: { increment: existing.amount } },
+        })
+
+        await tx.bankrollTransaction.create({
+          data: {
+            userId,
+            type: "refund",
+            amount: existing.amount,
+            balance: updatedBankroll.currentBalance,
+            betId: id,
+            note: `Cancelled ${existing.prediction} bet on game ${existing.gameId}`,
+          },
+        })
+
+        await tx.bet.delete({ where: { id } })
       })
     } catch (err) {
       console.error("[bets] Failed to reverse bankroll debit on delete:", err)
       return NextResponse.json({ error: "Failed to reverse bankroll debit" }, { status: 500 })
     }
+  } else {
+    await prisma.bet.delete({ where: { id } })
   }
-
-  await prisma.bet.delete({ where: { id } })
 
   return new NextResponse(null, { status: 204 })
 }

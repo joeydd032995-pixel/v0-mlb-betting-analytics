@@ -73,10 +73,14 @@ export function BankrollAdjustForm() {
 
         {/* Amount */}
         <div>
-          <label className="block font-jet text-[10px] uppercase tracking-[0.15em] text-ds-muted mb-2">
+          <label
+            htmlFor="bankroll-adjust-amount"
+            className="block font-jet text-[10px] uppercase tracking-[0.15em] text-ds-muted mb-2"
+          >
             Amount ($)
           </label>
           <input
+            id="bankroll-adjust-amount"
             type="number"
             min="0.01"
             step="0.01"
@@ -89,10 +93,14 @@ export function BankrollAdjustForm() {
 
         {/* Note */}
         <div>
-          <label className="block font-jet text-[10px] uppercase tracking-[0.15em] text-ds-muted mb-2">
+          <label
+            htmlFor="bankroll-adjust-note"
+            className="block font-jet text-[10px] uppercase tracking-[0.15em] text-ds-muted mb-2"
+          >
             Note (optional)
           </label>
           <input
+            id="bankroll-adjust-note"
             type="text"
             placeholder="e.g. Reload for new month"
             value={note}

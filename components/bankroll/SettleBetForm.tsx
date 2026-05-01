@@ -68,7 +68,11 @@ export function SettleBetForm({ betId, amount, prediction, odds }: Props) {
       ))}
 
       {/* P&L */}
+      <label htmlFor={`pnl-${betId}`} className="sr-only">
+        P&L amount
+      </label>
       <input
+        id={`pnl-${betId}`}
         type="number"
         step="0.01"
         placeholder={`P&L (odds ${odds > 0 ? "+" : ""}${odds})`}
