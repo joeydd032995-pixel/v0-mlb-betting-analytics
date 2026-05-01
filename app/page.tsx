@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GamePredictionCard } from "@/components/game-prediction-card"
 import { PredictionHeader } from "@/components/prediction-header"
@@ -26,6 +26,7 @@ import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { KpiCard } from "@/components/diamond/KpiCard"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
+import { savePredictionsToDBAction } from "@/app/actions"
 
 // Lazy-load onboarding modal to avoid SSR issues
 const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((m) => ({ default: m.OnboardingModal })), {
@@ -188,6 +189,9 @@ export default function HomePage() {
 
   // ── Auth state (Clerk) ───────────────────────────────────────────────────────
   const { isLoaded: authLoaded, isSignedIn } = useAuth()
+  // Ref so fire-and-forget effects can read current auth state without being listed as deps
+  const isSignedInRef = useRef(isSignedIn)
+  useEffect(() => { isSignedInRef.current = isSignedIn }, [isSignedIn])
 
   // Show a one-time welcome toast the first time a user arrives while signed in.
   // sessionStorage is cleared when the browser tab closes, so signing in again
@@ -339,6 +343,11 @@ export default function HomePage() {
           const updated = upsertPredictions(incoming)
           setTrackedPredictions(updated)
           setTrackingAccuracy(computeExtendedAccuracy(updated))
+
+          // Write-through to DB when authenticated (fire-and-forget, no UI block)
+          if (isSignedInRef.current && incoming.length > 0) {
+            savePredictionsToDBAction(incoming).catch(console.error)
+          }
         }
       })
       .catch((e: Error) => {
@@ -392,6 +401,12 @@ export default function HomePage() {
         const merged = upsertPredictions(data.predictions)
         setTrackedPredictions(merged)
         setTrackingAccuracy(computeExtendedAccuracy(merged))
+
+        // Write-through backfilled predictions to DB when authenticated
+        if (isSignedInRef.current) {
+          savePredictionsToDBAction(data.predictions as TrackedPrediction[]).catch(console.error)
+        }
+
         const completed = (data.predictions as TrackedPrediction[]).filter(
           (p) => p.status === "complete"
         ).length

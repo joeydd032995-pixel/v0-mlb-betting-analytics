@@ -132,6 +132,7 @@ model ModelPrediction {
   zipNrfi         Float
   markovNrfi      Float
   ensembleNrfi    Float
+  modelBreakdown  Json?    // { logisticMetaNrfi, nnInteractionNrfi, hierarchicalBayesNrfi, homeZipOmega, awayZipOmega, homeBayesianWeight, awayBayesianWeight, modelInputs }
   modelConsensus  Float    @default(0.5)
   actualResult    String?
   correct         Boolean?

@@ -1,18 +1,23 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useAuth } from "@clerk/nextjs"
 import { HistoryTable } from "@/components/history-table"
 import { PnLChart } from "@/components/history/PnLChart"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { KpiCard } from "@/components/diamond/KpiCard"
 import {
   loadTrackedPredictions,
+  recordResult,
+  deletePrediction,
   computeExtendedAccuracy,
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
+import { recordResultAction, deletePredictionAction } from "@/app/actions"
 
 export default function HistoryPage() {
+  const { isSignedIn } = useAuth()
   const [predictions, setPredictions] = useState<TrackedPrediction[]>([])
   const [accuracy, setAccuracy] = useState<ExtendedModelAccuracy | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,6 +43,30 @@ export default function HistoryPage() {
     }
     const today = new Date()
     setDateRange({ from: new Date(today.getTime() - days * 24 * 60 * 60 * 1000), to: today })
+  }
+
+  const handleRecordResult = (id: string, homeRuns: number, awayRuns: number) => {
+    // Update localStorage immediately (fast, works offline)
+    const updated = recordResult(id, homeRuns, awayRuns)
+    setPredictions(updated)
+    setAccuracy(computeExtendedAccuracy(updated))
+
+    // Write-through to DB when authenticated (fire-and-forget)
+    if (isSignedIn) {
+      recordResultAction(id, homeRuns, awayRuns).catch(console.error)
+    }
+  }
+
+  const handleDelete = (id: string) => {
+    // Remove from localStorage immediately
+    const updated = deletePrediction(id)
+    setPredictions(updated)
+    setAccuracy(computeExtendedAccuracy(updated))
+
+    // Remove from DB when authenticated (fire-and-forget; row kept as audit trail if absent)
+    if (isSignedIn) {
+      deletePredictionAction(id).catch(console.error)
+    }
   }
 
   const FILTER_OPTIONS = [
@@ -84,7 +113,11 @@ export default function HistoryPage() {
               />
               <KpiCard
                 metric="NRFI Win Rate"
-                value={accuracy.nrfiTotal > 0 ? `${((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1)}%` : "—"}
+                value={
+                  accuracy.nrfiTotal > 0
+                    ? `${((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1)}%`
+                    : "—"
+                }
                 delta={`${accuracy.nrfiTotal} NRFI bets`}
                 variant="cy"
               />
@@ -96,8 +129,10 @@ export default function HistoryPage() {
 
             {/* Filter chips */}
             <div className="flex gap-2 flex-wrap items-center">
-              <span className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Period:</span>
-              {FILTER_OPTIONS.map(opt => (
+              <span className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">
+                Period:
+              </span>
+              {FILTER_OPTIONS.map((opt) => (
                 <button
                   key={opt.label}
                   onClick={() => handleDateRangeChange(opt.days)}
@@ -108,19 +143,17 @@ export default function HistoryPage() {
               ))}
             </div>
 
-            {/* Existing history table */}
+            {/* History table */}
             <SectionLabel index="03">Bet Log</SectionLabel>
             <HistoryTable
               predictions={predictions}
               accuracy={accuracy}
-              onRecordResult={(id, homeRuns, awayRuns) => {
-                console.log(`Record result for ${id}: ${homeRuns}-${awayRuns}`)
-              }}
-              onDelete={(id) => {
-                console.log(`Delete prediction ${id}`)
-              }}
+              onRecordResult={handleRecordResult}
+              onDelete={handleDelete}
               dateRange={dateRange || undefined}
-              onExportCSV={() => {}}
+              onExportCSV={() => {
+                // exportToCSV is handled internally by HistoryTable when this callback is provided
+              }}
             />
           </>
         ) : null}
