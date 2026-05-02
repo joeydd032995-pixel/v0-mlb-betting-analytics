@@ -1,115 +1,138 @@
 import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Heart, DollarSign, TrendingUp, BarChart3 } from "lucide-react"
 import { prisma } from "@/lib/prisma"
+import { SectionLabel } from "@/components/diamond/SectionLabel"
+import { KpiCard } from "@/components/diamond/KpiCard"
+
+function fmtMoney(n: number): string {
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })}`
+}
+
+const NAV_TILES = [
+  { href: "/bets",      label: "Bet Tracker",   desc: "Log and track wagers",        color: "text-amber-400 bg-amber-400/10 border-amber-400/20" },
+  { href: "/bankroll",  label: "Bankroll",       desc: "Balance & transaction ledger", color: "text-sky-400 bg-sky-400/10 border-sky-400/20" },
+  { href: "/watchlist", label: "Watchlist",      desc: "Games you're following",       color: "text-rose-400 bg-rose-400/10 border-rose-400/20" },
+  { href: "/history",   label: "History",        desc: "Prediction log & results",     color: "text-violet-400 bg-violet-400/10 border-violet-400/20" },
+  { href: "/accuracy",  label: "Accuracy",       desc: "Model performance metrics",    color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
+  { href: "/insights",  label: "Insights",       desc: "Feature importance & SHAP",    color: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20" },
+]
 
 export default async function DashboardPage() {
   const { userId } = await auth()
+  if (!userId) redirect("/sign-in")
 
-  if (!userId) {
-    redirect("/sign-in")
-  }
-
-  const [bets, watchlist, bankroll] = await Promise.all([
-    prisma.bet.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.watchlistItem.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.bankroll.findUnique({
-      where: { userId },
-    }),
+  const [allBetsList, watchlist, bankroll] = await Promise.all([
+    prisma.bet.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
+    prisma.watchlistItem.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
+    prisma.bankroll.findUnique({ where: { userId } }),
   ])
 
-  const completedBets = bets.filter((b) => b.result)
-  const totalPnL = completedBets.reduce((sum, b) => sum + (b.pnl || 0), 0)
-  const winRate = completedBets.length > 0
-    ? (completedBets.filter((b) => b.pnl && b.pnl > 0).length / completedBets.length) * 100
-    : 0
+  const recentBets   = allBetsList.slice(0, 5)
+  const allBets      = allBetsList.length
+  const completed    = allBetsList.filter((b) => b.result)
+  const totalPnL     = completed.reduce((s, b) => s + (b.pnl ?? 0), 0)
+  const wins         = completed.filter((b) => b.pnl && b.pnl > 0)
+  const winRate      = completed.length > 0 ? (wins.length / completed.length) * 100 : 0
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-foreground">Welcome back!</h1>
-          <p className="text-lg text-muted-foreground">
-            Manage your NRFI/YRFI predictions and track your betting performance.
-          </p>
+    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
+      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
+        <SectionLabel index="01">Dashboard</SectionLabel>
+
+        {/* KPI row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KpiCard
+            metric="Balance"
+            value={bankroll ? fmtMoney(bankroll.currentBalance) : "—"}
+            delta={bankroll ? `from ${fmtMoney(bankroll.startingBalance)}` : "Not initialized"}
+            variant="cy"
+          />
+          <KpiCard
+            metric="Total Bets"
+            value={String(allBets)}
+            delta={`${allBetsList.filter((b) => !b.result).length} pending`}
+            variant="bl"
+          />
+          <KpiCard
+            metric="Win Rate"
+            value={`${winRate.toFixed(1)}%`}
+            delta={`${completed.length} settled`}
+            variant="gr"
+          />
+          <KpiCard
+            metric="Total P/L"
+            value={`${totalPnL >= 0 ? "+" : ""}${totalPnL.toFixed(2)}u`}
+            delta={`${watchlist.length} watched`}
+            deltaPositive={totalPnL >= 0}
+            variant={totalPnL >= 0 ? "gr" : "cy"}
+          />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Link
-            href="/watchlist"
-            className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400 group-hover:bg-rose-500/30 transition-colors">
-              <Heart className="h-6 w-6" />
-            </div>
-            <h3 className="mt-4 font-semibold text-foreground">Watchlist</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{watchlist.length} games tracked</p>
-          </Link>
-
-          <Link
-            href="/bets"
-            className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-violet-500/20 text-violet-400 group-hover:bg-violet-500/30 transition-colors">
-              <DollarSign className="h-6 w-6" />
-            </div>
-            <h3 className="mt-4 font-semibold text-foreground">Bets</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{bets.length} bets total</p>
-          </Link>
-
-          <Link
-            href="/accuracy"
-            className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-sky-500/20 text-sky-400 group-hover:bg-sky-500/30 transition-colors">
-              <BarChart3 className="h-6 w-6" />
-            </div>
-            <h3 className="mt-4 font-semibold text-foreground">Accuracy</h3>
-            <p className="mt-1 text-xs text-muted-foreground">View your metrics</p>
-          </Link>
-
-          <Link
-            href="/insights"
-            className="group rounded-lg border border-border/30 bg-card/50 p-6 hover:bg-card/70 transition-colors"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500/30 transition-colors">
-              <TrendingUp className="h-6 w-6" />
-            </div>
-            <h3 className="mt-4 font-semibold text-foreground">Insights</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Explore model factors</p>
-          </Link>
+        {/* Nav tiles */}
+        <SectionLabel index="02">Quick Access</SectionLabel>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {NAV_TILES.map((tile) => (
+            <Link
+              key={tile.href}
+              href={tile.href}
+              className="rounded-[14px] border border-ds-line p-5 hover:border-ds-line/80 hover:bg-white/[0.02] transition-colors"
+              style={{ background: "var(--ds-panel)" }}
+            >
+              <div className={`inline-flex items-center rounded-[6px] border px-2 py-1 font-jet text-[10px] uppercase tracking-[0.12em] mb-3 ${tile.color}`}>
+                {tile.label}
+              </div>
+              <p className="font-jet text-[11px] text-ds-muted">{tile.desc}</p>
+            </Link>
+          ))}
         </div>
 
-        <div className="rounded-lg border border-border/30 bg-card/50 p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Your Stats</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Total Bets</p>
-              <p className="text-2xl font-bold text-foreground mt-1">{bets.length}</p>
+        {/* Recent bets */}
+        {recentBets.length > 0 && (
+          <>
+            <div className="flex items-center justify-between">
+              <SectionLabel index="03">Recent Bets</SectionLabel>
+              <Link href="/bets" className="font-jet text-[10px] uppercase tracking-[0.12em] text-sky-400 hover:text-sky-300">
+                View all →
+              </Link>
             </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Win Rate</p>
-              <p className="text-2xl font-bold text-foreground mt-1">{winRate.toFixed(1)}%</p>
+            <div
+              className="rounded-[14px] border border-ds-line overflow-hidden"
+              style={{ background: "var(--ds-panel)" }}
+            >
+              {recentBets.map((bet, i) => (
+                <div
+                  key={bet.id}
+                  className={`flex items-center justify-between px-4 py-3 ${i < recentBets.length - 1 ? "border-b border-ds-line/50" : ""}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`rounded border px-1.5 py-0.5 font-jet text-[10px] uppercase tracking-[0.1em] ${
+                      bet.result
+                        ? bet.pnl && bet.pnl > 0
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          : "border-red-500/30 bg-red-500/10 text-red-400"
+                        : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                    }`}>
+                      {bet.result ? (bet.pnl && bet.pnl > 0 ? "WIN" : "LOSS") : "PENDING"}
+                    </span>
+                    <span className="font-jet text-[11px] text-ds-fg">{bet.prediction}</span>
+                    <span className="font-jet text-[11px] text-ds-muted">{bet.gameId}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-jet text-[11px] text-ds-muted">${bet.amount.toFixed(2)}</span>
+                    {bet.result && (
+                      <span className={`font-jet text-[11px] font-medium ${bet.pnl && bet.pnl > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {bet.pnl && bet.pnl > 0 ? "+" : ""}{(bet.pnl ?? 0).toFixed(2)}u
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Total P/L</p>
-              <p className={totalPnL > 0 ? "text-emerald-400" : "text-foreground"}>
-                <span className="text-2xl font-bold">{totalPnL > 0 ? "+" : ""}{totalPnL.toFixed(2)}</span>
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Balance</p>
-              <p className="text-2xl font-bold text-foreground mt-1">${bankroll?.currentBalance.toFixed(2) || "—"}</p>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
       </main>
     </div>
   )
