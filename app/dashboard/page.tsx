@@ -24,14 +24,15 @@ export default async function DashboardPage() {
   const { userId } = await auth()
   if (!userId) redirect("/sign-in")
 
-  const [bets, watchlist, bankroll] = await Promise.all([
-    prisma.bet.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 5 }),
+  const [allBetsList, watchlist, bankroll] = await Promise.all([
+    prisma.bet.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
     prisma.watchlistItem.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
     prisma.bankroll.findUnique({ where: { userId } }),
   ])
 
-  const allBets      = await prisma.bet.count({ where: { userId } })
-  const completed    = bets.filter((b) => b.result)
+  const recentBets   = allBetsList.slice(0, 5)
+  const allBets      = allBetsList.length
+  const completed    = allBetsList.filter((b) => b.result)
   const totalPnL     = completed.reduce((s, b) => s + (b.pnl ?? 0), 0)
   const wins         = completed.filter((b) => b.pnl && b.pnl > 0)
   const winRate      = completed.length > 0 ? (wins.length / completed.length) * 100 : 0
@@ -52,7 +53,7 @@ export default async function DashboardPage() {
           <KpiCard
             metric="Total Bets"
             value={String(allBets)}
-            delta={`${bets.filter((b) => !b.result).length} pending`}
+            delta={`${allBetsList.filter((b) => !b.result).length} pending`}
             variant="bl"
           />
           <KpiCard
@@ -89,7 +90,7 @@ export default async function DashboardPage() {
         </div>
 
         {/* Recent bets */}
-        {bets.length > 0 && (
+        {recentBets.length > 0 && (
           <>
             <div className="flex items-center justify-between">
               <SectionLabel index="03">Recent Bets</SectionLabel>
@@ -101,10 +102,10 @@ export default async function DashboardPage() {
               className="rounded-[14px] border border-ds-line overflow-hidden"
               style={{ background: "var(--ds-panel)" }}
             >
-              {bets.map((bet, i) => (
+              {recentBets.map((bet, i) => (
                 <div
                   key={bet.id}
-                  className={`flex items-center justify-between px-4 py-3 ${i < bets.length - 1 ? "border-b border-ds-line/50" : ""}`}
+                  className={`flex items-center justify-between px-4 py-3 ${i < recentBets.length - 1 ? "border-b border-ds-line/50" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <span className={`rounded border px-1.5 py-0.5 font-jet text-[10px] uppercase tracking-[0.1em] ${

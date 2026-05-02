@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
-import { RemoveWatchlistButton } from "@/components/watchlist/RemoveWatchlistButton"
+import { WatchlistRow } from "@/components/watchlist/WatchlistRow"
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -60,32 +60,18 @@ export default async function WatchlistPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-ds-line">
-                  {["Game ID", "Added", ""].map((h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted"
-                    >
-                      {h}
-                    </th>
-                  ))}
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Game ID</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Added</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted"></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((item) => (
-                  <tr
+                  <WatchlistRow
                     key={item.id}
-                    className="border-b border-ds-line/50 last:border-0 hover:bg-white/[0.02]"
-                  >
-                    <td className="px-4 py-3 font-jet text-[12px] text-ds-fg">
-                      {item.gameId}
-                    </td>
-                    <td className="px-4 py-3 font-jet text-[11px] text-ds-muted">
-                      {fmtDate(item.createdAt)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <RemoveWatchlistButton gameId={item.gameId} />
-                    </td>
-                  </tr>
+                    gameId={item.gameId}
+                    added={fmtDate(item.createdAt)}
+                  />
                 ))}
               </tbody>
             </table>

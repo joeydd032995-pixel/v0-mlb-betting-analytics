@@ -58,7 +58,7 @@ export default async function AccuracyPage() {
       },
       status:       r.status === "complete" ? "complete" : "pending",
       savedAt:      r.createdAt.toISOString(),
-      actualResult: r.actualResult as "NRFI" | "YRFI" | undefined ?? undefined,
+      actualResult: r.actualResult as "NRFI" | "YRFI" | undefined,
       correct:      r.correct ?? undefined,
     }))
   }

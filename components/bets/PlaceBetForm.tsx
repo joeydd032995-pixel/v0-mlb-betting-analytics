@@ -1,6 +1,6 @@
 "use client"
 
-import { useTransition, useState } from "react"
+import { useTransition, useState, useEffect, useRef } from "react"
 import { placeBetAction } from "@/app/actions"
 
 export function PlaceBetForm() {
@@ -12,6 +12,11 @@ export function PlaceBetForm() {
   const [prediction, setPrediction] = useState<"NRFI" | "YRFI">("NRFI")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
+  }, [])
 
   function reset() {
     setGameId("")
@@ -28,13 +33,13 @@ export function PlaceBetForm() {
     const oddsVal = parseFloat(odds)
     if (!gameId.trim()) { setError("Game ID is required"); return }
     if (!amountVal || amountVal <= 0) { setError("Enter a positive stake"); return }
-    if (isNaN(oddsVal)) { setError("Enter valid odds (e.g. -110 or +120)"); return }
+    if (isNaN(oddsVal) || oddsVal === 0) { setError("Enter valid non-zero odds (e.g. -110 or +120)"); return }
     setError(null)
     startTransition(async () => {
       const result = await placeBetAction({ gameId: gameId.trim(), amount: amountVal, odds: oddsVal, prediction })
       if (result.ok) {
         setSuccess(true)
-        setTimeout(() => { reset(); setOpen(false) }, 1200)
+        timeoutRef.current = setTimeout(() => { reset(); setOpen(false) }, 1200)
       } else {
         setError(result.error)
       }
