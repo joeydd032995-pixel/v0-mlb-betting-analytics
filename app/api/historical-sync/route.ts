@@ -56,7 +56,6 @@ const NEUTRAL_WEATHER: Weather = {
   windDirection: "calm",
   conditions: "clear",
   humidity: 50,
-  precipitation: 0,
 }
 
 function buildLightPitcher(

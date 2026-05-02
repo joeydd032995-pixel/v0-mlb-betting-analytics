@@ -18,6 +18,10 @@ const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",      // user dashboard with watchlist
   "/bets(.*)",           // bet tracker
   "/watchlist(.*)",      // game watchlist
+  "/bankroll(.*)",       // bankroll management
+  "/history(.*)",        // prediction history
+  "/accuracy(.*)",       // model accuracy
+  "/insights(.*)",       // betting insights
   "/api/premium(.*)",    // future: gated prediction data
   "/api/admin(.*)",      // future: admin dashboard
   "/account(.*)",        // future: subscription management

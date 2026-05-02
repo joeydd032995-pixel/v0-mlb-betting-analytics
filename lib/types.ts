@@ -288,6 +288,8 @@ export interface FilterOptions {
   league: "all" | "AL" | "NL"
   sortBy: "probability" | "confidence" | "edge" | "time"
   showValueOnly: boolean
+  /** Minimum edge as a decimal fraction (e.g. 0.02 = 2%). */
+  minEdge?: number
 }
 
 export const METRIC_GLOSSARY: Record<string, string> = {

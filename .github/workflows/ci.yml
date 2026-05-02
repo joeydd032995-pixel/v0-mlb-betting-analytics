@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  quality:
+    name: Type-check, Lint & Build
+    runs-on: ubuntu-latest
+    # Expose secrets as env vars so they can be checked in step-level `if` conditions.
+    # (The `secrets` context is not available in step-level `if`; `env` context is.)
+    env:
+      HAS_BUILD_SECRETS: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY != '' && secrets.CLERK_SECRET_KEY != '' && secrets.DATABASE_URL != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      # The full Next.js build (with Clerk + DB secrets) runs on every push via
+      # Vercel's preview deployment — see the Vercel bot comment on this PR.
+      # Add NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY / DATABASE_URL
+      # as repo secrets to also gate the build here in CI.
+      - name: Build
+        if: env.HAS_BUILD_SECRETS == 'true'
+        run: npx next build
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
       company?: string
       message?: string
     }
-    console.log("[contact] Enterprise inquiry received:", body)
+    console.log("[contact] Enterprise inquiry received from:", body.company ?? "unknown")
     return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json(
