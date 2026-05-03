@@ -209,7 +209,7 @@ export async function GET(request: Request) {
   }
 
   const dates = daysInMonth(year, month)
-  const currentYear = new Date().getFullYear()
+  const currentYear = parseInt(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()).slice(0, 4), 10)
   const isBacktested = year < currentYear
 
   let gameResultsSynced = 0
