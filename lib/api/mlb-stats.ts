@@ -223,7 +223,7 @@ export async function fetchTeamLast5FirstInnings(
   teamApiId: number,
   limit = 5
 ): Promise<FirstInningResult[]> {
-  const today = new Date().toISOString().split("T")[0]
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
   const seasonStart = `${SEASON}-03-01`
 
   const data = await mlbFetch<{ dates: Array<{ games: MLBGame[] }> }>(

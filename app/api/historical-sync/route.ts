@@ -167,7 +167,7 @@ function buildLightGame(apiGame: MLBGame, date: string): Game {
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function daysInMonth(year: number, month: number): string[] {
-  const today = new Date().toISOString().split("T")[0]
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
   const dates: string[] = []
   const d = new Date(Date.UTC(year, month - 1, 1))
   while (d.getUTCMonth() === month - 1) {
@@ -209,7 +209,7 @@ export async function GET(request: Request) {
   }
 
   const dates = daysInMonth(year, month)
-  const currentYear = new Date().getFullYear()
+  const currentYear = parseInt(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()).slice(0, 4), 10)
   const isBacktested = year < currentYear
 
   let gameResultsSynced = 0
