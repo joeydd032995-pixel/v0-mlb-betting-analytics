@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const today = new Date().toISOString().split("T")[0]
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
     const { games, pitchers, teams } = await getLiveGameSlate(today)
 
     if (games.length === 0) {
@@ -35,6 +35,6 @@ export async function GET() {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error"
     console.error("[/api/predictions]", message)
-    return NextResponse.json({ error: message, date: new Date().toISOString().split("T")[0] }, { status: 500 })
+    return NextResponse.json({ error: message, date: new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()) }, { status: 500 })
   }
 }
