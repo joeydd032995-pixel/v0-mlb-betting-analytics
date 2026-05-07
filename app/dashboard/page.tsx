@@ -73,7 +73,7 @@ export default async function DashboardPage() {
   type BetRow = { result: string | null; pnl: number | null }
   type BankrollRow = { currentBalance: number } | null
 
-  const [betsRaw, watchlist, bankrollRaw, allCompleteRaw, yesterdayPredsRaw, slate] = await Promise.all([
+  const dbResult = await Promise.all([
     prisma.bet.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
     prisma.watchlistItem.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
     prisma.bankroll.findUnique({ where: { userId } }),
@@ -91,12 +91,15 @@ export default async function DashboardPage() {
         poissonNrfi: true, zipNrfi: true, markovNrfi: true, ensembleNrfi: true,
       },
     }),
-    getLiveGameSlate(today).catch(() => ({ games: [] as any[], pitchers: new Map(), teams: new Map() })),
-  ])
-  const bets           = betsRaw           as BetRow[]
-  const bankroll       = bankrollRaw       as BankrollRow
-  const allComplete    = allCompleteRaw    as PredRow[]
-  const yesterdayPreds = yesterdayPredsRaw as PredRow[]
+  ]).catch(() => null)
+
+  const slate = await getLiveGameSlate(today).catch(() => ({ games: [] as any[], pitchers: new Map(), teams: new Map() }))
+
+  const bets:           BetRow[]   = dbResult ? dbResult[0] as BetRow[]   : []
+  const watchlist                  = dbResult ? dbResult[1]               : []
+  const bankroll:       BankrollRow = dbResult ? dbResult[2] as BankrollRow : null
+  const allComplete:    PredRow[]  = dbResult ? dbResult[3] as PredRow[]  : []
+  const yesterdayPreds: PredRow[]  = dbResult ? dbResult[4] as PredRow[]  : []
 
   // ── Season accuracy ────────────────────────────────────────────────────────
   const withResult  = allComplete.filter((p) => p.correct !== null)
