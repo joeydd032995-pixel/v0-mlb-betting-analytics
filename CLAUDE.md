@@ -82,18 +82,24 @@ MLB Stats API is always available and free; all other external data falls back t
 | `lib/constants/mlb-teams.ts` | Static team registry with `apiId` (MLB numeric ID) |
 | `lib/constants/mlb-stadiums.ts` | Stadium park factors + GPS coords |
 | `lib/prediction-store.ts` | `buildTrackedPrediction()` — converts `NRFIPrediction` → DB shape |
+| `lib/config.ts` | Central statistical constants — wOBA weights, FIP constant, Kelly settings, league averages (2024 MLB); consumed by `lib/advanced-stats.ts` |
 
 ### API Routes
 
 - `GET /api/predictions` — today's live predictions (force-dynamic)
 - `GET /api/results?date=YYYY-MM-DD` — first-inning run results from MLB linescore
-- `GET /api/historical-sync?year=YYYY&month=M` — backfills `GameResult` + `ModelPrediction`; re-score requires auth
+- `GET /api/historical-sync?year=YYYY&month=M` — DB backfill: upserts `GameResult` + `ModelPrediction` rows into Neon, one month per call; re-score (`?skip=false`) requires auth
+- `GET /api/backfill?from=YYYY-MM-DD&to=YYYY-MM-DD` — localStorage backfill (max 30 days): returns `TrackedPrediction[]` JSON for the client-side accuracy dashboard; does **not** write to DB
 - `GET /api/games` — game list
 - `GET /api/performance` — model accuracy stats
 - `POST /api/bets`, `GET /api/bets`, `PATCH /api/bets/[id]` — bet tracker
 - `GET/POST /api/watchlist`, `DELETE /api/watchlist/[gameId]` — watchlist
 - `GET/POST /api/bankroll` — bankroll management
 - `POST /api/webhooks/clerk` — Clerk user sync to DB (uses `svix` for webhook verification)
+- `GET /api/export-data` — downloads full history as CSV (joins `GameResult` + `ModelPrediction` on gamePk)
+- `GET /api/db-status` — deployment diagnostic: DB connectivity check + env var presence report
+- `GET /api/debug` — deployment diagnostic: MLB Stats API connectivity + today's schedule
+- `POST /api/contact` — stub enterprise inquiry handler (logs only, no CRM wired yet)
 
 ### Environment Variables
 
