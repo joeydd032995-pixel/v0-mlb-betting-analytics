@@ -228,10 +228,12 @@ export interface MarkovResult {
  *
  * Iterates until all remaining mass is < 1e-6 or 30 PAs (safety limit).
  */
+type OutCount = 0 | 1 | 2
+
 export function computeMarkovNrfi(
   pa: PAOutcomes,
-  initOuts = 0,
-  initRunners = 0
+  initOuts: OutCount = 0,
+  initRunners: RunnerBits = 0
 ): MarkovResult {
   // stateProb[outs][runners] = P(in this state AND 0 runs scored so far)
   const stateProb: number[][] = [
@@ -875,7 +877,7 @@ const BASE_DESCRIPTIONS = [
  * For each of the 24 non-terminal base-out states, computes conditional P(NRFI)
  * by running the Markov chain with probability mass starting at that state.
  *
- * This reuses computeMarkovNrfiFromState for all 24 states — no Markov logic is duplicated.
+ * This calls computeMarkovNrfi(pa, outs, runners) for all 24 states — no Markov logic is duplicated.
  */
 export function computeMarkovStateSnapshot(pa: PAOutcomes): MarkovStateSnapshot {
   const states: MarkovStateInfo[] = []

@@ -3,6 +3,7 @@ import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function GET() {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
@@ -33,8 +34,7 @@ export async function GET() {
       noGames: false,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error"
-    console.error("[/api/predictions]", message)
-    return NextResponse.json({ error: message, date: today }, { status: 500 })
+    console.error("[/api/predictions]", err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: "Failed to generate predictions", date: today }, { status: 500 })
   }
 }

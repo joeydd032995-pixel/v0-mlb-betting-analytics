@@ -25,7 +25,7 @@
  *   multiplier    = clamp(1 + windEffect × 0.012 × humidityEffect, 0.82, 1.22)
  */
 
-import type { Weather, WindDirection } from "./types"
+import type { Weather, WindDirection } from "@/lib/types"
 
 /** Maps the park-relative WindDirection token to degrees (0 = straight out). */
 const WIND_DIR_DEG: Record<WindDirection, number> = {

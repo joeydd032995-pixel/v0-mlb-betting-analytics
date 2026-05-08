@@ -14,7 +14,11 @@ export function resolveTeamId(apiName: string): string {
   const team = getTeamByName(apiName)
   if (!team) {
     const words = apiName.trim().split(/\s+/)
-    return words[words.length - 1]?.toLowerCase().slice(0, 3) ?? "unk"
+    const last = words[words.length - 1]?.toLowerCase() ?? ""
+    if (last === "sox" && words.length >= 2) {
+      return (words[words.length - 2]!.toLowerCase() + last).slice(0, 8)
+    }
+    return last.slice(0, 3) || "unk"
   }
   return team.id
 }

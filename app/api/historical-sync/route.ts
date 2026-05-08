@@ -62,7 +62,7 @@ function buildLightPitcher(
     id: pitcherId,
     name: stats?.fullName ?? name,
     teamId,
-    throws: "R",
+    throws: stats?.throws ?? "R",
     age: 0,
     firstInning: {
       era, whip, kRate, bbRate, hrPer9,
