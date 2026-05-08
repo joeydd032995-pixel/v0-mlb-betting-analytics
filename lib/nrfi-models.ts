@@ -883,7 +883,7 @@ export function computeMarkovStateSnapshot(pa: PAOutcomes): MarkovStateSnapshot 
   const states: MarkovStateInfo[] = []
   for (let outs = 0; outs < 3; outs++) {
     for (let runners = 0; runners < 8; runners++) {
-      const result = computeMarkovNrfi(pa, outs, runners)
+      const result = computeMarkovNrfi(pa, outs as OutCount, runners as RunnerBits)
       states.push({
         outs,
         runners,
