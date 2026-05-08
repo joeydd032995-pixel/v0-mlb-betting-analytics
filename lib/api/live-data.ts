@@ -10,30 +10,11 @@ import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
 import type { Game, Pitcher, Team, Weather, GameOdds } from "../types"
-import { MLB_TEAMS, getTeamByName } from "../constants/mlb-teams"
+import { MLB_TEAMS } from "../constants/mlb-teams"
 import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
 import { PitchingStatsCalculator } from "../advanced-stats"
 import type { PitchingStats } from "../advanced-stats"
-
-// ─── Estimation helpers ───────────────────────────────────────────────────────
-
-/**
- * Estimate NRFI rate from overall ERA using Poisson model.
- * P(0 runs in 1 inning) = e^(-ERA/9)
- * First innings are slightly better for pitchers (fresh arm),
- * so multiply by 0.95 as a first-inning ERA adjustment.
- */
-function estimateNrfiRate(era: number): number {
-  const firstInningEra = era * 0.95
-  return Math.min(0.90, Math.max(0.45, Math.exp(-firstInningEra / 9)))
-}
-
-/**
- * Estimate offense factor from team OPS (league avg OPS ≈ 0.720).
- */
-function estimateOffenseFactor(ops: number): number {
-  return Math.min(1.35, Math.max(0.65, ops / 0.720))
-}
+import { resolveTeamId, estimateNrfiRate, estimateOffenseFactor } from "./shared-helpers"
 
 // ─── PitchingStats shape builder ─────────────────────────────────────────────
 
@@ -89,13 +70,18 @@ function matchOddsEvent(
   awayTeamName: string,
   events: OddsEvent[]
 ): OddsEvent | null {
-  const lastWord = (name: string): string => {
-    const words = name.trim().split(/\s+/)
-    return words[words.length - 1]?.toLowerCase() ?? ""
+  // "White Sox" and "Red Sox" share the last word "sox".
+  // Use the last two words for those teams so odds are never cross-assigned.
+  const teamKey = (name: string): string => {
+    const words = name.trim().toLowerCase().split(/\s+/)
+    if (words.length >= 2 && words[words.length - 1] === "sox") {
+      return words.slice(-2).join(" ")
+    }
+    return words[words.length - 1] ?? ""
   }
 
-  const homeKey = lastWord(homeTeamName)
-  const awayKey = lastWord(awayTeamName)
+  const homeKey = teamKey(homeTeamName)
+  const awayKey = teamKey(awayTeamName)
 
   if (!homeKey || !awayKey) return null
 
@@ -106,19 +92,6 @@ function matchOddsEvent(
         e.away_team.toLowerCase().includes(awayKey)
     ) ?? null
   )
-}
-
-// ─── Team ID resolution ───────────────────────────────────────────────────────
-
-function resolveTeamId(apiName: string): string {
-  const team = getTeamByName(apiName)
-  // Fall back to a slugified version of the last word in the name
-  if (!team) {
-    const words = apiName.trim().split(/\s+/)
-    const fallback = words[words.length - 1]?.toLowerCase().slice(0, 3) ?? "unk"
-    return fallback
-  }
-  return team.id
 }
 
 // ─── mapGame ──────────────────────────────────────────────────────────────────
@@ -258,7 +231,7 @@ function mapPitcher(
     id: pitcherId,
     name: apiStats.fullName,
     teamId,
-    throws: "R",
+    throws: apiStats.throws,
     age: 0,
     firstInning: {
       era,
@@ -270,8 +243,8 @@ function mapPitcher(
       nrfiRate,
       avgRunsAllowed: 1 - nrfiRate,
       firstBatterOBP,
-      last5Results: [],           // no real data available
-      last5RunsAllowed: [],       // no real data available
+      last5Results: last5.map((r) => r.nrfi),
+      last5RunsAllowed: last5.map((r) => r.runs),
       startCount,
       homeNrfiRate: nrfiRate,     // no home/away split data available
       awayNrfiRate: nrfiRate,

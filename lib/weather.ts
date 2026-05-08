@@ -25,10 +25,10 @@
  *   multiplier    = clamp(1 + windEffect × 0.012 × humidityEffect, 0.82, 1.22)
  */
 
-import type { Weather } from "./types"
+import type { Weather, WindDirection } from "./types"
 
 /** Maps the park-relative WindDirection token to degrees (0 = straight out). */
-const WIND_DIR_DEG: Record<string, number> = {
+const WIND_DIR_DEG: Record<WindDirection, number> = {
   out:       0,
   crosswind: 90,
   in:        180,
@@ -50,7 +50,7 @@ export function computeVectorWeatherMultiplier(
 ): number {
   if (weather.conditions === "dome") return 1.0
 
-  const windDeg      = WIND_DIR_DEG[weather.windDirection] ?? 0
+  const windDeg      = WIND_DIR_DEG[weather.windDirection]
   const relAngleRad  = (windDeg - parkOrientation) * (Math.PI / 180)
   const windEffect   = weather.windSpeed * Math.cos(relAngleRad)
   const humidityEffect = 1 - (weather.humidity / 100) * 0.08

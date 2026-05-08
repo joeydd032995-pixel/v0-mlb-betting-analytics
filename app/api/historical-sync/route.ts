@@ -19,36 +19,21 @@
  */
 
 import { NextResponse } from "next/server"
+import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { fetchGamesByDate, fetchGameLinescore, fetchPitcherStats, fetchTeamStats } from "@/lib/api/mlb-stats"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
 import { STADIUM_PARK_FACTORS } from "@/lib/constants/mlb-stadiums"
-import { MLB_TEAMS, getTeamByName } from "@/lib/constants/mlb-teams"
+import { MLB_TEAMS } from "@/lib/constants/mlb-teams"
+import { resolveTeamId, estimateNrfiRate, estimateOffenseFactor } from "@/lib/api/shared-helpers"
 import type { Game, Pitcher, Team, Weather } from "@/lib/types"
 import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats } from "@/lib/api/mlb-stats"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
-// ─── Helpers (lightweight versions of live-data helpers) ──────────────────────
-
-function resolveTeamId(apiName: string): string {
-  const team = getTeamByName(apiName)
-  if (!team) {
-    const words = apiName.trim().split(/\s+/)
-    return words[words.length - 1]?.toLowerCase().slice(0, 3) ?? "unk"
-  }
-  return team.id
-}
-
-function estimateNrfiRate(era: number): number {
-  return Math.min(0.90, Math.max(0.45, Math.exp(-(era * 0.95) / 9)))
-}
-
-function estimateOffenseFactor(ops: number): number {
-  return Math.min(1.35, Math.max(0.65, ops / 0.720))
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const NEUTRAL_WEATHER: Weather = {
   temperature: 72,
@@ -168,10 +153,11 @@ function buildLightGame(apiGame: MLBGame, date: string): Game {
 
 function daysInMonth(year: number, month: number): string[] {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+  const etFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" })
   const dates: string[] = []
   const d = new Date(Date.UTC(year, month - 1, 1))
   while (d.getUTCMonth() === month - 1) {
-    const s = d.toISOString().split("T")[0]
+    const s = etFormatter.format(d)
     if (s > today) break
     dates.push(s)
     d.setUTCDate(d.getUTCDate() + 1)
@@ -199,7 +185,6 @@ export async function GET(request: Request) {
   if (!skipSynced) {
     let userId: string | null = null
     try {
-      const { auth } = await import("@clerk/nextjs/server")
       const session = await auth()
       userId = session.userId
     } catch { /* Clerk not configured — deny by default */ }
@@ -302,11 +287,12 @@ export async function GET(request: Request) {
       const pitcherStatsMap = new Map(pitcherStatsArr)
       const teamStatsMap    = new Map(teamStatsArr)
 
-      const pitchers = new Map<string, Pitcher>()
-      const teams    = new Map<string, Team>()
+      const pitchers  = new Map<string, Pitcher>()
+      const teams     = new Map<string, Team>()
+      const gameById  = new Map(gameObjs.map((g) => [g.id, g]))
 
       for (const apiGame of finalGames) {
-        const g = gameObjs.find((x) => x.id === String(apiGame.gamePk))
+        const g = gameById.get(String(apiGame.gamePk))
         if (!g) continue
 
         if (!pitchers.has(g.homePitcherId)) {
@@ -330,7 +316,7 @@ export async function GET(request: Request) {
       const predictions = computeAllPredictions(gameObjs, pitchers, teams)
 
       for (const pred of predictions) {
-        const game   = gameObjs.find((g) => g.id === pred.gameId)
+        const game = gameById.get(pred.gameId)
         if (!game) continue
 
         const tracked = buildTrackedPrediction(pred, game, pitchers, teams, date)

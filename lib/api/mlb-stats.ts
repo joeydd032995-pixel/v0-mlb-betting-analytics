@@ -54,6 +54,7 @@ export interface MLBLinescore {
  */
 export interface MLBPitcherSeasonStats {
   fullName: string
+  throws: "R" | "L" | "S"
   gamesStarted: number
   era: number
   whip: number
@@ -285,6 +286,7 @@ export async function fetchPitcherStats(
   type RawPerson = {
     id: number
     fullName: string
+    pitchHand?: { code: string }
     stats?: RawStatGroup[]
   }
 
@@ -304,10 +306,13 @@ export async function fetchPitcherStats(
     )
     ?.splits?.[0]?.stat
 
+  const throws = (person.pitchHand?.code ?? "R") as "R" | "L" | "S"
+
   // No 2026 stats yet — return name-only record so the pitcher card still shows up
   if (!pitchingSplit) {
     return {
       fullName: person.fullName,
+      throws,
       gamesStarted: 0,
       era: 4.0,
       whip: 1.28,
@@ -323,6 +328,7 @@ export async function fetchPitcherStats(
 
   return {
     fullName: person.fullName,
+    throws,
     gamesStarted: pitchingSplit.gamesStarted ?? 0,
     era: parseFloat(pitchingSplit.era ?? "4.0") || 4.0,
     whip: parseFloat(pitchingSplit.whip ?? "1.28") || 1.28,
