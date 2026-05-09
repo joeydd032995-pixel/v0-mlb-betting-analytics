@@ -21,7 +21,7 @@ try:
     import pandas as pd
 except ImportError as e:
     print(f"Missing dependency: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
-    raise SystemExit(1)
+    raise SystemExit(1) from e
 
 
 ROOT = Path(__file__).resolve().parents[2]

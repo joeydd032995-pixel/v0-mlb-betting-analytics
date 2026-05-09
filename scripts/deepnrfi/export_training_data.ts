@@ -18,8 +18,8 @@
 
 import fs from "node:fs"
 import path from "node:path"
-import { prisma } from "../../lib/prisma"
-import { FEATURE_ORDER } from "../../lib/features/feature-vector"
+import { prisma } from "@/lib/prisma"
+import { FEATURE_ORDER } from "@/lib/features/feature-vector"
 
 interface Args { from: string; to: string; out: string }
 
@@ -31,7 +31,9 @@ function parseArgs(): Args {
   }
   return {
     from: get("--from") ?? "2023-04-01",
-    to: get("--to") ?? new Date().toISOString().slice(0, 10),
+    // Default to today in ET so the export window matches the rest of the app's
+    // schedule logic (game dates throughout the project are ET-anchored).
+    to: get("--to") ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()),
     out: get("--out") ?? path.join(process.cwd(), "scripts", "deepnrfi", "data", "training.csv"),
   }
 }

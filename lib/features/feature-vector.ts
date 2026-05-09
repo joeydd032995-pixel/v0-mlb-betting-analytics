@@ -16,11 +16,11 @@ import type {
   Weather,
   DeepNrfiFeatureVector,
   DeepNrfiFeaturePresence,
-} from "../types"
-import { applyDynamicShrinkage, getDynamicPriorWeight, getLineupVsHand, LEAGUE_AVG_NRFI } from "../nrfi-models"
-import { computeAirDensity } from "./air-density"
-import { getExtendedParkFactor } from "./park-factors-extended"
-import { getUmpireProfile } from "./umpire-zone"
+} from "@/lib/types"
+import { applyDynamicShrinkage, getDynamicPriorWeight, getLineupVsHand, LEAGUE_AVG_NRFI } from "@/lib/nrfi-models"
+import { computeAirDensity } from "@/lib/features/air-density"
+import { getExtendedParkFactor } from "@/lib/features/park-factors-extended"
+import { getUmpireProfile } from "@/lib/features/umpire-zone"
 
 /** League-average defaults used when a real value isn't available. */
 const DEFAULTS = {

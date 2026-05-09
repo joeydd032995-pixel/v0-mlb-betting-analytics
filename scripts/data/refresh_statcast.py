@@ -34,20 +34,30 @@ try:
     from pybaseball import statcast, playerid_lookup, cache
 except ImportError as e:
     print(f"Missing dependency: {e}.  Run: pip install -r scripts/data/requirements.txt", file=sys.stderr)
-    raise SystemExit(1)
+    raise SystemExit(1) from e
+
+
+def _iso_date(value: str) -> date:
+    try:
+        return datetime.fromisoformat(value).date()
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(f"Invalid date '{value}', expected YYYY-MM-DD") from err
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Refresh Statcast caches into Postgres")
-    p.add_argument("--from", dest="date_from", required=True, help="ISO date YYYY-MM-DD")
-    p.add_argument("--to", dest="date_to", required=True, help="ISO date YYYY-MM-DD")
+    p.add_argument("--from", dest="date_from", type=_iso_date, required=True, help="ISO date YYYY-MM-DD")
+    p.add_argument("--to", dest="date_to", type=_iso_date, required=True, help="ISO date YYYY-MM-DD")
     p.add_argument(
         "--db-url",
         default=os.environ.get("DATABASE_URL"),
         help="Postgres URL (defaults to $DATABASE_URL).",
     )
     p.add_argument("--dry-run", action="store_true", help="Skip database writes; print summary only.")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.date_from > args.date_to:
+        p.error("--from must be on or before --to")
+    return args
 
 
 def summarise_pitchers(df: pd.DataFrame) -> pd.DataFrame:
@@ -110,14 +120,14 @@ def main() -> int:
 
     cache.enable()
     print(f"[refresh-statcast] pulling Statcast {args.date_from} → {args.date_to}")
-    df = statcast(start_dt=args.date_from, end_dt=args.date_to, verbose=False)
+    df = statcast(start_dt=args.date_from.isoformat(), end_dt=args.date_to.isoformat(), verbose=False)
     if df is None or df.empty:
         print("[refresh-statcast] no rows returned")
         return 0
 
     pitchers = summarise_pitchers(df)
     batters = summarise_batters(df)
-    summary_date = datetime.fromisoformat(args.date_to).date()
+    summary_date = args.date_to
     print(f"[refresh-statcast] pitchers={len(pitchers)} batters={len(batters)} (as of {summary_date})")
 
     if args.dry_run:

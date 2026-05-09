@@ -25,7 +25,7 @@ try:
     from sklearn.metrics import brier_score_loss, log_loss
 except ImportError as e:
     print(f"Missing dependency: {e}", file=sys.stderr)
-    raise SystemExit(1)
+    raise SystemExit(1) from e
 
 
 def parse_args() -> argparse.Namespace:

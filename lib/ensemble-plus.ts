@@ -33,8 +33,10 @@ const DEFAULT_WEIGHTS = { ensemble7: 0.70, deepNrfi: 0.25, monteCarlo: 0.05 }
  * return a no-op blend (weight 1.0 on ensemble7).
  */
 export function combine9Models(input: CombineInputs): CombineResult {
+  // Guard every contributor with Number.isFinite so an upstream NaN/Infinity
+  // can't silently dominate the renormalised blend.
   const present = {
-    ensemble7: true,
+    ensemble7: Number.isFinite(input.ensemble7),
     deepNrfi: input.deepNrfi !== null && Number.isFinite(input.deepNrfi),
     monteCarlo: input.monteCarlo !== null && Number.isFinite(input.monteCarlo),
   }

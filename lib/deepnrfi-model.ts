@@ -4,11 +4,16 @@
  * Loads a LightGBM booster exported in the official text format and scores
  * the flat feature vector defined in lib/features/feature-vector.ts.
  *
- * Pure JS — no native deps — so deployment to Vercel / Edge runtimes Just Works.
- * Parses only the subset of the text format we need: numeric splits, leaf
- * outputs, default direction, and tree weights.  Unsupported fields (categorical
- * splits, NaN handling beyond `default_left`) trigger a hard load failure that
- * downgrades the engine to the legacy 7-model path with a warning.
+ * Pure JS — no native deps — but **requires the Node.js runtime** because the
+ * loader uses `fs.readFileSync`, `path.join`, and `process.cwd()`.  It is not
+ * compatible with the Vercel Edge runtime or other V8-isolate runtimes.  Any
+ * Next.js route that consumes `predictDeepNRFI` must opt into the Node runtime
+ * via `export const runtime = "nodejs"`.
+ *
+ * Parses only the subset of the LightGBM text format we need: numeric splits,
+ * leaf outputs, default direction, and tree weights.  Unsupported fields
+ * (categorical splits, NaN handling beyond `default_left`) trigger a hard load
+ * failure that downgrades the engine to the legacy 7-model path with a warning.
  *
  * Artifact layout under `scripts/deepnrfi/artifacts/`:
  *   manifest.json          — { activeVersion, featureOrder, brier, logLoss, ... }
@@ -235,12 +240,21 @@ function vectorToArray(vector: DeepNrfiFeatureVector, order: string[]): number[]
  * Approximate per-feature contributions via single-feature ablation deltas.
  * Replaces each feature with its training-set median (encoded as 0 here for
  * simplicity — feature_importance file carries true means in production) and
- * measures the delta in the calibrated probability.  Top-K by |delta|.
+ * measures the delta in the calibrated, clamped probability.  Top-K by |delta|.
+ *
+ * The ablated score must pass through the same calibration + clamp pipeline as
+ * `fullProb`, otherwise the delta conflates calibration shift with the actual
+ * feature impact (a no-op feature can show a ±0.05 delta from the spline alone).
  */
+function calibrateAndClamp(raw: number, knots: [number, number][] | null): number {
+  return Math.max(0.02, Math.min(0.98, applyCalibration(raw, knots)))
+}
+
 function computeContributions(
   booster: Booster,
   arr: number[],
   fullProb: number,
+  calibrationKnots: [number, number][] | null,
   order: string[],
   presence: DeepNrfiFeaturePresence,
   topK = 5,
@@ -249,7 +263,8 @@ function computeContributions(
   for (let i = 0; i < order.length; i++) {
     const original = arr[i]
     arr[i] = 0  // median stand-in (DeepNRFI features are roughly centred at 0 for shrunk rates)
-    const ablated = evalBooster(booster, arr)
+    const ablatedRaw = evalBooster(booster, arr)
+    const ablated = calibrateAndClamp(ablatedRaw, calibrationKnots)
     arr[i] = original
     const delta = fullProb - ablated
     const name = order[i]
@@ -277,9 +292,10 @@ export function predictDeepNRFI(
   const order = handle.manifest.featureOrder ?? FEATURE_ORDER
   const arr = vectorToArray(vector, order)
   const raw = evalBooster(handle.booster, arr)
-  const calibrated = applyCalibration(raw, handle.calibrationKnots)
-  const probability = Math.max(0.02, Math.min(0.98, calibrated))
-  const topFeatures = computeContributions(handle.booster, arr, probability, order, presence)
+  const probability = calibrateAndClamp(raw, handle.calibrationKnots)
+  const topFeatures = computeContributions(
+    handle.booster, arr, probability, handle.calibrationKnots, order, presence,
+  )
   return {
     probability,
     topFeatures,

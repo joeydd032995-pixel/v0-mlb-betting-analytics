@@ -92,6 +92,14 @@ export interface SimulateOpts {
   seed?: number
 }
 
+/** Hard cap on simulations per call so a stray caller can't hang the engine. */
+const MAX_SIMS = 100_000
+
+function clampSims(n: number | undefined): number {
+  const v = Number.isFinite(n) && (n as number) > 0 ? (n as number) : 8000
+  return Math.min(v, MAX_SIMS)
+}
+
 /**
  * Simulate one half-inning N times and return a histogram of runs scored.
  *
@@ -99,7 +107,7 @@ export interface SimulateOpts {
  * on first run (we want the full run distribution, not just NRFI/YRFI).
  */
 export function simulateFirstInning(paProbs: PerPAProbs, opts: SimulateOpts = {}): MonteCarloHalfResult {
-  const nSims = opts.nSims ?? 8000
+  const nSims = clampSims(opts.nSims)
   const seed = opts.seed ?? 0xCAFEBABE
   const rand = mulberry32(seed)
   const cdf = buildCdf(paProbs)
@@ -151,7 +159,7 @@ export function simulateGameFirstInning(
   awayPAProbs: PerPAProbs,
   opts: SimulateOpts = {},
 ): MonteCarloResult {
-  const nSims = opts.nSims ?? 8000
+  const nSims = clampSims(opts.nSims)
   const seed = opts.seed ?? 0xCAFEBABE
   const home = simulateFirstInning(homePAProbs, { nSims, seed: seed ^ 0xAAAA5555 })
   const away = simulateFirstInning(awayPAProbs, { nSims, seed: seed ^ 0x5555AAAA })

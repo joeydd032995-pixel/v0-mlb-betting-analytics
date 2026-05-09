@@ -6,7 +6,7 @@
  * must tolerate missing entries — the default profile is league-neutral.
  */
 
-import { LEAGUE_AVG_NRFI } from "../nrfi-models"
+import { LEAGUE_AVG_NRFI } from "@/lib/nrfi-models"
 
 export interface UmpireProfile {
   /** Zone-tightness score in [-1, 1].  +1 = very tight strike zone, −1 = very wide. */
@@ -17,20 +17,21 @@ export interface UmpireProfile {
   sample: number
 }
 
-const NEUTRAL_PROFILE: UmpireProfile = {
+const NEUTRAL_PROFILE: Readonly<UmpireProfile> = Object.freeze({
   zoneTightness: 0,
   careerNrfi: LEAGUE_AVG_NRFI,
   sample: 0,
-}
+})
 
 /**
  * Static umpire-profile cache.  Populated by `scripts/data/refresh_umpires.ts`
  * (deferred to Phase 6).  Until then this is empty and every lookup returns the
  * neutral profile.
  */
-const UMPIRE_PROFILES: Record<string, UmpireProfile> = {}
+const UMPIRE_PROFILES: Record<string, Readonly<UmpireProfile>> = {}
 
 export function getUmpireProfile(umpId: string | undefined): UmpireProfile {
-  if (!umpId) return NEUTRAL_PROFILE
-  return UMPIRE_PROFILES[umpId] ?? NEUTRAL_PROFILE
+  const profile = umpId ? UMPIRE_PROFILES[umpId] : undefined
+  // Return a shallow copy so callers can't mutate the shared cache or the frozen neutral default.
+  return { ...(profile ?? NEUTRAL_PROFILE) }
 }

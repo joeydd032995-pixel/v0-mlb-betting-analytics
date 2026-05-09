@@ -7,7 +7,7 @@
  * pitcher hand over the last 7 days.
  */
 
-import type { Hand, Lineup, LineupSlot } from "../types"
+import type { Hand, Lineup, LineupSlot } from "@/lib/types"
 
 interface BoxscorePlayer {
   person: { id: number; fullName: string }

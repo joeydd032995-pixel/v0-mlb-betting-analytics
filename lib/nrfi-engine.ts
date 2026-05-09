@@ -467,9 +467,12 @@ export function computeNRFIPrediction(
   // ── Ensemble++ extensions (all opt-in via FLAGS, default OFF) ────────────────
   const wantFeatures = FLAGS.ENABLE_DEEPNRFI || FLAGS.ENABLE_MONTECARLO || FLAGS.ENSEMBLE_VERSION === "v2.9models"
 
+  // Pass `calibrated7` (pre-anchor) into the feature vector so the trained
+  // stacker sees the same signal it does at scoring time and the league anchor
+  // is applied exactly once at the end of the v2 pipeline.
   const features = wantFeatures
     ? buildDeepNrfiFeatures({
-        game, homePitcher, awayPitcher, homeTeam, awayTeam, ensemble7Nrfi: ensemble7Final,
+        game, homePitcher, awayPitcher, homeTeam, awayTeam, ensemble7Nrfi: calibrated7,
       })
     : null
 
@@ -493,8 +496,10 @@ export function computeNRFIPrediction(
   let ensembleWeights: Record<string, number> | undefined
   let ensembleVersion: "v1.7models" | "v2.9models"
   if (useV2) {
+    // Stacker takes pre-anchor signals; the league anchor is applied below to
+    // the calibrated v2 output exactly once (matches v1's anchor placement).
     const stack = combine9Models({
-      ensemble7: ensemble7Final,
+      ensemble7: calibrated7,
       deepNrfi: deepResult?.probability ?? null,
       monteCarlo: mcResult?.pNRFI ?? null,
     })

@@ -10,8 +10,8 @@
  * `StatcastBatterSummary` exactly so we can pass it through without reshaping.
  */
 
-import type { StatcastPitcherSummary } from "../types"
-import { prisma } from "../prisma"
+import type { StatcastPitcherSummary } from "@/lib/types"
+import { prisma } from "@/lib/prisma"
 
 export interface StatcastBatterSummary {
   /** xwOBA over the rolling window. */

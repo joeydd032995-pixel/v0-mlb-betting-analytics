@@ -1,5 +1,5 @@
-import { STADIUM_COORDS, STADIUM_IS_DOME, STADIUM_ORIENTATION } from "../constants/mlb-stadiums"
-import type { Weather, WindDirection, WeatherCondition } from "../types"
+import { STADIUM_COORDS, STADIUM_IS_DOME, STADIUM_ORIENTATION } from "@/lib/constants/mlb-stadiums"
+import type { Weather, WindDirection, WeatherCondition } from "@/lib/types"
 
 const API_KEY = process.env.OPENWEATHER_API_KEY ?? ""
 const BASE_URL = "https://api.openweathermap.org/data/2.5/weather"

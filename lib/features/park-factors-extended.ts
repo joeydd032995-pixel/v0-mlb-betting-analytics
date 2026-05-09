@@ -26,14 +26,14 @@ export interface ExtendedParkFactor {
   roofType: RoofType
 }
 
-const NEUTRAL: ExtendedParkFactor = {
+const NEUTRAL: Readonly<ExtendedParkFactor> = Object.freeze({
   runFactor: 1.0,
   firstInningRunsFactor: 1.0,
   hrFactor: 1.0,
   singleFactor: 1.0,
   elevationFt: 0,
   roofType: "open",
-}
+})
 
 /** Park-factor lookup keyed by venue name (matches `MLB_STADIUMS` keys). */
 export const EXTENDED_PARK_FACTORS: Record<string, ExtendedParkFactor> = {
@@ -70,6 +70,7 @@ export const EXTENDED_PARK_FACTORS: Record<string, ExtendedParkFactor> = {
 }
 
 export function getExtendedParkFactor(venue: string | undefined): ExtendedParkFactor {
-  if (!venue) return NEUTRAL
-  return EXTENDED_PARK_FACTORS[venue] ?? NEUTRAL
+  const factor = venue ? EXTENDED_PARK_FACTORS[venue] : undefined
+  // Return a shallow copy so callers can't mutate the shared lookup tables.
+  return { ...(factor ?? NEUTRAL) }
 }

@@ -195,7 +195,7 @@ model EnsembleDiagnostic {
 model PitcherStatcast {
   id        String   @id @default(cuid())
   mlbamId   String
-  date      DateTime
+  date      DateTime @db.Date
   payload   Json
   createdAt DateTime @default(now())
 
@@ -207,7 +207,7 @@ model PitcherStatcast {
 model BatterStatcast {
   id        String   @id @default(cuid())
   mlbamId   String
-  date      DateTime
+  date      DateTime @db.Date
   payload   Json
   createdAt DateTime @default(now())
 
