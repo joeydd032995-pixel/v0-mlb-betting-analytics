@@ -107,6 +107,18 @@ export interface PerModelAccuracy {
   mae: number
 }
 
+// ─── DailyStats ───────────────────────────────────────────────────────────────
+
+export interface DailyStats {
+  date: string
+  nrfiWins: number
+  nrfiLosses: number
+  yrfiWins: number
+  yrfiLosses: number
+  combinedWins: number
+  combinedLosses: number
+}
+
 // ─── ExtendedModelAccuracy ────────────────────────────────────────────────────
 
 export interface ExtendedModelAccuracy extends ModelAccuracy {
@@ -121,6 +133,13 @@ export interface ExtendedModelAccuracy extends ModelAccuracy {
   yrfiTotal: number
   highConfCorrect: number
   highConfTotal: number
+  nrfiBestModel: string
+  nrfiBestModelAccuracy: number
+  yrfiBestModel: string
+  yrfiBestModelAccuracy: number
+  bestOverallModel: string
+  bestOverallAccuracy: number
+  dailyStats: DailyStats[]
 }
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
@@ -485,6 +504,13 @@ export function computeExtendedAccuracy(
     yrfiTotal: 0,
     highConfCorrect: 0,
     highConfTotal: 0,
+    nrfiBestModel: "Ensemble",
+    nrfiBestModelAccuracy: 0,
+    yrfiBestModel: "Ensemble",
+    yrfiBestModelAccuracy: 0,
+    bestOverallModel: "Ensemble",
+    bestOverallAccuracy: 0,
+    dailyStats: [],
   }
 
   if (complete.length === 0) return empty
@@ -560,6 +586,68 @@ export function computeExtendedAccuracy(
     ...(completeHier.length     > 0 ? [modelAccuracyForModel(completeHier,     (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")] : []),
   ]
 
+  // ── Best overall model ───────────────────────────────────────────────────
+  const bestOverall = perModelAccuracy.length > 0
+    ? perModelAccuracy.reduce((best, m) => m.accuracy > best.accuracy ? m : best)
+    : { model: "Ensemble" as const, accuracy: 0 }
+
+  // ── Best model per prediction type (on actual-result subsets) ────────────
+  function bestModelOn(subset: TrackedPrediction[]): { model: string; accuracy: number } {
+    if (subset.length === 0) return { model: "Ensemble", accuracy: 0 }
+
+    const completeLogisticSub = subset.filter(
+      (p): p is TrackedPrediction & { logisticMetaNrfi: number } => p.logisticMetaNrfi != null
+    )
+    const completeNnSub = subset.filter(
+      (p): p is TrackedPrediction & { nnInteractionNrfi: number } => p.nnInteractionNrfi != null
+    )
+    const completeHierSub = subset.filter(
+      (p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null
+    )
+    const candidates: PerModelAccuracy[] = [
+      modelAccuracyForModel(subset, (p) => p.poissonNrfi,  "Poisson"),
+      modelAccuracyForModel(subset, (p) => p.zipNrfi,      "ZIP"),
+      modelAccuracyForModel(subset, (p) => p.markovNrfi,   "Markov"),
+      modelAccuracyForModel(subset, (p) => p.ensembleNrfi, "Ensemble"),
+      ...(completeLogisticSub.length > 0
+        ? [modelAccuracyForModel(completeLogisticSub, (p) => p.logisticMetaNrfi!, "Logistic Stack")]
+        : []),
+      ...(completeNnSub.length > 0
+        ? [modelAccuracyForModel(completeNnSub, (p) => p.nnInteractionNrfi!, "NN Interaction")]
+        : []),
+      ...(completeHierSub.length > 0
+        ? [modelAccuracyForModel(completeHierSub, (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")]
+        : []),
+    ]
+    return candidates.reduce((best, m) => m.accuracy > best.accuracy ? m : best)
+  }
+
+  const nrfiActualGames = complete.filter((p) => p.actualResult === "NRFI")
+  const yrfiActualGames = complete.filter((p) => p.actualResult === "YRFI")
+  const nrfiBest = bestModelOn(nrfiActualGames)
+  const yrfiBest = bestModelOn(yrfiActualGames)
+
+  // ── Daily W/L stats ──────────────────────────────────────────────────────
+  const dailyMap = new Map<string, DailyStats>()
+  for (const p of complete) {
+    const s = dailyMap.get(p.date) ?? {
+      date: p.date,
+      nrfiWins: 0, nrfiLosses: 0,
+      yrfiWins: 0, yrfiLosses: 0,
+      combinedWins: 0, combinedLosses: 0,
+    }
+    if (p.prediction === "NRFI") {
+      if (p.correct) s.nrfiWins++; else s.nrfiLosses++
+    } else {
+      if (p.correct) s.yrfiWins++; else s.yrfiLosses++
+    }
+    if (p.correct) s.combinedWins++; else s.combinedLosses++
+    dailyMap.set(p.date, s)
+  }
+  const dailyStats = [...dailyMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, s]) => s)
+
   return {
     totalPredictions: complete.length,
     correct:          totalCorrect,
@@ -581,5 +669,12 @@ export function computeExtendedAccuracy(
     yrfiTotal:    yrfiPreds.length,
     highConfCorrect: highCorrect,
     highConfTotal:   highConf.length,
+    nrfiBestModel:         nrfiBest.model,
+    nrfiBestModelAccuracy: nrfiBest.accuracy,
+    yrfiBestModel:         yrfiBest.model,
+    yrfiBestModelAccuracy: yrfiBest.accuracy,
+    bestOverallModel:      bestOverall.model,
+    bestOverallAccuracy:   bestOverall.accuracy,
+    dailyStats,
   }
 }
