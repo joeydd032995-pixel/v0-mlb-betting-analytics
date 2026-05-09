@@ -5,9 +5,10 @@ const API_KEY = process.env.OPENWEATHER_API_KEY ?? ""
 const BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 interface OWMResponse {
-  main: { temp: number; humidity: number }
+  main: { temp: number; humidity: number; pressure?: number }
   wind: { speed: number; deg: number }
   weather: Array<{ id: number; main: string }>
+  rain?: { "1h"?: number; "3h"?: number }
 }
 
 const DOME_WEATHER = {
@@ -65,6 +66,9 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
 
     const speedMph = Math.round(data.wind.speed)
     const weatherId = data.weather[0]?.id ?? 800
+    // Treat any rain in the 1h/3h windows as a precipitation signal.  OWM does
+    // not include POP on /weather; the value here is "is currently raining".
+    const precipProb = (data.rain?.["1h"] ?? 0) > 0 || (data.rain?.["3h"] ?? 0) > 0 ? 0.6 : 0
 
     return {
       temperature: Math.round(data.main.temp),
@@ -72,6 +76,8 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
       windDirection: mapWindDirection(data.wind.deg, speedMph, venue),
       conditions: mapConditions(weatherId),
       humidity: data.main.humidity,
+      precipProb,
+      pressureHPa: data.main.pressure,
     }
   } catch (err) {
     console.error(`[weather] fetch error for ${venue}:`, err)

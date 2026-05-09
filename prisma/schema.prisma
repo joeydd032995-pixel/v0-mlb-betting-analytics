@@ -132,6 +132,14 @@ model ModelPrediction {
   zipNrfi         Float
   markovNrfi      Float
   ensembleNrfi    Float
+  // ── Ensemble++ extensions (all nullable for backwards compatibility) ───────
+  deepNrfi              Float?
+  deepNrfiTopFeatures   Json?
+  monteCarloPNrfi       Float?
+  monteCarloMeanRuns    Float?
+  monteCarloVariance    Float?
+  monteCarloDistribution Json?
+  ensembleVersion       String  @default("v1.7models")
   modelBreakdown  Json?    // { logisticMetaNrfi, nnInteractionNrfi, hierarchicalBayesNrfi, homeZipOmega, awayZipOmega, homeBayesianWeight, awayBayesianWeight, modelInputs }
   modelConsensus  Float    @default(0.5)
   actualResult    String?
@@ -164,11 +172,48 @@ model EnsembleDiagnostic {
   rawEnsemble7    Float
   calibrated      Float
   finalBlended    Float
+  // ── Ensemble++ extensions (all nullable; legacy rows leave them null) ──────
+  deepNrfiOutput   Float?
+  monteCarloOutput Float?
+  deepNrfiWeight   Float?
+  monteCarloWeight Float?
+  ensembleVersion  String  @default("v1.7models")
+  rawEnsemble9     Float?
+  calibratedV2     Float?
   createdAt       DateTime @default(now())
 
   @@index([date])
   @@index([gameId])
+  @@index([ensembleVersion])
   @@map("ensemble_diagnostics")
+}
+
+// ─── Ensemble++ Phase 1: Statcast caches ──────────────────────────────────────
+// Populated by scripts/data/refresh_statcast.py (pybaseball nightly dump).
+// Empty when the Phase 6 cron isn't wired yet — engine degrades gracefully.
+
+model PitcherStatcast {
+  id        String   @id @default(cuid())
+  mlbamId   String
+  date      DateTime
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([mlbamId, date])
+  @@index([mlbamId])
+  @@map("pitcher_statcast")
+}
+
+model BatterStatcast {
+  id        String   @id @default(cuid())
+  mlbamId   String
+  date      DateTime
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([mlbamId, date])
+  @@index([mlbamId])
+  @@map("batter_statcast")
 }
 
 // ─── Backtest Runs (Phase 3: walk-forward validation framework) ───────────────

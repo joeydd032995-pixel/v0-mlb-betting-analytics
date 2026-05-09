@@ -45,6 +45,13 @@ import {
 import { calibrateWithMonotonicSpline } from "./calibration"
 import { computeVectorWeatherMultiplier } from "./weather"
 import { impliedProbability } from "./utils/odds"
+import { FLAGS } from "./config"
+import { buildDeepNrfiFeatures } from "./features/feature-vector"
+import { predictDeepNRFI } from "./deepnrfi-model"
+import { simulateGameFirstInning } from "./monte-carlo"
+import { paProbsFromContext } from "./monte-carlo-bridge"
+import { combine9Models } from "./ensemble-plus"
+import { calibrateV2 } from "./calibration-v2"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -78,6 +85,16 @@ function kellyFraction(edge: number, odds: number): number {
 function expectedValue(modelProb: number, odds: number): number {
   const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
   return modelProb * b - (1 - modelProb)
+}
+
+/** Deterministic 32-bit hash of a game id — used to seed the Monte Carlo RNG. */
+function hashGameId(id: string): number {
+  let h = 2166136261
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
 }
 
 // ─── Opt #3: Vector Weather Multiplier ───────────────────────────────────────
@@ -288,7 +305,8 @@ function computeConfidence(
   nrfiProbability: number,
   homePitcher:     Pitcher,
   awayPitcher:     Pitcher,
-  modelConsensus   = 0.5
+  modelConsensus   = 0.5,
+  mcVariance?:     number,
 ): { level: ConfidenceLevel; score: number } {
   let score = 50
   score += Math.abs(nrfiProbability - 0.5) * 70
@@ -308,6 +326,12 @@ function computeConfidence(
   }
   score -= (consistency(homePitcher) + consistency(awayPitcher)) * 15
   score += (modelConsensus - 0.5) * 16
+  // Monte Carlo uncertainty: variance > ~1.5 (very volatile inning) → confidence penalty.
+  if (mcVariance !== undefined && mcVariance > 0) {
+    if (mcVariance > 1.8) score -= 8
+    else if (mcVariance > 1.4) score -= 4
+    else if (mcVariance < 0.6) score += 3
+  }
   score = Math.max(10, Math.min(98, Math.round(score)))
   const level: ConfidenceLevel = score >= 62 ? "High" : score >= 45 ? "Medium" : "Low"
   return { level, score }
@@ -436,12 +460,53 @@ export function computeNRFIPrediction(
   const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away")
 
   // ── Blend + Opt #6: calibration ─────────────────────────────────────────────
-  const rawEnsemble7  = blend7Models(homeHalf7, awayHalf7)
-  const calibrated    = calibrateWithMonotonicSpline(rawEnsemble7)
+  const rawEnsemble7    = blend7Models(homeHalf7, awayHalf7)
+  const calibrated7     = calibrateWithMonotonicSpline(rawEnsemble7)
+  const ensemble7Final  = ENSEMBLE_BLEND * calibrated7 + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
 
-  // ── Opt #1 + #7: league anchor blend + widened clamp ────────────────────────
-  const blended  = ENSEMBLE_BLEND * calibrated + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
-  const nrfiProb = Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, blended))
+  // ── Ensemble++ extensions (all opt-in via FLAGS, default OFF) ────────────────
+  const wantFeatures = FLAGS.ENABLE_DEEPNRFI || FLAGS.ENABLE_MONTECARLO || FLAGS.ENSEMBLE_VERSION === "v2.9models"
+
+  const features = wantFeatures
+    ? buildDeepNrfiFeatures({
+        game, homePitcher, awayPitcher, homeTeam, awayTeam, ensemble7Nrfi: ensemble7Final,
+      })
+    : null
+
+  const deepResult = FLAGS.ENABLE_DEEPNRFI && features
+    ? predictDeepNRFI(features.vector, features.presence)
+    : null
+
+  const mcResult = FLAGS.ENABLE_MONTECARLO
+    ? (() => {
+        const { homePAProbs, awayPAProbs } = paProbsFromContext(homePitcher, awayPitcher, homeTeam, awayTeam)
+        return simulateGameFirstInning(homePAProbs, awayPAProbs, {
+          nSims: FLAGS.MONTECARLO_SIMS,
+          seed: hashGameId(game.id),
+        })
+      })()
+    : null
+
+  // ── Stacker (Phase 4): blend ensemble7 + DeepNRFI + MC into v2 final ─────────
+  const useV2 = FLAGS.ENSEMBLE_VERSION === "v2.9models"
+  let nrfiProb: number
+  let ensembleWeights: Record<string, number> | undefined
+  let ensembleVersion: "v1.7models" | "v2.9models"
+  if (useV2) {
+    const stack = combine9Models({
+      ensemble7: ensemble7Final,
+      deepNrfi: deepResult?.probability ?? null,
+      monteCarlo: mcResult?.pNRFI ?? null,
+    })
+    const calibratedV2 = calibrateV2(stack.final)
+    const blendedV2 = ENSEMBLE_BLEND * calibratedV2 + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
+    nrfiProb = Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, blendedV2))
+    ensembleWeights = stack.weights
+    ensembleVersion = "v2.9models"
+  } else {
+    nrfiProb = Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, ensemble7Final))
+    ensembleVersion = "v1.7models"
+  }
   const yrfiProb = 1 - nrfiProb   // symmetry guaranteed
 
   // ── Legacy 4-model ensemble (kept for modelBreakdown UI display) ─────────────
@@ -519,7 +584,7 @@ export function computeNRFIPrediction(
   }
 
   const { level: confidence, score: confScore } = computeConfidence(
-    nrfiProb, homePitcher, awayPitcher, consensus
+    nrfiProb, homePitcher, awayPitcher, consensus, mcResult?.variance,
   )
 
   const modelInputs: ModelInputs = {
@@ -551,6 +616,12 @@ export function computeNRFIPrediction(
     modelInputs,
     valueAnalysis,
     modelBreakdown,
+    ensembleVersion,
+    ensembleWeights,
+    features:          features?.vector,
+    featurePresence:   features?.presence,
+    deepNrfi:          deepResult ?? undefined,
+    monteCarlo:        mcResult ?? undefined,
   }
 }
 

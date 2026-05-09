@@ -41,6 +41,22 @@ export interface TeamFirstInningStats {
   avgRunsVsLHP: number
   /** Last 5 games: true = team did NOT score in 1st (NRFI half), false = scored (YRFI half) */
   last5Results?: boolean[]
+  // ── Ensemble++ Phase 1 extensions (all optional) ──────────────────────────────
+  /** Handedness offense factor when facing a left-handed pitcher (multiplier vs league). */
+  vsLHP?: number
+  /** Handedness offense factor when facing a right-handed pitcher (multiplier vs league). */
+  vsRHP?: number
+  /** Aggregate quality of the top 4 hitters in the batting order (Phase 1 lineup feature). */
+  topFour?: {
+    /** Average OPS of the top 4 hitters. Range ~ [0.6, 1.0]. */
+    ops: number
+    /** Average wRC+ of the top 4 hitters. 100 = league average. */
+    wRC_plus: number
+    /** Average strikeout rate (0-1). */
+    k_pct: number
+    /** Average walk rate (0-1). */
+    bb_pct: number
+  }
 }
 
 export interface Pitcher {
@@ -51,6 +67,52 @@ export interface Pitcher {
   age: number
   firstInning: PitcherFirstInningStats
   overall: PitcherOverallStats
+  // ── Ensemble++ Phase 1 extensions (all optional) ──────────────────────────────
+  /**
+   * Career first-inning workload (used by getDynamicPriorWeight).
+   * Fewer than 100 IP → spot-starter shrinkage (k=30); ≥100 → full-time (k=50).
+   */
+  careerFirstInnings?: number
+  /** True when this is a bullpen game / opener; triggers heavy shrinkage (k=80). */
+  isBullpenGame?: boolean
+  /** Statcast pitcher summary (velocity, spin, stuff). Source: pybaseball nightly dump. */
+  statcast?: StatcastPitcherSummary
+  /** Workload + rest-day fatigue indicators. */
+  fatigue?: PitcherFatigue
+  /** First-inning splits keyed by top-of-order matchup quality. */
+  firstInningSplits?: PitcherFirstInningSplits
+}
+
+export interface StatcastPitcherSummary {
+  /** Average four-seam velocity (mph). League avg ~93.5. */
+  fbVeloAvg: number
+  /** Average four-seam spin rate (rpm). League avg ~2300. */
+  fbSpinAvg: number
+  /** Share of breaking-ball pitches (slider+curve+sweeper) in arsenal, 0-1. */
+  breaking_pct: number
+  /** Stuff+ score (Driveline-style). 100 = league average. */
+  stuffPlus: number
+  /** Average release-point height (ft). */
+  releaseHeight?: number
+  /** Average release-point side (ft, signed; positive = arm side). */
+  releaseSide?: number
+}
+
+export interface PitcherFatigue {
+  /** Pitches thrown across the last 5 game logs. */
+  pitchesLast5: number
+  /** Days since last appearance. */
+  daysRest: number
+  /** Average IP across the last 3 starts. */
+  rolling3StartIP: number
+}
+
+export interface PitcherFirstInningSplits {
+  /** Performance in the 1st inning vs the top of an opposing order. */
+  vsTopOfOrder: {
+    wobaAllowed: number
+    k_pct: number
+  }
 }
 
 export interface PitcherFirstInningStats {
@@ -97,6 +159,17 @@ export interface Game {
   odds?: GameOdds
   /** Opt #4: positive nrfiFactor → umpire tightens zone → fewer runs → increases P(NRFI) */
   umpire?: { nrfiFactor?: number }
+  // ── Ensemble++ Phase 1 extensions (all optional) ──────────────────────────────
+  /** MLB umpire ID for joining against historical umpire profile data. */
+  umpireId?: string
+  /** Days of rest since each team's previous game. */
+  restDays?: { home: number; away: number }
+  /** Approximate cross-country travel distance (miles) since previous game. */
+  travelMiles?: { home: number; away: number }
+  /** True when the listed starter is acting as an opener / bullpen day. */
+  bullpenStart?: { home: boolean; away: boolean }
+  /** Probable-lineup snapshot from MLB Stats boxscore (top of order matters most). */
+  lineups?: { home?: Lineup; away?: Lineup }
 }
 
 export interface Weather {
@@ -105,6 +178,30 @@ export interface Weather {
   windDirection: WindDirection
   conditions: WeatherCondition
   humidity: number
+  // ── Ensemble++ Phase 1 extensions (all optional) ──────────────────────────────
+  /** Probability of precipitation, 0-1, from OpenWeatherMap when available. */
+  precipProb?: number
+  /** Atmospheric pressure (hPa), used for air-density calculation. */
+  pressureHPa?: number
+  /** Computed air density (kg/m³). Lower = ball carries farther. */
+  airDensity?: number
+}
+
+export interface Lineup {
+  gamePk: string | number
+  teamId: string
+  slots: LineupSlot[]
+}
+
+export interface LineupSlot {
+  /** Batting order position (1-9). */
+  order: number
+  mlbamId: string
+  hand: Hand
+  /** Rolling weighted on-base average over the last 15 days. */
+  rolling_woba?: number
+  k_pct?: number
+  bb_pct?: number
 }
 
 export interface GameOdds {
@@ -131,6 +228,19 @@ export interface NRFIPrediction {
   valueAnalysis?: ValueAnalysis
   /** Multi-model breakdown (Poisson + ZIP + Markov + Bayesian ensemble) */
   modelBreakdown?: ModelBreakdown
+  // ── Ensemble++ extensions (all optional, populated when feature flags enabled) ──
+  /** Active ensemble version. Defaults to "v1.7models". */
+  ensembleVersion?: "v1.7models" | "v2.9models"
+  /** Final per-model weights actually used in the v2 stack (when v2 enabled). */
+  ensembleWeights?: Record<string, number>
+  /** Built feature vector (only populated when DeepNRFI or MonteCarlo are enabled). */
+  features?: DeepNrfiFeatureVector
+  /** Presence mask aligned with `features`. 1 = real data, 0 = imputed default. */
+  featurePresence?: DeepNrfiFeaturePresence
+  /** DeepNRFI scoring result (only populated when ENABLE_DEEPNRFI and artifact present). */
+  deepNrfi?: DeepNrfiResult
+  /** Monte Carlo simulation result (only populated when ENABLE_MONTECARLO). */
+  monteCarlo?: MonteCarloResult
 }
 
 export interface PredictionFactor {
@@ -314,4 +424,150 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   dome: "Retractable or permanent roof protecting field from weather; eliminates wind/weather factors",
   playoff: "Post-season tournament; higher intensity and different roster composition than regular season",
   ensembleModel: "Combination of multiple prediction models (Poisson, Markov, ZIP) for increased robustness",
+}
+
+// ─── Ensemble++ Phase 1–4 Types ───────────────────────────────────────────────
+
+/**
+ * Flat numeric feature vector consumed by DeepNRFI (LightGBM) and the
+ * Monte-Carlo per-PA bridge.  Field names are stable across versions; new
+ * fields are appended (never re-ordered) so artifact compatibility is preserved.
+ *
+ * Every field has a documented unit/range and a sensible league-average default
+ * when source data is missing.  See lib/features/feature-vector.ts.
+ */
+export interface DeepNrfiFeatureVector {
+  // ── Pitcher: home (top of 1st = away batting vs home pitcher) ───────────────
+  home_pitcher_shrunk_nrfi: number
+  home_pitcher_k_rate: number
+  home_pitcher_bb_rate: number
+  home_pitcher_hr_per9: number
+  home_pitcher_babip: number
+  home_pitcher_first_batter_obp: number
+  home_pitcher_start_count: number
+  home_pitcher_recent_form: number
+  home_pitcher_fb_velo: number
+  home_pitcher_fb_spin: number
+  home_pitcher_breaking_pct: number
+  home_pitcher_stuff_plus: number
+  home_pitcher_pitches_last5: number
+  home_pitcher_days_rest: number
+  home_pitcher_rolling3_ip: number
+  home_pitcher_vstop_woba: number
+  home_pitcher_vstop_k: number
+  home_pitcher_is_bullpen: number
+  // ── Pitcher: away ────────────────────────────────────────────────────────────
+  away_pitcher_shrunk_nrfi: number
+  away_pitcher_k_rate: number
+  away_pitcher_bb_rate: number
+  away_pitcher_hr_per9: number
+  away_pitcher_babip: number
+  away_pitcher_first_batter_obp: number
+  away_pitcher_start_count: number
+  away_pitcher_recent_form: number
+  away_pitcher_fb_velo: number
+  away_pitcher_fb_spin: number
+  away_pitcher_breaking_pct: number
+  away_pitcher_stuff_plus: number
+  away_pitcher_pitches_last5: number
+  away_pitcher_days_rest: number
+  away_pitcher_rolling3_ip: number
+  away_pitcher_vstop_woba: number
+  away_pitcher_vstop_k: number
+  away_pitcher_is_bullpen: number
+  // ── Lineups (top of order is what matters in the 1st) ──────────────────────
+  home_top4_ops: number
+  home_top4_wrcplus: number
+  home_top4_k_pct: number
+  home_top4_bb_pct: number
+  away_top4_ops: number
+  away_top4_wrcplus: number
+  away_top4_k_pct: number
+  away_top4_bb_pct: number
+  home_offense_factor: number
+  away_offense_factor: number
+  home_offense_vs_hand: number
+  away_offense_vs_hand: number
+  // ── Context: weather + park + umpire + travel ──────────────────────────────
+  weather_temp_f: number
+  weather_wind_mph: number
+  weather_wind_in_out: number     // signed: +1 out, −1 in, 0 cross/calm
+  weather_humidity: number
+  weather_precip_prob: number
+  weather_pressure_hpa: number
+  weather_air_density: number
+  is_dome: number
+  park_factor: number
+  park_first_inning_runs: number
+  park_hr_factor: number
+  park_elevation_ft: number
+  umpire_zone_tightness: number
+  umpire_career_nrfi: number
+  umpire_sample: number
+  home_rest_days: number
+  away_rest_days: number
+  home_travel_miles: number
+  away_travel_miles: number
+  is_bullpen_game: number
+  // ── Engine signal (the 7-model ensemble probability itself, used by stacker) ─
+  ensemble7_nrfi: number
+}
+
+/** Boolean-as-0/1 mask aligned with DeepNrfiFeatureVector keys. */
+export type DeepNrfiFeaturePresence = Record<keyof DeepNrfiFeatureVector, 0 | 1>
+
+export interface FeatureContribution {
+  /** Feature key from DeepNrfiFeatureVector. */
+  name: keyof DeepNrfiFeatureVector | string
+  /** Signed SHAP-like contribution (positive → pushed toward NRFI). */
+  value: number
+  presence: 0 | 1
+  impact: "NRFI" | "YRFI" | "NEUTRAL"
+}
+
+export interface DeepNrfiResult {
+  /** Calibrated probability of NRFI. */
+  probability: number
+  /** Top contributing features with signed SHAP values, sorted by |value|. */
+  topFeatures: FeatureContribution[]
+  /** Active model artifact version. */
+  modelVersion: string
+}
+
+/** Per-PA outcome distribution used by the Monte Carlo simulator. */
+export interface PerPAProbs {
+  out: number
+  walk: number
+  single: number
+  double: number
+  triple: number
+  hr: number
+}
+
+export interface MonteCarloHalfResult {
+  /** P(zero runs in this half-inning) from simulation. */
+  pZero: number
+  /** Mean runs scored in this half. */
+  meanRuns: number
+  /** Variance of runs scored. */
+  variance: number
+  /** Histogram: index = runs, value = P(exactly that many runs). Sums to 1.0. */
+  runDistribution: number[]
+}
+
+export interface MonteCarloResult {
+  /** P(NRFI) — both halves zero — from simulation. */
+  pNRFI: number
+  /** Mean total first-inning runs across both halves. */
+  meanRuns: number
+  /** Variance of total first-inning runs. */
+  variance: number
+  /** Histogram: index = total runs in 1st, value = P(that many). Sums to 1.0. */
+  runDistribution: number[]
+  /** 90th percentile of total first-inning runs. */
+  percentile90: number
+  /** Number of simulations actually run. */
+  nSims: number
+  /** RNG seed used (deterministic per game). */
+  seed: number
 }

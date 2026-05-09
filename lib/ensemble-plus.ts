@@ -1,0 +1,55 @@
+/**
+ * 9-model stacker (Ensemble++).
+ *
+ * Combines:
+ *   • The legacy 7-model ensemble probability (post-calibration, post-anchor)
+ *   • DeepNRFI LightGBM probability (when artifact present)
+ *   • Monte Carlo simulation P(NRFI) (when MC enabled)
+ *
+ * Default static weights: 0.70 / 0.25 / 0.05.  When DeepNRFI or Monte Carlo
+ * is missing, the weights renormalise so the available models still cover 1.0.
+ *
+ * Future versions may swap to a logistic stacker (sub-flag STACKER_MODE).
+ */
+
+export type StackerMode = "weighted" | "logistic"
+
+export interface CombineInputs {
+  ensemble7: number
+  deepNrfi: number | null
+  monteCarlo: number | null
+}
+
+export interface CombineResult {
+  final: number
+  weights: { ensemble7: number; deepNrfi: number; monteCarlo: number }
+}
+
+const DEFAULT_WEIGHTS = { ensemble7: 0.70, deepNrfi: 0.25, monteCarlo: 0.05 }
+
+/**
+ * Renormalise the default weights so only the present models contribute and
+ * the active weights still sum to 1.0.  When only ensemble7 is present we
+ * return a no-op blend (weight 1.0 on ensemble7).
+ */
+export function combine9Models(input: CombineInputs): CombineResult {
+  const present = {
+    ensemble7: true,
+    deepNrfi: input.deepNrfi !== null && Number.isFinite(input.deepNrfi),
+    monteCarlo: input.monteCarlo !== null && Number.isFinite(input.monteCarlo),
+  }
+  let total = 0
+  if (present.ensemble7) total += DEFAULT_WEIGHTS.ensemble7
+  if (present.deepNrfi) total += DEFAULT_WEIGHTS.deepNrfi
+  if (present.monteCarlo) total += DEFAULT_WEIGHTS.monteCarlo
+
+  const w = {
+    ensemble7: present.ensemble7 ? DEFAULT_WEIGHTS.ensemble7 / total : 0,
+    deepNrfi: present.deepNrfi ? DEFAULT_WEIGHTS.deepNrfi / total : 0,
+    monteCarlo: present.monteCarlo ? DEFAULT_WEIGHTS.monteCarlo / total : 0,
+  }
+  let final = w.ensemble7 * input.ensemble7
+  if (present.deepNrfi) final += w.deepNrfi * (input.deepNrfi as number)
+  if (present.monteCarlo) final += w.monteCarlo * (input.monteCarlo as number)
+  return { final, weights: w }
+}

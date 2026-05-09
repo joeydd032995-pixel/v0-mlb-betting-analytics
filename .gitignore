@@ -26,3 +26,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# DeepNRFI training data (artifacts under scripts/deepnrfi/artifacts/ are committed)
+/scripts/deepnrfi/data/*.csv
+/scripts/deepnrfi/data/*.parquet
