@@ -41,6 +41,10 @@ export interface TeamFirstInningStats {
   avgRunsVsLHP: number
   /** Last 5 games: true = team did NOT score in 1st (NRFI half), false = scored (YRFI half) */
   last5Results?: boolean[]
+  /** Offense factor vs left-handed pitchers specifically (optional split data) */
+  vsLHP?: number
+  /** Offense factor vs right-handed pitchers specifically (optional split data) */
+  vsRHP?: number
 }
 
 export interface Pitcher {
@@ -68,6 +72,10 @@ export interface PitcherFirstInningStats {
   startCount: number
   homeNrfiRate: number
   awayNrfiRate: number
+  /** Career first-inning appearances — used by getDynamicPriorWeight for shrinkage k selection */
+  careerFirstInnings?: number
+  /** True when this pitcher is used as a bulk/opener reliever, not a traditional starter */
+  isBullpenGame?: boolean
 }
 
 export interface PitcherOverallStats {

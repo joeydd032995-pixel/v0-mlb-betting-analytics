@@ -35,11 +35,11 @@ const CALIBRATION_KNOTS: [number, number][] = [
 ]
 
 /**
- * Calibrate a raw ensemble probability using monotone linear interpolation.
- * Values below the first knot are clamped to the first calibrated value;
- * values above the last knot return the last calibrated value.
+ * Calibrate a raw ensemble probability using monotone linear interpolation over
+ * the fitted P-spline knots. Values outside [first knot, last knot] are clamped
+ * to the corresponding boundary calibrated value.
  */
-export function calibrateProbability(rawProb: number): number {
+export function calibrateWithMonotonicSpline(rawProb: number): number {
   if (rawProb <= CALIBRATION_KNOTS[0][0]) return CALIBRATION_KNOTS[0][1]
   const last = CALIBRATION_KNOTS[CALIBRATION_KNOTS.length - 1]
   if (rawProb >= last[0]) return last[1]
@@ -53,13 +53,4 @@ export function calibrateProbability(rawProb: number): number {
     }
   }
   return rawProb // unreachable; satisfies TypeScript
-}
-
-/**
- * Alias used by nrfi-engine.ts.
- * Semantically equivalent to calibrateProbability — a monotone piecewise-linear
- * approximation to the fitted P-spline from the optimization document.
- */
-export function calibrateWithMonotonicSpline(rawProb: number): number {
-  return calibrateProbability(rawProb)
 }

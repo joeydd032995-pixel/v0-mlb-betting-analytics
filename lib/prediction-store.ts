@@ -182,7 +182,8 @@ export function loadTrackedPredictions(): TrackedPrediction[] {
     // Persist only when migration actually changed something
     if (migrated !== valid) persist(migrated)
     return migrated
-  } catch {
+  } catch (err) {
+    console.error("[prediction-store] parse error:", err)
     return []
   }
 }
