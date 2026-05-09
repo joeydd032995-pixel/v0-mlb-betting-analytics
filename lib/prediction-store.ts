@@ -573,18 +573,22 @@ export function computeExtendedAccuracy(
   // ── Per-model accuracy ───────────────────────────────────────────────────
   // Each meta-model is gated on its own field so a missing value in one model
   // never causes a non-null assertion failure in another.
-  const completeLogistic = complete.filter((p): p is TrackedPrediction & { logisticMetaNrfi: number }      => p.logisticMetaNrfi      != null)
-  const completeNn       = complete.filter((p): p is TrackedPrediction & { nnInteractionNrfi: number }     => p.nnInteractionNrfi     != null)
-  const completeHier     = complete.filter((p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null)
-  const perModelAccuracy: PerModelAccuracy[] = [
-    modelAccuracyForModel(complete,          (p) => p.poissonNrfi,          "Poisson"),
-    modelAccuracyForModel(complete,          (p) => p.zipNrfi,              "ZIP"),
-    modelAccuracyForModel(complete,          (p) => p.markovNrfi,           "Markov"),
-    modelAccuracyForModel(complete,          (p) => p.ensembleNrfi,         "Ensemble"),
-    ...(completeLogistic.length > 0 ? [modelAccuracyForModel(completeLogistic, (p) => p.logisticMetaNrfi!,      "Logistic Stack"    )] : []),
-    ...(completeNn.length       > 0 ? [modelAccuracyForModel(completeNn,       (p) => p.nnInteractionNrfi!,     "NN Interaction"    )] : []),
-    ...(completeHier.length     > 0 ? [modelAccuracyForModel(completeHier,     (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")] : []),
-  ]
+  function buildCandidatesForSubset(subset: TrackedPrediction[]): PerModelAccuracy[] {
+    const withLogistic = subset.filter((p): p is TrackedPrediction & { logisticMetaNrfi: number }      => p.logisticMetaNrfi      != null)
+    const withNn       = subset.filter((p): p is TrackedPrediction & { nnInteractionNrfi: number }     => p.nnInteractionNrfi     != null)
+    const withHier     = subset.filter((p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null)
+    return [
+      modelAccuracyForModel(subset, (p) => p.poissonNrfi,  "Poisson"),
+      modelAccuracyForModel(subset, (p) => p.zipNrfi,      "ZIP"),
+      modelAccuracyForModel(subset, (p) => p.markovNrfi,   "Markov"),
+      modelAccuracyForModel(subset, (p) => p.ensembleNrfi, "Ensemble"),
+      ...(withLogistic.length > 0 ? [modelAccuracyForModel(withLogistic, (p) => p.logisticMetaNrfi!,      "Logistic Stack"    )] : []),
+      ...(withNn.length       > 0 ? [modelAccuracyForModel(withNn,       (p) => p.nnInteractionNrfi!,     "NN Interaction"    )] : []),
+      ...(withHier.length     > 0 ? [modelAccuracyForModel(withHier,     (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")] : []),
+    ]
+  }
+
+  const perModelAccuracy = buildCandidatesForSubset(complete)
 
   // ── Best overall model ───────────────────────────────────────────────────
   const bestOverall = perModelAccuracy.length > 0
@@ -594,31 +598,7 @@ export function computeExtendedAccuracy(
   // ── Best model per prediction type (on actual-result subsets) ────────────
   function bestModelOn(subset: TrackedPrediction[]): { model: string; accuracy: number } {
     if (subset.length === 0) return { model: "Ensemble", accuracy: 0 }
-
-    const completeLogisticSub = subset.filter(
-      (p): p is TrackedPrediction & { logisticMetaNrfi: number } => p.logisticMetaNrfi != null
-    )
-    const completeNnSub = subset.filter(
-      (p): p is TrackedPrediction & { nnInteractionNrfi: number } => p.nnInteractionNrfi != null
-    )
-    const completeHierSub = subset.filter(
-      (p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null
-    )
-    const candidates: PerModelAccuracy[] = [
-      modelAccuracyForModel(subset, (p) => p.poissonNrfi,  "Poisson"),
-      modelAccuracyForModel(subset, (p) => p.zipNrfi,      "ZIP"),
-      modelAccuracyForModel(subset, (p) => p.markovNrfi,   "Markov"),
-      modelAccuracyForModel(subset, (p) => p.ensembleNrfi, "Ensemble"),
-      ...(completeLogisticSub.length > 0
-        ? [modelAccuracyForModel(completeLogisticSub, (p) => p.logisticMetaNrfi!, "Logistic Stack")]
-        : []),
-      ...(completeNnSub.length > 0
-        ? [modelAccuracyForModel(completeNnSub, (p) => p.nnInteractionNrfi!, "NN Interaction")]
-        : []),
-      ...(completeHierSub.length > 0
-        ? [modelAccuracyForModel(completeHierSub, (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")]
-        : []),
-    ]
+    const candidates = buildCandidatesForSubset(subset)
     return candidates.reduce((best, m) => m.accuracy > best.accuracy ? m : best)
   }
 
