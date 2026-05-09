@@ -22,10 +22,46 @@
  *   feature_importance_v{N}.json (UI-only, not loaded here)
  */
 
-import fs from "node:fs"
-import path from "node:path"
 import type { DeepNrfiFeatureVector, DeepNrfiFeaturePresence, DeepNrfiResult, FeatureContribution } from "./types"
 import { FEATURE_ORDER } from "./features/feature-vector"
+
+// Node-only modules are loaded lazily through a runtime-resolved `require` so
+// that bundlers (Turbopack/webpack) do not try to include `node:fs` /
+// `node:path` in the client bundle when this module is transitively reached
+// from a "use client" component.  The engine's only client-facing entry point
+// (`recomputeWithAdjustments`) never sets `ENABLE_DEEPNRFI`, so the loader
+// below is never invoked in the browser.
+type FsModule = typeof import("node:fs")
+type PathModule = typeof import("node:path")
+
+function nodeRequire<T>(specifier: string): T | null {
+  if (typeof window !== "undefined") return null
+  try {
+    // The `Function("return require")()` indirection prevents static analysis
+    // from picking up these modules; on Node it resolves to the runtime require.
+    const req = Function("return typeof require !== 'undefined' ? require : null")() as
+      | ((id: string) => unknown)
+      | null
+    return req ? (req(specifier) as T) : null
+  } catch {
+    return null
+  }
+}
+
+let cachedFs: FsModule | null | undefined
+let cachedPath: PathModule | null | undefined
+
+function getFs(): FsModule | null {
+  if (cachedFs !== undefined) return cachedFs
+  cachedFs = nodeRequire<FsModule>("node:fs")
+  return cachedFs
+}
+
+function getPath(): PathModule | null {
+  if (cachedPath !== undefined) return cachedPath
+  cachedPath = nodeRequire<PathModule>("node:path")
+  return cachedPath
+}
 
 interface Manifest {
   activeVersion: string
@@ -75,7 +111,13 @@ interface LoadedHandle {
 }
 
 let CACHED_HANDLE: LoadedHandle | null | undefined = undefined  // undefined = not yet attempted
-const ARTIFACT_DIR = path.join(process.cwd(), "scripts", "deepnrfi", "artifacts")
+
+function artifactDir(): string | null {
+  const path = getPath()
+  if (!path) return null
+  // process.cwd() is also Node-only; behind the same browser guard as fs/path.
+  return path.join(process.cwd(), "scripts", "deepnrfi", "artifacts")
+}
 
 // ─── Booster parser ──────────────────────────────────────────────────────────
 
@@ -190,8 +232,17 @@ function applyCalibration(p: number, knots: [number, number][] | null): number {
 
 export function loadDeepNrfiModel(): LoadedHandle | null {
   if (CACHED_HANDLE !== undefined) return CACHED_HANDLE
+  const fs = getFs()
+  const path = getPath()
+  const dir = artifactDir()
+  if (!fs || !path || !dir) {
+    // Browser context (or Node without fs/path) — skip the artifact load and
+    // let the caller fall back to the legacy ensemble.
+    CACHED_HANDLE = null
+    return null
+  }
   try {
-    const manifestPath = path.join(ARTIFACT_DIR, "manifest.json")
+    const manifestPath = path.join(dir, "manifest.json")
     if (!fs.existsSync(manifestPath)) {
       CACHED_HANDLE = null
       return null
@@ -199,8 +250,8 @@ export function loadDeepNrfiModel(): LoadedHandle | null {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Manifest
     const modelFile = manifest.modelFile ?? `model_${manifest.activeVersion}.txt`
     const calibFile = manifest.calibrationFile ?? `calibration_${manifest.activeVersion}.json`
-    const modelPath = path.join(ARTIFACT_DIR, modelFile)
-    const calibPath = path.join(ARTIFACT_DIR, calibFile)
+    const modelPath = path.join(dir, modelFile)
+    const calibPath = path.join(dir, calibFile)
     if (!fs.existsSync(modelPath)) {
       console.warn(`[deepnrfi] manifest references missing model file ${modelFile} — falling back to legacy ensemble`)
       CACHED_HANDLE = null
