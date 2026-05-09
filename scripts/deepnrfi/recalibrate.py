@@ -58,8 +58,17 @@ def fit(df: pd.DataFrame) -> list[list[float]]:
     return [[float(x), round(float(iso.predict([x])[0]), 4)] for x in grid]
 
 
+_PASTE_TARGETS = {
+    # The maintained file paths don't follow the `name.lower()` convention,
+    # so we map the v1/v2 names explicitly.
+    "calibration_v1": "lib/calibration.ts",
+    "calibration_v2": "lib/calibration-v2.ts",
+}
+
+
 def emit_block(name: str, knots: list[list[float]]) -> None:
-    print(f"\n// ─── {name} (paste into lib/{name.lower()}.ts) ───")
+    target = _PASTE_TARGETS.get(name, f"lib/{name.replace('_', '-')}.ts")
+    print(f"\n// ─── {name} (paste into {target}) ───")
     print("const CALIBRATION_KNOTS = [")
     for x, y in knots:
         print(f"  [{x:.2f}, {y:.4f}],")

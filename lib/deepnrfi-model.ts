@@ -152,9 +152,23 @@ function parseBooster(text: string): Booster {
     const leafValue = (kv["leaf_value"] ?? "").split(/\s+/).map(Number)
     const shrinkage = Number.parseFloat(kv["shrinkage"] ?? "1")
 
-    // Unsupported: any categorical split (decision_type bit 0 set means categorical).
-    if (decisionType.some((d) => (d & 1) === 1)) {
-      throw new Error("DeepNRFI artifact contains categorical splits (unsupported).")
+    // LightGBM packs flags into decision_type:
+    //   bit 0       — categorical split (we only support numeric)
+    //   bits 1..2   — missing-value mode: 00 = None, 01 = Zero, 10 = NaN
+    //   bit 3       — default-left vs default-right (already read separately)
+    // We only handle the "None" missing-value mode; any other mode would mean
+    // we should re-route 0-or-NaN inputs differently than evalTree's NaN-only
+    // branch does, so reject the artifact rather than silently mis-score.
+    for (const d of decisionType) {
+      if ((d & 1) === 1) {
+        throw new Error("DeepNRFI artifact contains categorical splits (unsupported).")
+      }
+      const missingMode = (d >> 1) & 0b11
+      if (missingMode !== 0) {
+        throw new Error(
+          `DeepNRFI artifact uses missing-value mode ${missingMode}; only "None" (0) is supported.`,
+        )
+      }
     }
 
     // Internal nodes: 0..numInternal-1; leaves indexed via negative children.

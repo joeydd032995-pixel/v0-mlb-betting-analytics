@@ -41,7 +41,15 @@ def metrics(df: pd.DataFrame) -> dict:
     return {
         "n": int(len(df)),
         "brier": float(brier_score_loss(df["y"], df["p"])),
-        "logloss": float(log_loss(df["y"].clip(0, 1), df["p"].clip(1e-3, 1 - 1e-3))),
+        # Pass labels=[0, 1] so log_loss handles single-class slices (e.g. a
+        # confidence tier that contains only NRFI hits) without raising.
+        "logloss": float(
+            log_loss(
+                df["y"].clip(0, 1),
+                df["p"].clip(1e-3, 1 - 1e-3),
+                labels=[0, 1],
+            )
+        ),
         "accuracy": float(((df["p"] >= 0.5) == df["y"].astype(bool)).mean()),
     }
 

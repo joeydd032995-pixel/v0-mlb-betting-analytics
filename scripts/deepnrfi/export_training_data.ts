@@ -25,9 +25,13 @@ interface Args { from: string; to: string; out: string }
 
 function parseArgs(): Args {
   const args = process.argv.slice(2)
-  const get = (flag: string, dflt?: string) => {
+  const get = (flag: string, dflt?: string): string | undefined => {
     const i = args.indexOf(flag)
-    return i >= 0 ? args[i + 1] : dflt
+    if (i < 0) return dflt
+    const v = args[i + 1]
+    // Reject missing values and adjacent flags (e.g. "--from --to 2024-01-01").
+    if (v === undefined || v.startsWith("-")) return dflt
+    return v
   }
   return {
     from: get("--from") ?? "2023-04-01",
@@ -36,6 +40,16 @@ function parseArgs(): Args {
     to: get("--to") ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()),
     out: get("--out") ?? path.join(process.cwd(), "scripts", "deepnrfi", "data", "training.csv"),
   }
+}
+
+/** RFC-4180-ish CSV cell escape: quote when containing comma/quote/newline. */
+function escapeCsv(value: string | number | boolean | null | undefined): string {
+  if (value === null || value === undefined) return ""
+  const str = String(value)
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
 }
 
 async function main(): Promise<void> {
@@ -55,25 +69,29 @@ async function main(): Promise<void> {
   const header = ["gameId", "date", "season", "homeTeam", "awayTeam", "nrfi", ...FEATURE_ORDER]
   fs.mkdirSync(path.dirname(args.out), { recursive: true })
   const out = fs.createWriteStream(args.out)
-  out.write(header.join(",") + "\n")
+  out.on("error", (err) => {
+    console.error(`[export-training] write error on ${args.out}: ${err.message}`)
+    process.exitCode = 1
+  })
+  out.write(header.map(escapeCsv).join(",") + "\n")
 
   let written = 0
   for (const r of rows) {
     const key = `${r.date}|${r.homeTeam}|${r.awayTeam}`
     const pred = predByKey.get(key)
     if (!pred) continue   // need ensemble7 signal as a feature
-    const featureValues = FEATURE_ORDER.map((feat) => {
+    const featureValues: (number | string)[] = FEATURE_ORDER.map((feat) => {
       // Only ensemble7_nrfi has a real source today; the rest are league-default
       // placeholders that the trainer will treat as low-information until the
       // feature reconstruction agent (Phase 6) backfills real per-game snapshots.
-      if (feat === "ensemble7_nrfi") return pred.ensembleNrfi
+      if (feat === "ensemble7_nrfi") return pred.ensembleNrfi ?? ""
       return ""
     })
     const cells = [
-      String(r.gamePk), r.date, String(r.season), r.homeTeam, r.awayTeam,
-      r.nrfi ? "1" : "0", ...featureValues,
+      r.gamePk, r.date, r.season, r.homeTeam, r.awayTeam,
+      r.nrfi ? 1 : 0, ...featureValues,
     ]
-    out.write(cells.join(",") + "\n")
+    out.write(cells.map(escapeCsv).join(",") + "\n")
     written++
   }
   out.end()

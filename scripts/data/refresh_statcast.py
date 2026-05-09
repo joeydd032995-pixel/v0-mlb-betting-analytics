@@ -31,10 +31,20 @@ from datetime import datetime, date
 try:
     import pandas as pd
     import psycopg
+    from psycopg import sql
     from pybaseball import statcast, playerid_lookup, cache
 except ImportError as e:
     print(f"Missing dependency: {e}.  Run: pip install -r scripts/data/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
+
+
+# League averages circa 2024 season for the Stuff+ proxy (z-scored fb velo + spin).
+LEAGUE_FB_VELO_MEAN = 93.5
+LEAGUE_FB_VELO_STD = 1.6
+LEAGUE_FB_SPIN_MEAN = 2300
+LEAGUE_FB_SPIN_STD = 220
+STUFFPLUS_VELO_WEIGHT = 8
+STUFFPLUS_SPIN_WEIGHT = 5
 
 
 def _iso_date(value: str) -> date:
@@ -77,9 +87,9 @@ def summarise_pitchers(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.concat([g, fb_velo, fb_spin, breaking_ct, rel_h, rel_s], axis=1)
     out["breaking_pct"] = (out["n_breaking"].fillna(0) / out["n_pitches"]).clip(0, 1)
     # Lightweight Stuff+ proxy: z-scored fb velo + spin (centred at league means).
-    velo_z = (out["fbVeloAvg"] - 93.5) / 1.6
-    spin_z = (out["fbSpinAvg"] - 2300) / 220
-    out["stuffPlus"] = (100 + 8 * velo_z + 5 * spin_z).round(1)
+    velo_z = (out["fbVeloAvg"] - LEAGUE_FB_VELO_MEAN) / LEAGUE_FB_VELO_STD
+    spin_z = (out["fbSpinAvg"] - LEAGUE_FB_SPIN_MEAN) / LEAGUE_FB_SPIN_STD
+    out["stuffPlus"] = (100 + STUFFPLUS_VELO_WEIGHT * velo_z + STUFFPLUS_SPIN_WEIGHT * spin_z).round(1)
     out = out.dropna(subset=["fbVeloAvg", "fbSpinAvg"])
     return out
 
@@ -103,13 +113,20 @@ def summarise_batters(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+_ALLOWED_TABLES = {"pitcher_statcast", "batter_statcast"}
+
+
 def upsert(conn: "psycopg.Connection", table: str, mlbam_id: str, dt: date, payload: dict) -> None:
-    sql = (
-        f'INSERT INTO {table} (id, "mlbamId", date, payload, "createdAt") '
-        f"VALUES (gen_random_uuid()::text, %s, %s, %s::jsonb, NOW()) "
-        f'ON CONFLICT ("mlbamId", date) DO UPDATE SET payload = EXCLUDED.payload'
-    )
-    conn.execute(sql, (mlbam_id, dt, json.dumps(payload)))
+    # Whitelist + sql.Identifier so a future caller passing untrusted input can't
+    # produce a SQL-injection vector via the table name.
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"Refusing to upsert into unknown table {table!r}")
+    query = sql.SQL(
+        'INSERT INTO {} (id, "mlbamId", date, payload, "createdAt") '
+        "VALUES (gen_random_uuid()::text, %s, %s, %s::jsonb, NOW()) "
+        'ON CONFLICT ("mlbamId", date) DO UPDATE SET payload = EXCLUDED.payload'
+    ).format(sql.Identifier(table))
+    conn.execute(query, (mlbam_id, dt, json.dumps(payload)))
 
 
 def main() -> int:
@@ -137,26 +154,38 @@ def main() -> int:
             print(batters.head(5))
         return 0
 
+    skipped_pitchers = 0
+    skipped_batters = 0
     with psycopg.connect(args.db_url) as conn:
         for mlbam_id, row in pitchers.iterrows():
-            payload = {
-                "fbVeloAvg": float(row["fbVeloAvg"]),
-                "fbSpinAvg": float(row["fbSpinAvg"]),
-                "breaking_pct": float(row["breaking_pct"]),
-                "stuffPlus": float(row["stuffPlus"]),
-                "releaseHeight": float(row.get("releaseHeight", 6.0)) if pd.notna(row.get("releaseHeight")) else None,
-                "releaseSide": float(row.get("releaseSide", 0.0)) if pd.notna(row.get("releaseSide")) else None,
-            }
-            upsert(conn, "pitcher_statcast", str(int(mlbam_id)), summary_date, payload)
+            try:
+                payload = {
+                    "fbVeloAvg": float(row["fbVeloAvg"]),
+                    "fbSpinAvg": float(row["fbSpinAvg"]),
+                    "breaking_pct": float(row["breaking_pct"]),
+                    "stuffPlus": float(row["stuffPlus"]),
+                    "releaseHeight": float(row.get("releaseHeight", 6.0)) if pd.notna(row.get("releaseHeight")) else None,
+                    "releaseSide": float(row.get("releaseSide", 0.0)) if pd.notna(row.get("releaseSide")) else None,
+                }
+                upsert(conn, "pitcher_statcast", str(int(mlbam_id)), summary_date, payload)
+            except (ValueError, TypeError) as err:
+                skipped_pitchers += 1
+                print(f"[refresh-statcast] skip pitcher {mlbam_id} ({summary_date}): {err}", file=sys.stderr)
         for mlbam_id, row in batters.iterrows():
-            payload = {
-                "xwoba": float(row["xwoba"]),
-                "barrel_pct": float(row["barrel_pct"]),
-                "hardhit_pct": float(row["hardhit_pct"]),
-                "avg_ev": float(row["avg_ev"]),
-            }
-            upsert(conn, "batter_statcast", str(int(mlbam_id)), summary_date, payload)
+            try:
+                payload = {
+                    "xwoba": float(row["xwoba"]),
+                    "barrel_pct": float(row["barrel_pct"]),
+                    "hardhit_pct": float(row["hardhit_pct"]),
+                    "avg_ev": float(row["avg_ev"]),
+                }
+                upsert(conn, "batter_statcast", str(int(mlbam_id)), summary_date, payload)
+            except (ValueError, TypeError) as err:
+                skipped_batters += 1
+                print(f"[refresh-statcast] skip batter {mlbam_id} ({summary_date}): {err}", file=sys.stderr)
         conn.commit()
+    if skipped_pitchers or skipped_batters:
+        print(f"[refresh-statcast] skipped {skipped_pitchers} pitchers / {skipped_batters} batters")
 
     print("[refresh-statcast] done")
     return 0
