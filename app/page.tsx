@@ -493,6 +493,9 @@ export default function HomePage() {
     return items
   }, [predictions, todayGames, teamMap, pitcherMap, filters])
 
+  const todayET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+  const todayStats = trackingAccuracy?.dailyStats?.find((d) => d.date === todayET)
+
   return (
     <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
       {/* Main content */}
@@ -500,28 +503,39 @@ export default function HomePage() {
         {/* KPI row */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <KpiCard
-            metric="Season Accuracy"
-            value={trackingAccuracy ? `${(trackingAccuracy.accuracy * 100).toFixed(1)}%` : "—"}
-            delta="vs 51.6% baseline"
-            deltaPositive={trackingAccuracy ? trackingAccuracy.accuracy > 0.516 : undefined}
+            metric="Season NRFI Accuracy"
+            value={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? `${(trackingAccuracy.nrfiAccuracy * 100).toFixed(1)}%` : "—"}
+            delta={trackingAccuracy && trackingAccuracy.nrfiBestModelAccuracy > 0
+              ? `Best: ${trackingAccuracy.nrfiBestModel} ${(trackingAccuracy.nrfiBestModelAccuracy * 100).toFixed(1)}%`
+              : "vs 51.6% baseline"}
+            deltaPositive={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? trackingAccuracy.nrfiAccuracy > 0.516 : undefined}
             variant="cy"
           />
           <KpiCard
-            metric="Today's Games"
-            value={predictions.length > 0 ? predictions.length : "—"}
-            delta={liveData?.date ?? ""}
+            metric="Season YRFI Accuracy"
+            value={trackingAccuracy && trackingAccuracy.yrfiTotal > 0 ? `${(trackingAccuracy.yrfiAccuracy * 100).toFixed(1)}%` : "—"}
+            delta={trackingAccuracy && trackingAccuracy.yrfiBestModelAccuracy > 0
+              ? `Best: ${trackingAccuracy.yrfiBestModel} ${(trackingAccuracy.yrfiBestModelAccuracy * 100).toFixed(1)}%`
+              : "vs 51.6% baseline"}
+            deltaPositive={trackingAccuracy && trackingAccuracy.yrfiTotal > 0 ? trackingAccuracy.yrfiAccuracy > 0.516 : undefined}
             variant="bl"
           />
           <KpiCard
-            metric="High Confidence"
-            value={(() => { const n = predictions.filter(p => p.confidence === "High").length; return n > 0 ? n : "—" })()}
-            delta="of today's slate"
+            metric="Today's W/L"
+            value={todayStats ? `${todayStats.combinedWins}W-${todayStats.combinedLosses}L` : "—"}
+            delta={todayStats
+              ? `NRFI ${todayStats.nrfiWins}-${todayStats.nrfiLosses} / YRFI ${todayStats.yrfiWins}-${todayStats.yrfiLosses}`
+              : "no resolved games yet"}
+            deltaPositive={todayStats ? todayStats.combinedWins > todayStats.combinedLosses : undefined}
             variant="gr"
           />
           <KpiCard
-            metric="Value Bets"
-            value={(() => { const n = predictions.filter(p => p.valueAnalysis?.recommendedBet !== "NO_BET").length; return n > 0 ? n : "—" })()}
-            delta="edge ≥ 3%"
+            metric="Best Model (Season)"
+            value={trackingAccuracy && trackingAccuracy.bestOverallAccuracy > 0 ? trackingAccuracy.bestOverallModel : "—"}
+            delta={trackingAccuracy && trackingAccuracy.bestOverallAccuracy > 0
+              ? `${(trackingAccuracy.bestOverallAccuracy * 100).toFixed(1)}% accuracy`
+              : "no resolved games yet"}
+            deltaPositive={trackingAccuracy && trackingAccuracy.bestOverallAccuracy > 0 ? trackingAccuracy.bestOverallAccuracy > 0.516 : undefined}
             variant="tl"
           />
           <KpiCard
