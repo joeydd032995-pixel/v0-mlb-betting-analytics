@@ -228,14 +228,20 @@ export interface MarkovResult {
  *
  * Iterates until all remaining mass is < 1e-6 or 30 PAs (safety limit).
  */
-export function computeMarkovNrfi(pa: PAOutcomes): MarkovResult {
+type OutCount = 0 | 1 | 2
+
+export function computeMarkovNrfi(
+  pa: PAOutcomes,
+  initOuts: OutCount = 0,
+  initRunners: RunnerBits = 0
+): MarkovResult {
   // stateProb[outs][runners] = P(in this state AND 0 runs scored so far)
   const stateProb: number[][] = [
     new Array(8).fill(0),
     new Array(8).fill(0),
     new Array(8).fill(0),
   ]
-  stateProb[0][0] = 1.0   // Start: 0 outs, bases empty, P=1
+  stateProb[initOuts][initRunners] = 1.0   // Start: initOuts outs, initRunners config, P=1
 
   let nrfiAccum = 0              // Accumulates P(3 outs, 0 runs)
   let runScoredBranchWeight = 0  // See MarkovResult.runScoredBranchWeight
@@ -687,11 +693,10 @@ export const ENSEMBLE_WEIGHTS = {
  * not yet in PitcherFirstInningStats; we fall back gracefully when absent.
  */
 export function getDynamicPriorWeight(pitcher: Pitcher): number {
-  const ext = pitcher as Pitcher & { careerFirstInnings?: number; isBullpenGame?: boolean }
   // Check bullpen flag first — these pitchers typically have careerIP < 100 too,
   // but the heavy shrinkage (k=80) is the intended behavior for bullpen outings.
-  if (ext.isBullpenGame) return 80
-  const careerIP = ext.careerFirstInnings ?? pitcher.firstInning.startCount * 3
+  if (pitcher.firstInning.isBullpenGame) return 80
+  const careerIP = pitcher.firstInning.careerFirstInnings ?? pitcher.firstInning.startCount * 3
   if (careerIP < 100) return 30
   return 50
 }
@@ -718,10 +723,9 @@ export function applyDynamicShrinkage(pitcher: Pitcher, priorWeight: number): nu
  * TeamFirstInningStats; we fall back to the overall offenseFactor when absent.
  */
 export function getLineupVsHand(pitcherThrows: Pitcher["throws"], team: Team): number {
-  const ext = team.firstInning as typeof team.firstInning & { vsLHP?: number; vsRHP?: number }
   return pitcherThrows === "L"
-    ? (ext.vsLHP ?? team.firstInning.offenseFactor)
-    : (ext.vsRHP ?? team.firstInning.offenseFactor)
+    ? (team.firstInning.vsLHP ?? team.firstInning.offenseFactor)
+    : (team.firstInning.vsRHP ?? team.firstInning.offenseFactor)
 }
 
 // ─── Internal helpers for compute7ModelEnsemble ───────────────────────────────
@@ -869,93 +873,17 @@ const BASE_DESCRIPTIONS = [
 ]
 
 /**
- * Run the Markov forward-propagation starting from a specific (outs, runners) state.
- * Identical to computeMarkovNrfi except for the initial probability assignment.
- * This enables computing conditional P(NRFI | current state) without duplicating
- * any transition logic.
- */
-function computeMarkovNrfiFromState(
-  pa:          PAOutcomes,
-  initOuts:    number,
-  initRunners: number
-): MarkovResult {
-  const stateProb: number[][] = [
-    new Array(8).fill(0),
-    new Array(8).fill(0),
-    new Array(8).fill(0),
-  ]
-  stateProb[initOuts][initRunners] = 1.0
-
-  let nrfiAccum = 0
-  let runScoredBranchWeight = 0
-
-  for (let iter = 0; iter < 30; iter++) {
-    const next: number[][] = [
-      new Array(8).fill(0),
-      new Array(8).fill(0),
-      new Array(8).fill(0),
-    ]
-
-    for (let outs = 0; outs < 3; outs++) {
-      for (let runners = 0; runners < 8; runners++) {
-        const p = stateProb[outs][runners]
-        if (p < 1e-10) continue
-
-        const newOuts = outs + 1
-        if (newOuts === 3) {
-          nrfiAccum += p * pa.out
-        } else {
-          next[newOuts][runners] += p * pa.out
-        }
-
-        const [wR, wRuns] = applyWalk(runners)
-        if (wRuns === 0) next[outs][wR] += p * pa.walk
-        else runScoredBranchWeight += p * pa.walk * wRuns
-
-        const [sR, sRuns] = applySingle(runners)
-        if (sRuns === 0) next[outs][sR] += p * pa.single
-        else runScoredBranchWeight += p * pa.single * sRuns
-
-        const [dR, dRuns] = applyDouble(runners)
-        if (dRuns === 0) next[outs][dR] += p * pa.double
-        else runScoredBranchWeight += p * pa.double * dRuns
-
-        const [tR, tRuns] = applyTriple(runners)
-        if (tRuns === 0) next[outs][tR] += p * pa.triple
-        else runScoredBranchWeight += p * pa.triple * tRuns
-
-        // HR always scores ≥1 run
-        const [, hRuns] = applyHR(runners)
-        runScoredBranchWeight += p * pa.hr * hRuns
-      }
-    }
-
-    for (let o = 0; o < 3; o++)
-      for (let r = 0; r < 8; r++)
-        stateProb[o][r] = next[o][r]
-
-    const remaining = stateProb.flat().reduce((a, b) => a + b, 0)
-    if (remaining < 1e-5) break
-  }
-
-  return {
-    nrfiProb: Math.max(0.1, Math.min(0.98, nrfiAccum)),
-    runScoredBranchWeight,
-  }
-}
-
-/**
  * Compute the full 24-state Markov snapshot for the interactive MarkovDiamond component.
  * For each of the 24 non-terminal base-out states, computes conditional P(NRFI)
  * by running the Markov chain with probability mass starting at that state.
  *
- * This reuses computeMarkovNrfiFromState for all 24 states — no Markov logic is duplicated.
+ * This calls computeMarkovNrfi(pa, outs, runners) for all 24 states — no Markov logic is duplicated.
  */
 export function computeMarkovStateSnapshot(pa: PAOutcomes): MarkovStateSnapshot {
   const states: MarkovStateInfo[] = []
   for (let outs = 0; outs < 3; outs++) {
     for (let runners = 0; runners < 8; runners++) {
-      const result = computeMarkovNrfiFromState(pa, outs, runners)
+      const result = computeMarkovNrfi(pa, outs as OutCount, runners as RunnerBits)
       states.push({
         outs,
         runners,

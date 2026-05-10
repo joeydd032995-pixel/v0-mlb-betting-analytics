@@ -178,6 +178,36 @@ function blend7Models(home: SevenModelResult, away: SevenModelResult): number {
 
 // ─── Factor Analysis ──────────────────────────────────────────────────────────
 
+function buildPitcherFactor(pitcher: Pitcher): PredictionFactor {
+  const fi  = pitcher.firstInning
+  const pct = `${(fi.nrfiRate * 100).toFixed(0)}% NRFI`
+  if (fi.nrfiRate >= 0.72) {
+    return {
+      name:        `${pitcher.name} — Elite Ace`,
+      impact:      "positive",
+      magnitude:   "strong",
+      description: `${pitcher.name} has a ${(fi.nrfiRate * 100).toFixed(0)}% NRFI rate this season — among the league's best.`,
+      value:       pct,
+    }
+  }
+  if (fi.nrfiRate >= 0.64) {
+    return {
+      name:        `${pitcher.name} — Solid Starter`,
+      impact:      "positive",
+      magnitude:   "moderate",
+      description: `${pitcher.name} keeps the first inning clean ${(fi.nrfiRate * 100).toFixed(0)}% of the time.`,
+      value:       pct,
+    }
+  }
+  return {
+    name:        `${pitcher.name} — Vulnerable`,
+    impact:      "negative",
+    magnitude:   fi.nrfiRate < 0.57 ? "strong" : "moderate",
+    description: `${pitcher.name}'s ${(fi.nrfiRate * 100).toFixed(0)}% NRFI rate creates first-inning risk.`,
+    value:       pct,
+  }
+}
+
 function buildFactors(
   game:        Game,
   homePitcher: Pitcher,
@@ -186,38 +216,11 @@ function buildFactors(
   awayTeam:    Team
 ): PredictionFactor[] {
   const factors: PredictionFactor[] = []
-
   const hp = homePitcher.firstInning
-  if (hp.nrfiRate >= 0.72) {
-    factors.push({ name: `${homePitcher.name} — Elite Ace`, impact: "positive", magnitude: "strong",
-      description: `${homePitcher.name} has a ${(hp.nrfiRate * 100).toFixed(0)}% NRFI rate this season — among the league's best.`,
-      value: `${(hp.nrfiRate * 100).toFixed(0)}% NRFI` })
-  } else if (hp.nrfiRate >= 0.64) {
-    factors.push({ name: `${homePitcher.name} — Solid Starter`, impact: "positive", magnitude: "moderate",
-      description: `${homePitcher.name} keeps the first inning clean ${(hp.nrfiRate * 100).toFixed(0)}% of the time.`,
-      value: `${(hp.nrfiRate * 100).toFixed(0)}% NRFI` })
-  } else {
-    factors.push({ name: `${homePitcher.name} — Vulnerable`, impact: "negative",
-      magnitude: hp.nrfiRate < 0.57 ? "strong" : "moderate",
-      description: `${homePitcher.name}'s ${(hp.nrfiRate * 100).toFixed(0)}% NRFI rate creates first-inning risk.`,
-      value: `${(hp.nrfiRate * 100).toFixed(0)}% NRFI` })
-  }
-
   const ap = awayPitcher.firstInning
-  if (ap.nrfiRate >= 0.72) {
-    factors.push({ name: `${awayPitcher.name} — Elite Ace`, impact: "positive", magnitude: "strong",
-      description: `${awayPitcher.name} dominates the first inning with a ${(ap.nrfiRate * 100).toFixed(0)}% NRFI rate.`,
-      value: `${(ap.nrfiRate * 100).toFixed(0)}% NRFI` })
-  } else if (ap.nrfiRate >= 0.64) {
-    factors.push({ name: `${awayPitcher.name} — Solid Starter`, impact: "positive", magnitude: "moderate",
-      description: `${awayPitcher.name} suppresses first-inning scoring ${(ap.nrfiRate * 100).toFixed(0)}% of his starts.`,
-      value: `${(ap.nrfiRate * 100).toFixed(0)}% NRFI` })
-  } else {
-    factors.push({ name: `${awayPitcher.name} — Vulnerable`, impact: "negative",
-      magnitude: ap.nrfiRate < 0.57 ? "strong" : "moderate",
-      description: `${awayPitcher.name}'s ${(ap.nrfiRate * 100).toFixed(0)}% NRFI rate is a YRFI risk.`,
-      value: `${(ap.nrfiRate * 100).toFixed(0)}% NRFI` })
-  }
+
+  factors.push(buildPitcherFactor(homePitcher))
+  factors.push(buildPitcherFactor(awayPitcher))
 
   if (awayTeam.firstInning.offenseFactor >= 1.12)
     factors.push({ name: `${awayTeam.abbreviation} Offense — Dangerous`, impact: "negative", magnitude: "moderate",

@@ -116,7 +116,7 @@ function pitcherFeatures(p: Pitcher | undefined, prefix: "home_pitcher" | "away_
     [`${prefix}_rolling3_ip`]:        set(`${prefix}_rolling3_ip`,        ft?.rolling3StartIP ?? DEFAULTS.rolling3_ip, ft !== undefined),
     [`${prefix}_vstop_woba`]:         set(`${prefix}_vstop_woba`,         sp?.wobaAllowed ?? DEFAULTS.vstop_woba,   sp !== undefined),
     [`${prefix}_vstop_k`]:            set(`${prefix}_vstop_k`,            sp?.k_pct ?? DEFAULTS.vstop_k,            sp !== undefined),
-    [`${prefix}_is_bullpen`]:         set(`${prefix}_is_bullpen`,         p.isBullpenGame ? 1 : 0,                  p.isBullpenGame !== undefined),
+    [`${prefix}_is_bullpen`]:         set(`${prefix}_is_bullpen`,         fi.isBullpenGame ? 1 : 0,                 fi.isBullpenGame !== undefined),
   }
 }
 

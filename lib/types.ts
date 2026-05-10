@@ -68,13 +68,8 @@ export interface Pitcher {
   firstInning: PitcherFirstInningStats
   overall: PitcherOverallStats
   // ── Ensemble++ Phase 1 extensions (all optional) ──────────────────────────────
-  /**
-   * Career first-inning workload (used by getDynamicPriorWeight).
-   * Fewer than 100 IP → spot-starter shrinkage (k=30); ≥100 → full-time (k=50).
-   */
-  careerFirstInnings?: number
-  /** True when this is a bullpen game / opener; triggers heavy shrinkage (k=80). */
-  isBullpenGame?: boolean
+  // Note: careerFirstInnings and isBullpenGame live on PitcherFirstInningStats
+  // (added by the code-quality-audit branch); the engine reads them there.
   /** Statcast pitcher summary (velocity, spin, stuff). Source: pybaseball nightly dump. */
   statcast?: StatcastPitcherSummary
   /** Workload + rest-day fatigue indicators. */
@@ -130,6 +125,10 @@ export interface PitcherFirstInningStats {
   startCount: number
   homeNrfiRate: number
   awayNrfiRate: number
+  /** Career first-inning appearances — used by getDynamicPriorWeight for shrinkage k selection */
+  careerFirstInnings?: number
+  /** True when this pitcher is used as a bulk/opener reliever, not a traditional starter */
+  isBullpenGame?: boolean
 }
 
 export interface PitcherOverallStats {
