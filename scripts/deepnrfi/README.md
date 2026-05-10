@@ -23,40 +23,64 @@ scripts/deepnrfi/
 
 ## Workflow
 
-1. **Export training data** (after the historical-sync route has populated `GameResult` and `ModelPrediction`):
+There are two ways to build a training set.  The **point-in-time builder** is
+the recommended path — it reconstructs real Statcast + lineup features per
+game so you can train on real outcomes without a 14–30 day production shadow
+window.  The legacy `export_training_data.ts` path is kept for backwards
+compatibility and produces a sparse CSV (only `ensemble7_nrfi` is real, every
+other feature is a league-average placeholder).
 
-   ```bash
-   tsx scripts/deepnrfi/export_training_data.ts --from 2023-04-01 --to 2024-09-30
-   ```
+### Recommended: point-in-time real training set
 
-2. **Install Python deps** (once):
+Total wall-clock ~4–6 hours, mostly background.  Run from the repo root.
+
+1. **Install Python deps** (once):
 
    ```bash
    python -m venv .venv && source .venv/bin/activate
    pip install -r scripts/deepnrfi/requirements.txt
    ```
 
-3. **Train**:
+2. **Build the training CSV.**  This pulls Statcast, fetches MLB Stats
+   boxscores for each game, joins against `GameResult` × `ModelPrediction`,
+   and writes `scripts/deepnrfi/data/training.csv`.  Both heavy fetches are
+   cached to disk so a re-run resumes instantly.
+
+   ```bash
+   DATABASE_URL="<your Neon URL>" \
+     python scripts/deepnrfi/build_real_training_set.py \
+       --from 2023-04-01 --to 2024-09-30
+   ```
+
+3. **Train** on the real CSV:
 
    ```bash
    python scripts/deepnrfi/train.py --version v1
    ```
 
-   Or to smoke-test end-to-end without real data:
+   Inspect `scripts/deepnrfi/artifacts/manifest.json`.  If walk-forward CV
+   `brier < 0.245` you have evidence the model generalises; promote in
+   production.  If not, iterate on features or wait for more data.
 
-   ```bash
-   python scripts/deepnrfi/train.py --version v1 --dry-run
-   ```
+4. **Promote** by committing the artifacts under `scripts/deepnrfi/artifacts/`
+   and setting `ENABLE_DEEPNRFI=true` + `ENSEMBLE_VERSION=v2.9models` in the
+   runtime env (Vercel for production, GH Actions Variables for crons).
 
-4. **Promote** by committing the new artifacts under `scripts/deepnrfi/artifacts/`.
-   Set `ENABLE_DEEPNRFI=true` and `ENSEMBLE_VERSION=v2.9models` in your env to
-   route predictions through the stacker.
-
-5. **Backtest** v2 vs v1 before flipping the flag in production:
+5. **Backtest** v2 vs v1 once a few days of v2 predictions have completed:
 
    ```bash
    python scripts/deepnrfi/backtest_v2.py --season 2024
    ```
+
+### Legacy: synthetic / sparse export
+
+Useful for smoke-testing the artifact-loading pipeline.  Produces a CSV where
+`ensemble7_nrfi` is the only real feature.
+
+```bash
+tsx scripts/deepnrfi/export_training_data.ts --from 2023-04-01 --to 2024-09-30
+python scripts/deepnrfi/train.py --version v1 --dry-run   # synthetic data
+```
 
 ## Compatibility notes
 
