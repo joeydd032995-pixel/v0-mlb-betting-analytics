@@ -50,6 +50,8 @@ export async function GET() {
         zipNrfi:         true,
         markovNrfi:      true,
         ensembleNrfi:    true,
+        deepNrfi:        true,
+        ensembleVersion: true,
         prediction:      true,
         actualResult:    true,
         correct:         true,
@@ -152,6 +154,46 @@ export async function GET() {
       }
     })
 
+    // ── 6b. By ensemble version (v1.7models vs v2.9models) ─────────────────
+    function summariseGroup(pred: typeof withResult) {
+      if (pred.length === 0) return null
+      const correctCt = pred.filter((p) => p.correct).length
+      const brierSum = pred.reduce((s, p) => {
+        const actual = p.actualResult === "NRFI" ? 1 : 0
+        return s + (p.nrfiProbability - actual) ** 2
+      }, 0)
+      return {
+        total:    pred.length,
+        correct:  correctCt,
+        accuracy: correctCt / pred.length,
+        brier:    brierSum / pred.length,
+      }
+    }
+
+    const v1Preds = withResult.filter((p) => (p.ensembleVersion ?? "v1.7models") === "v1.7models")
+    const v2Preds = withResult.filter((p) => p.ensembleVersion === "v2.9models")
+    const byVersion = {
+      v1: summariseGroup(v1Preds),
+      v2: summariseGroup(v2Preds),
+    }
+
+    // ── 6c. By edge bucket (deviation from 0.5) ────────────────────────────
+    // Without bookmaker odds we can't recover true edge after the fact, so we
+    // bucket by |nrfiProbability − 0.5| as a proxy for model conviction.
+    const edgeBuckets = [
+      { key: "neutral", label: "≤ 2% from 50/50", lo: 0,    hi: 0.02 },
+      { key: "small",   label: "2–5% from 50/50", lo: 0.02, hi: 0.05 },
+      { key: "mid",     label: "5–8% from 50/50", lo: 0.05, hi: 0.08 },
+      { key: "high",    label: "≥ 8% from 50/50", lo: 0.08, hi: 1 },
+    ]
+    const byEdgeBucket = edgeBuckets.map((b) => {
+      const slice = withResult.filter((p) => {
+        const d = Math.abs(p.nrfiProbability - 0.5)
+        return d >= b.lo && d < b.hi
+      })
+      return { ...b, ...(summariseGroup(slice) ?? { total: 0, correct: 0, accuracy: 0, brier: 0 }) }
+    })
+
     // ── 7. Sync status ─────────────────────────────────────────────────────
     const [latestResult, totalPredCount] = await Promise.all([
       prisma.gameResult.findFirst({ orderBy: { date: "desc" }, select: { date: true } }),
@@ -173,6 +215,8 @@ export async function GET() {
       byConfidence,
       perModel,
       monthly,
+      byVersion,
+      byEdgeBucket,
       syncStatus: {
         totalGames,
         totalPredictions: totalPredCount,

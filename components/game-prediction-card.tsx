@@ -6,6 +6,9 @@ import { Card } from "@/components/ui/card"
 import Link from "next/link"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DeepNrfiPanel } from "@/components/ensemble/DeepNrfiPanel"
+import { MonteCarloHistogram } from "@/components/ensemble/MonteCarloHistogram"
+import { StackContributionBar } from "@/components/ensemble/StackContributionBar"
 import {
   CloudSun,
   Wind,
@@ -502,6 +505,14 @@ export function GamePredictionCard({
                       homeAbbr={homeTeam.abbreviation}
                     />
                   )}
+
+                  {/* Ensemble++ panels — render only when v2 data is present */}
+                  <StackContributionBar
+                    ensembleVersion={prediction.ensembleVersion}
+                    ensembleWeights={prediction.ensembleWeights}
+                  />
+                  <DeepNrfiPanel deepNrfi={prediction.deepNrfi} />
+                  <MonteCarloHistogram mc={prediction.monteCarlo} />
 
                   {/* Value analysis detail */}
                   {va && (

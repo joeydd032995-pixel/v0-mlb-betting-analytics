@@ -1,0 +1,56 @@
+name: Predictions Agent (daily)
+
+# Daily prediction agent: pulls today's slate, runs the engine, upserts
+# ModelPrediction rows, and posts edge alerts.  Disabled by default — add
+# the required secrets and enable the schedule when you're ready.
+#
+# Cron at 12:00 UTC ≈ 7:00 AM ET (after MLB posts probable starters).
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "ET date YYYY-MM-DD (default = today)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip DB writes and webhook calls"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL:           ${{ secrets.DATABASE_URL }}
+      THE_ODDS_API_KEY:       ${{ secrets.THE_ODDS_API_KEY }}
+      OPENWEATHER_API_KEY:    ${{ secrets.OPENWEATHER_API_KEY }}
+      AGENT_WEBHOOK_URL:      ${{ secrets.AGENT_WEBHOOK_URL }}
+      AGENT_MIN_ALERT_EDGE:   ${{ vars.AGENT_MIN_ALERT_EDGE || '0.05' }}
+      ENABLE_DEEPNRFI:        ${{ vars.ENABLE_DEEPNRFI || 'false' }}
+      ENABLE_MONTECARLO:      ${{ vars.ENABLE_MONTECARLO || 'false' }}
+      ENSEMBLE_VERSION:       ${{ vars.ENSEMBLE_VERSION || 'v1.7models' }}
+      AGENT_DRY_RUN:          ${{ inputs.dry_run && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install deps
+        run: npm ci --ignore-scripts
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Run prediction agent
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.date }}" ]; then
+            ARGS="--date ${{ inputs.date }}"
+          fi
+          npx tsx scripts/agents/prediction_agent.ts $ARGS
