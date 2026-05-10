@@ -3,8 +3,9 @@
 import { useMemo } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ExtendedModelAccuracy } from "@/lib/prediction-store"
-import { BarChart3, TrendingUp, MapPin } from "lucide-react"
+import { BarChart3, TrendingUp, MapPin, Layers } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { EnsembleVersionBreakdown } from "@/components/ensemble-version-breakdown"
 
 interface AccuracyDashboardProps {
   accuracy: ExtendedModelAccuracy
@@ -184,7 +185,7 @@ export function AccuracyDashboard({ accuracy }: AccuracyDashboardProps) {
 
   return (
     <Tabs defaultValue="season" className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="season" className="gap-1.5">
           <BarChart3 className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Season</span>
@@ -196,6 +197,10 @@ export function AccuracyDashboard({ accuracy }: AccuracyDashboardProps) {
         <TabsTrigger value="situational" className="gap-1.5">
           <MapPin className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Parks</span>
+        </TabsTrigger>
+        <TabsTrigger value="ensemble-plus" className="gap-1.5">
+          <Layers className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">v1 vs v2</span>
         </TabsTrigger>
       </TabsList>
 
@@ -209,6 +214,10 @@ export function AccuracyDashboard({ accuracy }: AccuracyDashboardProps) {
 
       <TabsContent value="situational" className="mt-6">
         <SituationalTab accuracy={accuracy} />
+      </TabsContent>
+
+      <TabsContent value="ensemble-plus" className="mt-6">
+        <EnsembleVersionBreakdown />
       </TabsContent>
     </Tabs>
   )

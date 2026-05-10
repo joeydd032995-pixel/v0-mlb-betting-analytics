@@ -1,0 +1,76 @@
+name: Optimization Agent (weekly)
+
+# Weekly recalibration + v1-vs-v2 backtest report.  Posts the report as a
+# workflow summary; if SUMMARY_PR_BRANCH is set, opens (or refreshes) a PR
+# with the proposed calibration knot updates so a maintainer can review &
+# merge.  Production env (ENSEMBLE_VERSION) is **never** mutated automatically.
+#
+# Monday 09:00 UTC.
+on:
+  schedule:
+    - cron: "0 9 * * MON"
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season to backtest (e.g. 2024)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip recalibration and just run the backtest"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL:        ${{ secrets.DATABASE_URL }}
+      OPTIMIZATION_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+      OPTIMIZATION_SEASON:  ${{ inputs.season }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/deepnrfi/requirements.txt
+          pip install psycopg[binary]
+      - name: Run optimization agent
+        run: |
+          python scripts/agents/optimization_agent.py | tee optimization_report.md
+          {
+            echo "## Ensemble++ optimization report"
+            echo
+            cat optimization_report.md
+          } >> $GITHUB_STEP_SUMMARY
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: optimization-report
+          path: optimization_report.md
+
+      # The PR step is opt-in — set the SUMMARY_PR_BRANCH variable on the
+      # repo only after a maintainer has confirmed the recalibration output
+      # is reasonable on at least one prior run.
+      - name: Open recalibration PR
+        if: vars.SUMMARY_PR_BRANCH != '' && !inputs.dry_run
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch:        ${{ vars.SUMMARY_PR_BRANCH }}
+          base:          main
+          title:         "chore: weekly Ensemble++ recalibration"
+          commit-message: "chore: weekly Ensemble++ recalibration"
+          body-path:     optimization_report.md
+          add-paths: |
+            lib/calibration.ts
+            lib/calibration-v2.ts
