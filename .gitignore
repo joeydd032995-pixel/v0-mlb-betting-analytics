@@ -30,6 +30,7 @@ next-env.d.ts
 # DeepNRFI training data (artifacts under scripts/deepnrfi/artifacts/ are committed)
 /scripts/deepnrfi/data/*.csv
 /scripts/deepnrfi/data/*.parquet
+/scripts/deepnrfi/data/boxscores/
 
 # agent skills (local dev tools — not part of the repo)
 .agents/

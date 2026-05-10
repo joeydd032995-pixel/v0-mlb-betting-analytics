@@ -166,6 +166,10 @@ def fetch_statcast(date_from: date, date_to: date, no_cache: bool) -> pd.DataFra
 
 # ─── MLB Stats boxscores (cached per-game) ────────────────────────────────────
 
+_BOXSCORE_MAX_ATTEMPTS = 4
+_BOXSCORE_BACKOFF_BASE = 1.5  # seconds; doubles with jitter on each retry
+
+
 def fetch_boxscore(game_pk: int) -> dict | None:
     cache_path = BOXSCORE_DIR / f"{game_pk}.json"
     if cache_path.exists():
@@ -173,21 +177,41 @@ def fetch_boxscore(game_pk: int) -> dict | None:
             return json.loads(cache_path.read_text())
         except json.JSONDecodeError:
             cache_path.unlink(missing_ok=True)
-    try:
-        r = requests.get(
-            f"https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore",
-            timeout=30,
-            headers={"user-agent": "ensemble-plus-builder/1.0"},
-        )
-        if r.status_code != 200:
+
+    url = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
+    last_failure = ""
+    for attempt in range(1, _BOXSCORE_MAX_ATTEMPTS + 1):
+        try:
+            r = requests.get(
+                url,
+                timeout=30,
+                headers={"user-agent": "ensemble-plus-builder/1.0"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                cache_path.write_text(json.dumps(data))
+                time.sleep(0.4)  # gentle on MLB Stats
+                return data
+            if r.status_code in (429, 500, 502, 503, 504):
+                # Honour Retry-After when MLB Stats sets it (rare but real).
+                retry_after = r.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after and retry_after.isdigit() else (
+                    _BOXSCORE_BACKOFF_BASE * (2 ** (attempt - 1)) + (attempt * 0.25)
+                )
+                last_failure = f"HTTP {r.status_code}"
+                print(f"[builder] boxscore {game_pk} {last_failure}; retry {attempt}/{_BOXSCORE_MAX_ATTEMPTS} in {wait:.1f}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            # Other 4xx — don't retry, treat as permanently missing.
+            print(f"[builder] boxscore {game_pk} HTTP {r.status_code}; not retrying", file=sys.stderr)
             return None
-        data = r.json()
-        cache_path.write_text(json.dumps(data))
-        time.sleep(0.4)  # gentle on MLB Stats
-        return data
-    except Exception as err:
-        print(f"[builder] boxscore fetch failed for {game_pk}: {err}", file=sys.stderr)
-        return None
+        except (requests.RequestException, ValueError) as err:
+            wait = _BOXSCORE_BACKOFF_BASE * (2 ** (attempt - 1)) + (attempt * 0.25)
+            last_failure = str(err)
+            print(f"[builder] boxscore {game_pk} error {err}; retry {attempt}/{_BOXSCORE_MAX_ATTEMPTS} in {wait:.1f}s", file=sys.stderr)
+            time.sleep(wait)
+    print(f"[builder] boxscore {game_pk} dropped after {_BOXSCORE_MAX_ATTEMPTS} attempts ({last_failure})", file=sys.stderr)
+    return None
 
 
 def starting_pitcher(box: dict, side: str) -> int | None:
@@ -251,9 +275,11 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int) -> dict:
     nrfi_rate = None
     starts = 0
     if not first_inning.empty:
-        per_game = first_inning.groupby("game_pk").apply(
-            lambda g: int((g["post_bat_score"] - g["bat_score"]).max() == 0),
-            include_groups=False,
+        # Select only the columns we operate on so this works on pandas 2.0/2.1
+        # without needing the include_groups flag (added in pandas 2.2).
+        per_game = (
+            first_inning.groupby("game_pk")[["post_bat_score", "bat_score"]]
+            .apply(lambda g: int((g["post_bat_score"] - g["bat_score"]).max() == 0))
         )
         starts = int(len(per_game))
         if starts > 0:
@@ -464,10 +490,12 @@ def write_chunk(rows: list[dict], header: bool) -> None:
 def main() -> int:
     args = parse_args()
 
-    # 1. Bulk Statcast pull
-    statcast_df = fetch_statcast(args.date_from, args.date_to, args.no_cache)
+    # 1. Bulk Statcast pull — extend the start by ROLLING_WINDOW_DAYS so games on
+    # the early edge of --from still get a full rolling-30 window of history.
+    statcast_start = args.date_from - timedelta(days=ROLLING_WINDOW_DAYS)
+    statcast_df = fetch_statcast(statcast_start, args.date_to, args.no_cache)
     statcast_df["game_date"] = pd.to_datetime(statcast_df["game_date"]).dt.date
-    print(f"[builder] statcast rows: {len(statcast_df):,}")
+    print(f"[builder] statcast rows: {len(statcast_df):,} (pulled from {statcast_start} to give a full rolling-30 window)")
 
     # 2. Games to score
     games = fetch_games(args.db_url, args.date_from, args.date_to)
