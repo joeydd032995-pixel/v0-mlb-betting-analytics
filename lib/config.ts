@@ -1,3 +1,39 @@
+// ─── Ensemble++ Feature Flags ─────────────────────────────────────────────────
+// Read from env at module-load time. Defaults are OFF so the existing 7-model
+// ensemble path stays bit-for-bit identical until a deployment opts in.
+
+export type EnsembleVersion = "v1.7models" | "v2.9models"
+
+function envBool(name: string): boolean {
+  const v = process.env[name]
+  return v === "1" || v === "true" || v === "TRUE"
+}
+
+/**
+ * Parse a positive-integer env var, falling back to `fallback` on NaN, 0,
+ * negative, non-finite, or above-cap values. The cap protects simulation loops
+ * from being asked to run an unreasonable number of iterations.
+ */
+function envPositiveInt(name: string, fallback: number, cap = 100_000): number {
+  const raw = Number.parseInt(process.env[name] ?? "", 10)
+  if (!Number.isFinite(raw) || raw <= 0) return fallback
+  return Math.min(raw, cap)
+}
+
+export const FLAGS = {
+  /** Enable DeepNRFI LightGBM scoring layer. Requires a model artifact under scripts/deepnrfi/artifacts/. */
+  ENABLE_DEEPNRFI: envBool("ENABLE_DEEPNRFI"),
+  /** Enable Monte Carlo simulation layer (8k sims/game by default). */
+  ENABLE_MONTECARLO: envBool("ENABLE_MONTECARLO"),
+  /**
+   * Active ensemble version. "v1.7models" = legacy 7-model path (default).
+   * "v2.9models" = stacker over 7-model + DeepNRFI + MonteCarlo.
+   */
+  ENSEMBLE_VERSION: (process.env.ENSEMBLE_VERSION === "v2.9models" ? "v2.9models" : "v1.7models") as EnsembleVersion,
+  /** Number of Monte Carlo simulations per game (overrideable for tests). */
+  MONTECARLO_SIMS: envPositiveInt("MONTECARLO_SIMS", 8000),
+} as const
+
 // Configuration for all statistical models and regression parameters
 export const CONFIG = {
   // Regression parameters (N_reg values for empirical Bayes)
