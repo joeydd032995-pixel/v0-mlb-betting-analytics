@@ -475,9 +475,14 @@ def load_existing_game_ids() -> set[int]:
         return set()
     try:
         prev = pd.read_csv(CSV_PATH, usecols=["gameId"])
-        return set(int(x) for x in prev["gameId"].dropna().unique())
-    except Exception:
+    except pd.errors.EmptyDataError:
         return set()
+    except (pd.errors.ParserError, ValueError, KeyError) as err:
+        raise RuntimeError(
+            f"Failed to read resume checkpoint at {CSV_PATH}; "
+            "delete or repair the file before rerunning."
+        ) from err
+    return set(int(x) for x in prev["gameId"].dropna().unique())
 
 
 def write_chunk(rows: list[dict], header: bool) -> None:
