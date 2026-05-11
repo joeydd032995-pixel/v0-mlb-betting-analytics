@@ -38,7 +38,6 @@ except ImportError as e:
     print("Missing deps. Install: pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
-ROOT = Path(__file__).resolve().parents[2]
 BUILDER = Path(__file__).resolve().parent / "build_real_training_set.py"
 
 # Months 4–10 cover the regular season + October playoffs.  Off-season months

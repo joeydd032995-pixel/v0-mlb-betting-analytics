@@ -292,11 +292,12 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int) -> dict:
     else:
         shrunk_nrfi = None
 
-    # HR/9: HRs allowed per 27 outs (~9 innings).  Outs ≈ PA - hits - walks - HBP.
+    # HR/9: HRs allowed per 27 outs (~9 innings).  Outs ≈ PA - hits - walks - HBP - errors.
     hits = (events["events"].isin(["single", "double", "triple", "home_run"])).sum()
     bbs = (events["events"] == "walk").sum()
     hbps = (events["events"] == "hit_by_pitch").sum()
-    outs = max(0, n_pa - hits - bbs - hbps)
+    errors = (events["events"] == "field_error").sum()
+    outs = max(0, n_pa - hits - bbs - hbps - errors)
     hrs = (events["events"] == "home_run").sum()
     hr_per9 = (hrs * 27 / outs) if outs > 0 else None
 
