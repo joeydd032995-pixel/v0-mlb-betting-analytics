@@ -135,9 +135,12 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
     X = df[feature_cols].values
     y = df[LABEL_COL].values.astype(int)
 
-    # Walk-forward CV by row order (assumes data is date-sorted)
+    # Walk-forward CV by row order (assumes data is date-sorted).
+    # TimeSeriesSplit only generates val indices for folds 2..N, so the first
+    # ~1/(n_splits+1) of rows never appear in any val fold.  Track which rows
+    # actually got a prediction so we don't average over uninitialised zeros.
     tscv = TimeSeriesSplit(n_splits=4)
-    val_pred = np.zeros(len(y), dtype=float)
+    val_pred = np.full(len(y), np.nan, dtype=float)
     for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
         params = dict(
             objective="binary",
@@ -185,9 +188,15 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
         num_boost_round=args.n_estimators,
         callbacks=[lgb.log_evaluation(0)],
     )
+    # Mask to rows that actually received a walk-forward prediction.  Without
+    # this the metric averages in the np.nan-initialised first chunk and the
+    # Brier comes out hugely inflated.
+    mask = ~np.isnan(val_pred)
+    n_used = int(mask.sum())
     print(
-        f"[deepnrfi] full model: brier={brier_score_loss(y, val_pred):.4f} "
-        f"logloss={log_loss(y, val_pred):.4f}"
+        f"[deepnrfi] full model: brier={brier_score_loss(y[mask], val_pred[mask]):.4f} "
+        f"logloss={log_loss(y[mask], val_pred[mask]):.4f}  "
+        f"(over {n_used}/{len(y)} walk-forward rows)"
     )
     return full_booster, feature_cols, val_pred, y
 
@@ -195,7 +204,8 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
 def fit_calibration(val_pred: np.ndarray, y: np.ndarray) -> list[list[float]]:
     """Fit a 19-knot piecewise-linear calibration via isotonic regression."""
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-    iso.fit(val_pred, y)
+    mask = ~np.isnan(val_pred)
+    iso.fit(val_pred[mask], y[mask])
     grid = np.linspace(0.05, 0.95, 19)
     return [[float(x), float(iso.predict([x])[0])] for x in grid]
 
@@ -247,8 +257,8 @@ def main() -> int:
         "calibrationFile": calib_path.name,
         "importanceFile": importance_path.name,
         "featureOrder": feature_cols,
-        "brier": float(brier_score_loss(y, val_pred)),
-        "logLoss": float(log_loss(y, val_pred)),
+        "brier": float(brier_score_loss(y[~np.isnan(val_pred)], val_pred[~np.isnan(val_pred)])),
+        "logLoss": float(log_loss(y[~np.isnan(val_pred)], val_pred[~np.isnan(val_pred)])),
         "trainedAt": datetime.now(timezone.utc).isoformat(),
     }
     manifest_path.write_text(json.dumps(manifest, indent=2))
