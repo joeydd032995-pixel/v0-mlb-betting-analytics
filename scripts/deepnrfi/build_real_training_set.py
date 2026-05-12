@@ -514,7 +514,7 @@ def main() -> int:
     already = load_existing_game_ids()
     if already:
         print(f"[builder] resuming: {len(already):,} games already in {CSV_PATH.name}")
-    write_header = not CSV_PATH.exists()
+    write_header = (not CSV_PATH.exists()) or CSV_PATH.stat().st_size == 0
 
     # 4. Loop
     chunk: list[dict] = []

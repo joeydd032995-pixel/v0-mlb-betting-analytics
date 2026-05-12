@@ -130,7 +130,7 @@ def backfill(api_base: str, seasons: list[int]) -> None:
         try:
             res = sync_one(api_base, season, month)
             print(f"    -> synced={res.get('gameResultsSynced')} skipped={res.get('skipped')}", flush=True)
-        except Exception as e:
+        except (requests.RequestException, ValueError) as e:
             print(f"    !! failed: {e}", file=sys.stderr, flush=True)
             failures.append((season, month, str(e)))
             time.sleep(2)

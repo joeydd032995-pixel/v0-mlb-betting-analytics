@@ -132,6 +132,10 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
         for c in dead:
             print(f"    - {c}")
     feature_cols = live
+    if not feature_cols:
+        raise RuntimeError(
+            "No live features remain after pruning. Check training.csv feature population."
+        )
     X = df[feature_cols].values
     y = df[LABEL_COL].values.astype(int)
 
