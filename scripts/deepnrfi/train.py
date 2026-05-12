@@ -56,7 +56,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true", help="Train on synthetic data; don't touch real CSV")
     p.add_argument("--n-estimators", type=int, default=400)
     p.add_argument("--learning-rate", type=float, default=0.04)
-    p.add_argument("--num-leaves", type=int, default=31)
+    # Small training set (~5k games × 2 seasons) — keep trees shallow to avoid
+    # overfitting on noisy aggregates.  16 leaves + min_data_in_leaf=80 was
+    # tuned against walk-forward CV; loosen with care.
+    p.add_argument("--num-leaves", type=int, default=16)
+    p.add_argument("--min-data-in-leaf", type=int, default=80)
+    p.add_argument("--feature-fraction", type=float, default=0.8)
+    p.add_argument("--bagging-fraction", type=float, default=0.8)
+    p.add_argument("--bagging-freq", type=int, default=5)
     return p.parse_args()
 
 
@@ -110,6 +117,21 @@ def synthetic_dataset(n: int = 4000, seed: int = 42) -> pd.DataFrame:
 
 def train_one(df: pd.DataFrame, args: argparse.Namespace):
     feature_cols = [c for c in df.columns if c not in DROP_COLS]
+    # Drop dead features (constants or all-NaN) — they carry no signal and
+    # only invite LightGBM to overfit on noise.  Logs which ones were pruned
+    # so we know what the builder is failing to populate.
+    live, dead = [], []
+    for c in feature_cols:
+        s = df[c]
+        if s.isna().mean() > 0.9 or (s.dropna().nunique() <= 1):
+            dead.append(c)
+        else:
+            live.append(c)
+    if dead:
+        print(f"[deepnrfi] dropping {len(dead)} dead features (constant/all-NaN):")
+        for c in dead:
+            print(f"    - {c}")
+    feature_cols = live
     X = df[feature_cols].values
     y = df[LABEL_COL].values.astype(int)
 
@@ -122,6 +144,10 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
             metric=["binary_logloss", "binary_error"],
             num_leaves=args.num_leaves,
             learning_rate=args.learning_rate,
+            min_data_in_leaf=args.min_data_in_leaf,
+            feature_fraction=args.feature_fraction,
+            bagging_fraction=args.bagging_fraction,
+            bagging_freq=args.bagging_freq,
             feature_pre_filter=False,
             verbosity=-1,
         )
@@ -148,6 +174,10 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
             metric=["binary_logloss"],
             num_leaves=args.num_leaves,
             learning_rate=args.learning_rate,
+            min_data_in_leaf=args.min_data_in_leaf,
+            feature_fraction=args.feature_fraction,
+            bagging_fraction=args.bagging_fraction,
+            bagging_freq=args.bagging_freq,
             feature_pre_filter=False,
             verbosity=-1,
         ),
