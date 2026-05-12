@@ -45,6 +45,11 @@ except ImportError as e:
     )
     raise SystemExit(1) from e
 
+# Local modules — sibling files in the same scripts/deepnrfi/ dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from park_factors import lookup_park, lookup_venue  # noqa: E402
+from weather_archive import prefetch_weather, fetch_game_weather  # noqa: E402
+
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -118,7 +123,17 @@ FEATURE_ORDER = [
     "is_bullpen_game", "ensemble7_nrfi",
 ]
 
-META_COLS = ["gameId", "date", "season", "homeTeam", "awayTeam", "nrfi"]
+META_COLS = [
+    "gameId", "date", "season", "homeTeam", "awayTeam", "nrfi",
+    # Lineage flags for the ensemble7_nrfi feature.  Surfaced from
+    # ModelPrediction.inputsPresence so the trainer can filter or downweight
+    # rows where the v1 ensemble was computed with degraded inputs (e.g.
+    # historical-sync's NEUTRAL_WEATHER).  These are META, not FEATURE_ORDER —
+    # the live serving path always has weather=1 so they'd be dead at inference.
+    "ensemble7_inputs_weather",
+    "ensemble7_inputs_odds",
+    "ensemble7_inputs_lineup",
+]
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
@@ -315,16 +330,11 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int) -> dict:
     }
 
 
-def aggregate_top_four(window: pd.DataFrame, batter_ids: list[int]) -> dict:
-    """Aggregate top-of-order offensive features (rolling window)."""
-    if not batter_ids:
-        return {}
-    top = window[window["batter"].isin(batter_ids)]
-    events = top[top["events"].isin(PA_TERMINATING_EVENTS)]
+def _compute_ops(events: pd.DataFrame) -> float | None:
+    """Slash-line OPS over a PA-terminating-events slice.  Returns None if empty."""
     n_pa = len(events)
     if n_pa == 0:
-        return {}
-
+        return None
     singles = (events["events"] == "single").sum()
     doubles = (events["events"] == "double").sum()
     triples = (events["events"] == "triple").sum()
@@ -339,19 +349,71 @@ def aggregate_top_four(window: pd.DataFrame, batter_ids: list[int]) -> dict:
     obp = (hits + walks + hbps) / max(1, n_pa - sbns)
     total_bases = singles + 2 * doubles + 3 * triples + 4 * hrs
     slg = total_bases / max(1, ab)
-    ops = obp + slg
+    return float(obp + slg)
 
+
+def pitcher_throws(window: pd.DataFrame, pitcher_id: int) -> str | None:
+    """Look up R/L/S from Statcast `p_throws` column for a given pitcher.
+
+    Returns the most common value in their last 30 days of pitches, or None
+    if the pitcher isn't in the window (e.g. injured / called up mid-season).
+    """
+    if "p_throws" not in window.columns:
+        return None
+    p = window[window["pitcher"] == pitcher_id]
+    if p.empty:
+        return None
+    modes = p["p_throws"].mode()
+    if modes.empty:
+        return None
+    val = modes.iloc[0]
+    return str(val) if val in ("L", "R", "S") else None
+
+
+# Minimum PAs vs the specific opposing hand before we trust the split ratio.
+# Below this, fall back to the pooled OPS (multiplier = 1.0) to avoid tiny-
+# sample noise.
+_VS_HAND_MIN_PA = 20
+
+
+def aggregate_top_four(
+    window: pd.DataFrame,
+    batter_ids: list[int],
+    opposing_throws: str | None = None,
+) -> dict:
+    """Aggregate top-of-order offensive features (rolling window).
+
+    When `opposing_throws` is "L" or "R", also computes a `vs_hand_multiplier`
+    equal to top-4 OPS vs that hand divided by top-4 OPS overall.  Mirrors the
+    intent of `getLineupVsHand` in lib/nrfi-models.ts.
+    """
+    if not batter_ids:
+        return {}
+    top = window[window["batter"].isin(batter_ids)]
+    events = top[top["events"].isin(PA_TERMINATING_EVENTS)]
+    n_pa = len(events)
+    if n_pa == 0:
+        return {}
+
+    ops = _compute_ops(events) or 0.730
     k_pct = (events["events"] == "strikeout").sum() / n_pa
-    bb_pct = walks / n_pa
-
+    bb_pct = (events["events"] == "walk").sum() / n_pa
     # Rough wRC+ proxy: 100 = league-average OPS (~.730).
     wrcplus = 100 + (ops - 0.730) * 100
 
+    vs_hand_mult = 1.0
+    if opposing_throws in ("L", "R") and "p_throws" in top.columns:
+        vs_hand_events = events[top.loc[events.index, "p_throws"] == opposing_throws]
+        if len(vs_hand_events) >= _VS_HAND_MIN_PA:
+            vs_hand_ops = _compute_ops(vs_hand_events) or ops
+            vs_hand_mult = float(vs_hand_ops / max(0.5, ops))
+
     return {
-        "ops":     float(ops),
-        "wrcplus": float(wrcplus),
-        "k_pct":   float(k_pct),
-        "bb_pct":  float(bb_pct),
+        "ops":                float(ops),
+        "wrcplus":            float(wrcplus),
+        "k_pct":              float(k_pct),
+        "bb_pct":             float(bb_pct),
+        "vs_hand_multiplier": vs_hand_mult,
     }
 
 
@@ -365,7 +427,8 @@ def fetch_games(db_url: str, date_from: date, date_to: date) -> pd.DataFrame:
                gr."homeTeam"          AS home_team,
                gr."awayTeam"          AS away_team,
                (gr.nrfi)::int         AS nrfi,
-               mp."ensembleNrfi"      AS ensemble_nrfi
+               mp."ensembleNrfi"      AS ensemble_nrfi,
+               mp."inputsPresence"    AS inputs_presence
         FROM game_results gr
         LEFT JOIN model_predictions mp
           ON CAST(mp.id AS BIGINT) = gr."gamePk"
@@ -382,11 +445,26 @@ def fetch_games(db_url: str, date_from: date, date_to: date) -> pd.DataFrame:
 
 # ─── Row builder ──────────────────────────────────────────────────────────────
 
-def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict) -> dict:
+def _wind_in_out_scalar(wind_mph: float, wind_dir_deg: float, park_orientation_deg: float = 0.0) -> float:
+    """
+    Signed wind-aligned-with-CF projection in mph.  Positive = blowing out
+    toward CF, negative = blowing in toward home.  When park_orientation is
+    unknown (0.0), this collapses to cos(dir) — directionally meaningful for
+    most parks since true north ≈ CF for the majority of stadiums.
+    """
+    import math as _math
+    theta = _math.radians(float(wind_dir_deg) - float(park_orientation_deg))
+    return float(wind_mph) * _math.cos(theta)
+
+
+def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict, wx: dict) -> dict:
     """Compose one CSV row.  Missing keys → defaults; presence is implicit in NaN handling."""
     def pf(d: dict, key: str, default):
         v = d.get(key)
         return v if v is not None else default
+
+    park = lookup_park(meta["homeTeam"])
+    wind_in_out = _wind_in_out_scalar(wx.get("wind_mph", 0.0), wx.get("wind_dir_deg", 0.0))
 
     row = {
         # Pitcher: home (top of 1st = away batting vs home pitcher in the engine,
@@ -440,20 +518,22 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict)
         # Static / placeholder
         "home_offense_factor":     1.0,
         "away_offense_factor":     1.0,
-        "home_offense_vs_hand":    1.0,
-        "away_offense_vs_hand":    1.0,
-        "weather_temp_f":          DEFAULTS["weather_temp_f"],
-        "weather_wind_mph":        0,
-        "weather_wind_in_out":     0,
-        "weather_humidity":        DEFAULTS["weather_humidity"],
-        "weather_precip_prob":     0,
-        "weather_pressure_hpa":    DEFAULTS["weather_pressure"],
-        "weather_air_density":     DEFAULTS["weather_air_density"],
-        "is_dome":                 0,
-        "park_factor":             1.0,
-        "park_first_inning_runs":  1.0,
-        "park_hr_factor":          1.0,
-        "park_elevation_ft":       0,
+        "home_offense_vs_hand":    pf(b_home, "vs_hand_multiplier", 1.0),
+        "away_offense_vs_hand":    pf(b_away, "vs_hand_multiplier", 1.0),
+        "weather_temp_f":          float(wx.get("temp_f", DEFAULTS["weather_temp_f"])),
+        "weather_wind_mph":        float(wx.get("wind_mph", 0.0)),
+        "weather_wind_in_out":     wind_in_out,
+        "weather_humidity":        float(wx.get("humidity_pct", DEFAULTS["weather_humidity"])),
+        # precip_prob isn't directly returned by Open-Meteo; use a binary
+        # precip-occurred indicator from `precip_in > 0` as a stand-in.
+        "weather_precip_prob":     1.0 if float(wx.get("precip_in", 0.0)) > 0.0 else 0.0,
+        "weather_pressure_hpa":    float(wx.get("pressure_hpa", DEFAULTS["weather_pressure"])),
+        "weather_air_density":     float(wx.get("air_density_kg_m3", DEFAULTS["weather_air_density"])),
+        "is_dome":                 1 if park["roofType"] == "dome" else 0,
+        "park_factor":             park["runFactor"],
+        "park_first_inning_runs":  park["firstInningRunsFactor"],
+        "park_hr_factor":          park["hrFactor"],
+        "park_elevation_ft":       park["elevationFt"],
         "umpire_zone_tightness":   0,
         "umpire_career_nrfi":      LEAGUE_AVG_NRFI,
         "umpire_sample":           0,
@@ -510,6 +590,11 @@ def main() -> int:
         games = games.head(args.max_games)
         print(f"[builder] capped to {len(games)} for --max-games")
 
+    # 2b. Prefetch weather for every home venue we'll touch.  One HTTP call per
+    # venue covering the entire date range; cached to data/weather_cache.parquet.
+    venues_used = {lookup_venue(t) for t in games["home_team"].unique() if lookup_venue(t)}
+    prefetch_weather(venues_used, args.date_from, args.date_to)
+
     # 3. Resume checkpoint
     already = load_existing_game_ids()
     if already:
@@ -550,9 +635,19 @@ def main() -> int:
 
         p_home = aggregate_pitcher(window, home_pid)
         p_away = aggregate_pitcher(window, away_pid)
-        b_home = aggregate_top_four(window, batting_order(box, "home"))
-        b_away = aggregate_top_four(window, batting_order(box, "away"))
+        # Home offense faces the away starter; away offense faces the home starter.
+        away_throws = pitcher_throws(window, away_pid)
+        home_throws = pitcher_throws(window, home_pid)
+        b_home = aggregate_top_four(window, batting_order(box, "home"), away_throws)
+        b_away = aggregate_top_four(window, batting_order(box, "away"), home_throws)
 
+        venue = lookup_venue(game.home_team)
+        park = lookup_park(game.home_team)
+        wx = fetch_game_weather(venue, game.date, indoor=park["roofType"] == "dome")
+
+        ip = game.inputs_presence if hasattr(game, "inputs_presence") else None
+        if ip is None or (isinstance(ip, float) and pd.isna(ip)):
+            ip = {}
         meta = {
             "gameId":          int(game.game_pk),
             "date":            game.date.isoformat(),
@@ -561,8 +656,11 @@ def main() -> int:
             "awayTeam":        game.away_team,
             "nrfi":            int(game.nrfi),
             "ensemble7_nrfi":  None if pd.isna(game.ensemble_nrfi) else float(game.ensemble_nrfi),
+            "ensemble7_inputs_weather": 1 if ip.get("weather") else 0,
+            "ensemble7_inputs_odds":    1 if ip.get("odds") else 0,
+            "ensemble7_inputs_lineup":  1 if ip.get("lineup") else 0,
         }
-        chunk.append(make_row(meta, p_home, p_away, b_home, b_away))
+        chunk.append(make_row(meta, p_home, p_away, b_home, b_away, wx))
         processed += 1
 
         # Flush every 200 rows so a crash resumes cleanly.

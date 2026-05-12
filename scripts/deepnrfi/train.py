@@ -46,7 +46,13 @@ ARTIFACT_DIR = ROOT / "scripts" / "deepnrfi" / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
 LABEL_COL = "nrfi"
-DROP_COLS = {"nrfi", "gameId", "date", "season", "homeTeam", "awayTeam"}
+DROP_COLS = {
+    "nrfi", "gameId", "date", "season", "homeTeam", "awayTeam",
+    # Lineage flags (added in Phase 5 Step 5).  Documentary in the CSV but
+    # constant at inference time, so they'd be dead features.  Trainers can
+    # opt-in to use them by removing from this set.
+    "ensemble7_inputs_weather", "ensemble7_inputs_odds", "ensemble7_inputs_lineup",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -145,6 +151,7 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
     # actually got a prediction so we don't average over uninitialised zeros.
     tscv = TimeSeriesSplit(n_splits=4)
     val_pred = np.full(len(y), np.nan, dtype=float)
+    fold_metrics: list[dict] = []
     for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
         params = dict(
             objective="binary",
@@ -168,9 +175,19 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
             callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)],
         )
         val_pred[val_idx] = booster.predict(X[val_idx])
+        fold_brier = float(brier_score_loss(y[val_idx], val_pred[val_idx]))
+        fold_logloss = float(log_loss(y[val_idx], val_pred[val_idx]))
+        fold_metrics.append({
+            "fold": fold + 1,
+            "n_train": int(len(train_idx)),
+            "n_val": int(len(val_idx)),
+            "best_iter": int(booster.best_iteration),
+            "val_brier": fold_brier,
+            "val_logloss": fold_logloss,
+        })
         print(
             f"[deepnrfi] fold {fold + 1}/{tscv.n_splits} best_iter={booster.best_iteration} "
-            f"val_logloss={log_loss(y[val_idx], val_pred[val_idx]):.4f}"
+            f"val_brier={fold_brier:.4f} val_logloss={fold_logloss:.4f}"
         )
 
     # Final model on all data
@@ -202,7 +219,7 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
         f"logloss={log_loss(y[mask], val_pred[mask]):.4f}  "
         f"(over {n_used}/{len(y)} walk-forward rows)"
     )
-    return full_booster, feature_cols, val_pred, y
+    return full_booster, feature_cols, val_pred, y, dead, fold_metrics
 
 
 def fit_calibration(val_pred: np.ndarray, y: np.ndarray) -> list[list[float]]:
@@ -242,7 +259,7 @@ def main() -> int:
         df = pd.read_csv(args.data)
         print(f"[deepnrfi] loaded {len(df)} rows from {args.data}")
 
-    booster, feature_cols, val_pred, y = train_one(df, args)
+    booster, feature_cols, val_pred, y, dead_features, fold_metrics = train_one(df, args)
     knots = fit_calibration(val_pred, y)
     importance = feature_importance(booster, feature_cols, df[feature_cols].values)
 
@@ -255,14 +272,20 @@ def main() -> int:
     booster.save_model(str(model_path))
     calib_path.write_text(json.dumps({"knots": knots}, indent=2))
     importance_path.write_text(json.dumps({"features": importance}, indent=2))
+    mask = ~np.isnan(val_pred)
     manifest = {
         "activeVersion": version,
         "modelFile": model_path.name,
         "calibrationFile": calib_path.name,
         "importanceFile": importance_path.name,
         "featureOrder": feature_cols,
-        "brier": float(brier_score_loss(y[~np.isnan(val_pred)], val_pred[~np.isnan(val_pred)])),
-        "logLoss": float(log_loss(y[~np.isnan(val_pred)], val_pred[~np.isnan(val_pred)])),
+        "liveFeatureCount": len(feature_cols),
+        "deadFeatures": dead_features,
+        "brier": float(brier_score_loss(y[mask], val_pred[mask])),
+        "logLoss": float(log_loss(y[mask], val_pred[mask])),
+        "foldMetrics": fold_metrics,
+        "walkForwardRowsUsed": int(mask.sum()),
+        "walkForwardRowsTotal": int(len(y)),
         "trainedAt": datetime.now(timezone.utc).isoformat(),
     }
     manifest_path.write_text(json.dumps(manifest, indent=2))

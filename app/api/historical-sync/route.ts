@@ -173,6 +173,17 @@ export async function GET(request: Request) {
   const month = parseInt(searchParams.get("month") ?? "0")
   // skip=true (default) skips days that already have game results in the DB
   const skipSynced = searchParams.get("skip") !== "false"
+  // recompute=true overwrites stored ensembleNrfi for the requested month,
+  // for use after enriching the input pipeline (real historical weather etc).
+  // Same auth gate as skip=false, plus an env flag so accidental cron hits
+  // don't churn the table.
+  const recompute = searchParams.get("recompute") === "true"
+  if (recompute && process.env.RECOMPUTE_HISTORICAL !== "true") {
+    return NextResponse.json(
+      { error: "recompute=true requires RECOMPUTE_HISTORICAL=true on the server" },
+      { status: 403 }
+    )
+  }
 
   if (!year || !month || month < 1 || month > 12) {
     return NextResponse.json(
@@ -181,8 +192,8 @@ export async function GET(request: Request) {
     )
   }
 
-  // Re-score (skip=false) overwrites all stored predictions — require auth.
-  if (!skipSynced) {
+  // Re-score (skip=false or recompute=true) overwrites all stored predictions — require auth.
+  if (!skipSynced || recompute) {
     let userId: string | null = null
     try {
       const session = await auth()
@@ -203,8 +214,9 @@ export async function GET(request: Request) {
 
   for (const date of dates) {
     try {
-      // Skip days that already have data (fast path — avoids MLB API calls on re-runs)
-      if (skipSynced) {
+      // Skip days that already have data (fast path — avoids MLB API calls on re-runs).
+      // recompute=true bypasses this so we can overwrite ensembleNrfi with new inputs.
+      if (skipSynced && !recompute) {
         const existing = await prisma.gameResult.count({ where: { date } })
         if (existing > 0) { skipped += existing; continue }
       }
@@ -327,6 +339,17 @@ export async function GET(request: Request) {
             ? (result.homeRuns === 0 && result.awayRuns === 0 ? "NRFI" : "YRFI")
             : undefined
 
+        // Historical sync always passes NEUTRAL_WEATHER and no odds (see
+        // buildLightGame above), so the stored ensembleNrfi reflects degraded
+        // inputs.  Record that lineage explicitly; downstream training can
+        // filter or downweight these rows.  recomputedAt timestamps when this
+        // row was last touched by a recompute=true run.
+        const inputsPresence = {
+          weather: false,
+          odds: false,
+          lineup: false,
+          ...(recompute ? { recomputedAt: new Date().toISOString() } : {}),
+        }
         await prisma.modelPrediction.upsert({
           where:  { id: tracked.id },
           update: {
@@ -340,6 +363,7 @@ export async function GET(request: Request) {
             markovNrfi:      tracked.markovNrfi,
             ensembleNrfi:    tracked.ensembleNrfi,
             modelConsensus:  tracked.modelConsensus,
+            inputsPresence,
             ...(actualResult !== undefined
               ? { actualResult, correct: actualResult === tracked.prediction, status: "complete" }
               : {}),
@@ -361,6 +385,7 @@ export async function GET(request: Request) {
             markovNrfi:      tracked.markovNrfi,
             ensembleNrfi:    tracked.ensembleNrfi,
             modelConsensus:  tracked.modelConsensus,
+            inputsPresence,
             actualResult:    actualResult ?? null,
             correct:         actualResult !== undefined ? actualResult === tracked.prediction : null,
             status:          actualResult !== undefined ? "complete" : "pending",

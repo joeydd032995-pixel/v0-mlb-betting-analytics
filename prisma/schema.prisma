@@ -140,6 +140,10 @@ model ModelPrediction {
   monteCarloVariance    Float?
   monteCarloDistribution Json?
   ensembleVersion       String  @default("v1.7models")
+  // Data-lineage flag set by both the live and historical-sync paths.  When
+  // null, treat as "unknown" (pre-Phase-5 rows).  Shape:
+  //   { weather: bool, odds: bool, lineup: bool, recomputedAt?: string }
+  inputsPresence  Json?
   modelBreakdown  Json?    // { logisticMetaNrfi, nnInteractionNrfi, hierarchicalBayesNrfi, homeZipOmega, awayZipOmega, homeBayesianWeight, awayBayesianWeight, modelInputs }
   modelConsensus  Float    @default(0.5)
   actualResult    String?
