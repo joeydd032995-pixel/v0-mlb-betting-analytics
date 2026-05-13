@@ -402,8 +402,8 @@ def aggregate_top_four(
     wrcplus = 100 + (ops - 0.730) * 100
 
     vs_hand_mult = 1.0
-    if opposing_throws in ("L", "R") and "p_throws" in top.columns:
-        vs_hand_events = events[top.loc[events.index, "p_throws"] == opposing_throws]
+    if opposing_throws in ("L", "R") and "p_throws" in events.columns:
+        vs_hand_events = events[events["p_throws"] == opposing_throws]
         if len(vs_hand_events) >= _VS_HAND_MIN_PA:
             vs_hand_ops = _compute_ops(vs_hand_events) or ops
             vs_hand_mult = float(vs_hand_ops / max(0.5, ops))
