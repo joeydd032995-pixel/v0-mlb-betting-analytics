@@ -21,6 +21,8 @@ Usage:
 
 Env:
     RECOMPUTE_HISTORICAL=true must be set on the API server.
+    RECOMPUTE_TOKEN        Shared secret matching the server's RECOMPUTE_TOKEN
+                           env var.  Passed as `Authorization: Bearer <token>`.
 """
 
 from __future__ import annotations
@@ -51,10 +53,11 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def recompute_season(api_base: str, season: int, dry_run: bool) -> tuple[int, int]:
+def recompute_season(api_base: str, season: int, token: str, dry_run: bool) -> tuple[int, int]:
     """Returns (synced_total, failed_months)."""
     failed = 0
     synced = 0
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     for month in SEASON_MONTHS:
         url = f"{api_base.rstrip('/')}/api/historical-sync"
         params = {"year": season, "month": month, "recompute": "true"}
@@ -63,9 +66,13 @@ def recompute_season(api_base: str, season: int, dry_run: bool) -> tuple[int, in
             continue
         print(f"  GET {url}?year={season}&month={month}&recompute=true ...", flush=True)
         try:
-            r = requests.get(url, params=params, timeout=600)
+            r = requests.get(url, params=params, headers=headers, timeout=600)
+            if r.status_code == 401:
+                print("    !! 401 — set RECOMPUTE_TOKEN locally and on the server", file=sys.stderr)
+                failed += 1
+                continue
             if r.status_code == 403:
-                print(f"    !! 403 — does the server have RECOMPUTE_HISTORICAL=true and auth?", file=sys.stderr)
+                print(f"    !! 403 — does the server have RECOMPUTE_HISTORICAL=true?", file=sys.stderr)
                 failed += 1
                 continue
             r.raise_for_status()
@@ -81,6 +88,10 @@ def recompute_season(api_base: str, season: int, dry_run: bool) -> tuple[int, in
 
 def main() -> int:
     args = parse_args()
+    token = os.environ.get("RECOMPUTE_TOKEN", "")
+    if not args.dry_run and not token:
+        print("RECOMPUTE_TOKEN env var is required (must match server).", file=sys.stderr)
+        return 2
 
     if args.dry_run:
         print(f"[recompute] dry-run mode (no HTTP calls)")
@@ -92,7 +103,7 @@ def main() -> int:
     total_failed = 0
     for season in args.season:
         print(f"\n[recompute] season {season}:")
-        s, f = recompute_season(args.api_base, season, args.dry_run)
+        s, f = recompute_season(args.api_base, season, token, args.dry_run)
         total_synced += s
         total_failed += f
 

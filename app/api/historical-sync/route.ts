@@ -195,12 +195,20 @@ export async function GET(request: Request) {
 
   // Re-score (skip=false or recompute=true) overwrites all stored predictions — require auth.
   if (!skipSynced || recompute) {
+    // Token-based bypass for scripts/automation (e.g. recompute_historical_predictions.py).
+    // Set RECOMPUTE_TOKEN on the server and pass it as `Authorization: Bearer <token>`.
+    const expected = process.env.RECOMPUTE_TOKEN ?? ""
+    const provided = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "")
+    const tokenOk = recompute && expected !== "" && provided !== "" && provided === expected
+
     let userId: string | null = null
-    try {
-      const session = await auth()
-      userId = session.userId
-    } catch { /* Clerk not configured — deny by default */ }
-    if (!userId) {
+    if (!tokenOk) {
+      try {
+        const session = await auth()
+        userId = session.userId
+      } catch { /* Clerk not configured — deny by default */ }
+    }
+    if (!tokenOk && !userId) {
       return NextResponse.json({ error: "Authentication required for re-score" }, { status: 401 })
     }
   }
