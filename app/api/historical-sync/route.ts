@@ -199,7 +199,7 @@ export async function GET(request: Request) {
     // Set RECOMPUTE_TOKEN on the server and pass it as `Authorization: Bearer <token>`.
     const expected = process.env.RECOMPUTE_TOKEN ?? ""
     const provided = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "")
-    const tokenOk = expected !== "" && provided !== "" && provided === expected
+    const tokenOk = recompute && expected !== "" && provided !== "" && provided === expected
 
     let userId: string | null = null
     if (!tokenOk) {
