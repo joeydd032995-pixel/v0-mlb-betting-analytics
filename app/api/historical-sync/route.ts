@@ -22,6 +22,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { fetchGamesByDate, fetchGameLinescore, fetchPitcherStats, fetchTeamStats } from "@/lib/api/mlb-stats"
+import { fetchHistoricalWeather } from "@/lib/api/weather"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
 import { STADIUM_PARK_FACTORS } from "@/lib/constants/mlb-stadiums"
@@ -121,7 +122,7 @@ function buildLightTeam(teamId: string, stats: MLBTeamHittingStats | null): Team
   }
 }
 
-function buildLightGame(apiGame: MLBGame, date: string): Game {
+function buildLightGame(apiGame: MLBGame, date: string, weather: Weather = NEUTRAL_WEATHER): Game {
   const venue = apiGame.venue?.name ?? "Unknown Stadium"
   const parkFactor = STADIUM_PARK_FACTORS[venue] ?? 1.0
   const homeTeamId = resolveTeamId(apiGame.teams.home.team.name)
@@ -144,7 +145,7 @@ function buildLightGame(apiGame: MLBGame, date: string): Game {
     awayPitcherId,
     venue,
     parkFactor,
-    weather: NEUTRAL_WEATHER,
+    weather,
     odds: undefined,
   }
 }
@@ -173,6 +174,17 @@ export async function GET(request: Request) {
   const month = parseInt(searchParams.get("month") ?? "0")
   // skip=true (default) skips days that already have game results in the DB
   const skipSynced = searchParams.get("skip") !== "false"
+  // recompute=true overwrites stored ensembleNrfi for the requested month,
+  // for use after enriching the input pipeline (real historical weather etc).
+  // Same auth gate as skip=false, plus an env flag so accidental cron hits
+  // don't churn the table.
+  const recompute = searchParams.get("recompute") === "true"
+  if (recompute && process.env.RECOMPUTE_HISTORICAL !== "true") {
+    return NextResponse.json(
+      { error: "recompute=true requires RECOMPUTE_HISTORICAL=true on the server" },
+      { status: 403 }
+    )
+  }
 
   if (!year || !month || month < 1 || month > 12) {
     return NextResponse.json(
@@ -181,8 +193,8 @@ export async function GET(request: Request) {
     )
   }
 
-  // Re-score (skip=false) overwrites all stored predictions — require auth.
-  if (!skipSynced) {
+  // Re-score (skip=false or recompute=true) overwrites all stored predictions — require auth.
+  if (!skipSynced || recompute) {
     let userId: string | null = null
     try {
       const session = await auth()
@@ -203,8 +215,9 @@ export async function GET(request: Request) {
 
   for (const date of dates) {
     try {
-      // Skip days that already have data (fast path — avoids MLB API calls on re-runs)
-      if (skipSynced) {
+      // Skip days that already have data (fast path — avoids MLB API calls on re-runs).
+      // recompute=true bypasses this so we can overwrite ensembleNrfi with new inputs.
+      if (skipSynced && !recompute) {
         const existing = await prisma.gameResult.count({ where: { date } })
         if (existing > 0) { skipped += existing; continue }
       }
@@ -255,12 +268,30 @@ export async function GET(request: Request) {
 
       // 4. Generate + upsert ModelPrediction rows
       //    Collect unique pitcher and team IDs for this day's games
+
+      // 4a. When recompute=true, prefetch real historical weather per venue
+      //     (one Open-Meteo call each, free + cached on the route handler).
+      //     For non-recompute calls we keep the legacy NEUTRAL_WEATHER so
+      //     existing behaviour is unchanged.
+      const venueWeather = new Map<string, Weather>()
+      if (recompute) {
+        const venuesToday = [
+          ...new Set(finalGames.map((g) => g.venue?.name ?? "Unknown Stadium")),
+        ]
+        const weatherEntries = await Promise.all(
+          venuesToday.map(async (v) => [v, await fetchHistoricalWeather(v, date)] as const)
+        )
+        for (const [v, w] of weatherEntries) venueWeather.set(v, w)
+      }
+
       const pitcherIds = new Set<string>()
       const teamIds    = new Set<string>()
       const gameObjs: Game[] = []
 
       for (const apiGame of finalGames) {
-        const g = buildLightGame(apiGame, date)
+        const venue = apiGame.venue?.name ?? "Unknown Stadium"
+        const wx = recompute ? (venueWeather.get(venue) ?? NEUTRAL_WEATHER) : NEUTRAL_WEATHER
+        const g = buildLightGame(apiGame, date, wx)
         gameObjs.push(g)
         if (!g.homePitcherId.startsWith("tbd-")) pitcherIds.add(g.homePitcherId)
         if (!g.awayPitcherId.startsWith("tbd-")) pitcherIds.add(g.awayPitcherId)
@@ -327,6 +358,17 @@ export async function GET(request: Request) {
             ? (result.homeRuns === 0 && result.awayRuns === 0 ? "NRFI" : "YRFI")
             : undefined
 
+        // Historical sync always passes NEUTRAL_WEATHER and no odds (see
+        // buildLightGame above), so the stored ensembleNrfi reflects degraded
+        // inputs.  Record that lineage explicitly; downstream training can
+        // filter or downweight these rows.  recomputedAt timestamps when this
+        // row was last touched by a recompute=true run.
+        const inputsPresence = {
+          weather: recompute,
+          odds:    false,
+          lineup:  false,
+          ...(recompute ? { recomputedAt: new Date().toISOString() } : {}),
+        }
         await prisma.modelPrediction.upsert({
           where:  { id: tracked.id },
           update: {
@@ -340,6 +382,7 @@ export async function GET(request: Request) {
             markovNrfi:      tracked.markovNrfi,
             ensembleNrfi:    tracked.ensembleNrfi,
             modelConsensus:  tracked.modelConsensus,
+            inputsPresence,
             ...(actualResult !== undefined
               ? { actualResult, correct: actualResult === tracked.prediction, status: "complete" }
               : {}),
@@ -361,6 +404,7 @@ export async function GET(request: Request) {
             markovNrfi:      tracked.markovNrfi,
             ensembleNrfi:    tracked.ensembleNrfi,
             modelConsensus:  tracked.modelConsensus,
+            inputsPresence,
             actualResult:    actualResult ?? null,
             correct:         actualResult !== undefined ? actualResult === tracked.prediction : null,
             status:          actualResult !== undefined ? "complete" : "pending",

@@ -46,7 +46,13 @@ ARTIFACT_DIR = ROOT / "scripts" / "deepnrfi" / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
 LABEL_COL = "nrfi"
-DROP_COLS = {"nrfi", "gameId", "date", "season", "homeTeam", "awayTeam"}
+DROP_COLS = {
+    "nrfi", "gameId", "date", "season", "homeTeam", "awayTeam",
+    # Lineage flags (added in Phase 5 Step 5).  Documentary in the CSV but
+    # constant at inference time, so they'd be dead features.  Trainers can
+    # opt-in to use them by removing from this set.
+    "ensemble7_inputs_weather", "ensemble7_inputs_odds", "ensemble7_inputs_lineup",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,7 +62,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true", help="Train on synthetic data; don't touch real CSV")
     p.add_argument("--n-estimators", type=int, default=400)
     p.add_argument("--learning-rate", type=float, default=0.04)
-    p.add_argument("--num-leaves", type=int, default=31)
+    # Small training set (~5k games × 2 seasons) — keep trees shallow to avoid
+    # overfitting on noisy aggregates.  16 leaves + min_data_in_leaf=80 was
+    # tuned against walk-forward CV; loosen with care.
+    p.add_argument("--num-leaves", type=int, default=16)
+    p.add_argument("--min-data-in-leaf", type=int, default=80)
+    p.add_argument("--feature-fraction", type=float, default=0.8)
+    p.add_argument("--bagging-fraction", type=float, default=0.8)
+    p.add_argument("--bagging-freq", type=int, default=5)
     return p.parse_args()
 
 
@@ -110,18 +123,45 @@ def synthetic_dataset(n: int = 4000, seed: int = 42) -> pd.DataFrame:
 
 def train_one(df: pd.DataFrame, args: argparse.Namespace):
     feature_cols = [c for c in df.columns if c not in DROP_COLS]
+    # Drop dead features (constants or all-NaN) — they carry no signal and
+    # only invite LightGBM to overfit on noise.  Logs which ones were pruned
+    # so we know what the builder is failing to populate.
+    live, dead = [], []
+    for c in feature_cols:
+        s = df[c]
+        if s.isna().mean() > 0.9 or (s.dropna().nunique() <= 1):
+            dead.append(c)
+        else:
+            live.append(c)
+    if dead:
+        print(f"[deepnrfi] dropping {len(dead)} dead features (constant/all-NaN):")
+        for c in dead:
+            print(f"    - {c}")
+    feature_cols = live
+    if not feature_cols:
+        raise RuntimeError(
+            "No live features remain after pruning. Check training.csv feature population."
+        )
     X = df[feature_cols].values
     y = df[LABEL_COL].values.astype(int)
 
-    # Walk-forward CV by row order (assumes data is date-sorted)
+    # Walk-forward CV by row order (assumes data is date-sorted).
+    # TimeSeriesSplit only generates val indices for folds 2..N, so the first
+    # ~1/(n_splits+1) of rows never appear in any val fold.  Track which rows
+    # actually got a prediction so we don't average over uninitialised zeros.
     tscv = TimeSeriesSplit(n_splits=4)
-    val_pred = np.zeros(len(y), dtype=float)
+    val_pred = np.full(len(y), np.nan, dtype=float)
+    fold_metrics: list[dict] = []
     for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
         params = dict(
             objective="binary",
             metric=["binary_logloss", "binary_error"],
             num_leaves=args.num_leaves,
             learning_rate=args.learning_rate,
+            min_data_in_leaf=args.min_data_in_leaf,
+            feature_fraction=args.feature_fraction,
+            bagging_fraction=args.bagging_fraction,
+            bagging_freq=args.bagging_freq,
             feature_pre_filter=False,
             verbosity=-1,
         )
@@ -135,9 +175,19 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
             callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)],
         )
         val_pred[val_idx] = booster.predict(X[val_idx])
+        fold_brier = float(brier_score_loss(y[val_idx], val_pred[val_idx]))
+        fold_logloss = float(log_loss(y[val_idx], val_pred[val_idx]))
+        fold_metrics.append({
+            "fold": fold + 1,
+            "n_train": int(len(train_idx)),
+            "n_val": int(len(val_idx)),
+            "best_iter": int(booster.best_iteration),
+            "val_brier": fold_brier,
+            "val_logloss": fold_logloss,
+        })
         print(
             f"[deepnrfi] fold {fold + 1}/{tscv.n_splits} best_iter={booster.best_iteration} "
-            f"val_logloss={log_loss(y[val_idx], val_pred[val_idx]):.4f}"
+            f"val_brier={fold_brier:.4f} val_logloss={fold_logloss:.4f}"
         )
 
     # Final model on all data
@@ -148,6 +198,10 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
             metric=["binary_logloss"],
             num_leaves=args.num_leaves,
             learning_rate=args.learning_rate,
+            min_data_in_leaf=args.min_data_in_leaf,
+            feature_fraction=args.feature_fraction,
+            bagging_fraction=args.bagging_fraction,
+            bagging_freq=args.bagging_freq,
             feature_pre_filter=False,
             verbosity=-1,
         ),
@@ -155,17 +209,24 @@ def train_one(df: pd.DataFrame, args: argparse.Namespace):
         num_boost_round=args.n_estimators,
         callbacks=[lgb.log_evaluation(0)],
     )
+    # Mask to rows that actually received a walk-forward prediction.  Without
+    # this the metric averages in the np.nan-initialised first chunk and the
+    # Brier comes out hugely inflated.
+    mask = ~np.isnan(val_pred)
+    n_used = int(mask.sum())
     print(
-        f"[deepnrfi] full model: brier={brier_score_loss(y, val_pred):.4f} "
-        f"logloss={log_loss(y, val_pred):.4f}"
+        f"[deepnrfi] full model: brier={brier_score_loss(y[mask], val_pred[mask]):.4f} "
+        f"logloss={log_loss(y[mask], val_pred[mask]):.4f}  "
+        f"(over {n_used}/{len(y)} walk-forward rows)"
     )
-    return full_booster, feature_cols, val_pred, y
+    return full_booster, feature_cols, val_pred, y, dead, fold_metrics
 
 
 def fit_calibration(val_pred: np.ndarray, y: np.ndarray) -> list[list[float]]:
     """Fit a 19-knot piecewise-linear calibration via isotonic regression."""
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-    iso.fit(val_pred, y)
+    mask = ~np.isnan(val_pred)
+    iso.fit(val_pred[mask], y[mask])
     grid = np.linspace(0.05, 0.95, 19)
     return [[float(x), float(iso.predict([x])[0])] for x in grid]
 
@@ -198,7 +259,7 @@ def main() -> int:
         df = pd.read_csv(args.data)
         print(f"[deepnrfi] loaded {len(df)} rows from {args.data}")
 
-    booster, feature_cols, val_pred, y = train_one(df, args)
+    booster, feature_cols, val_pred, y, dead_features, fold_metrics = train_one(df, args)
     knots = fit_calibration(val_pred, y)
     importance = feature_importance(booster, feature_cols, df[feature_cols].values)
 
@@ -211,14 +272,20 @@ def main() -> int:
     booster.save_model(str(model_path))
     calib_path.write_text(json.dumps({"knots": knots}, indent=2))
     importance_path.write_text(json.dumps({"features": importance}, indent=2))
+    mask = ~np.isnan(val_pred)
     manifest = {
         "activeVersion": version,
         "modelFile": model_path.name,
         "calibrationFile": calib_path.name,
         "importanceFile": importance_path.name,
         "featureOrder": feature_cols,
-        "brier": float(brier_score_loss(y, val_pred)),
-        "logLoss": float(log_loss(y, val_pred)),
+        "liveFeatureCount": len(feature_cols),
+        "deadFeatures": dead_features,
+        "brier": float(brier_score_loss(y[mask], val_pred[mask])),
+        "logLoss": float(log_loss(y[mask], val_pred[mask])),
+        "foldMetrics": fold_metrics,
+        "walkForwardRowsUsed": int(mask.sum()),
+        "walkForwardRowsTotal": int(len(y)),
         "trainedAt": datetime.now(timezone.utc).isoformat(),
     }
     manifest_path.write_text(json.dumps(manifest, indent=2))
