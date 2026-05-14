@@ -182,7 +182,18 @@ def fetch_statcast(date_from: date, date_to: date, no_cache: bool) -> pd.DataFra
     df = statcast(start_dt=date_from.isoformat(), end_dt=date_to.isoformat(), verbose=False)
     if df is None or df.empty:
         raise RuntimeError("Statcast returned no rows; check the date range")
-    df.to_parquet(path)
+
+    # pybaseball returns game_date as a mixed-type object column (Timestamps and
+    # strings intermixed across the concatenated season chunks).  pyarrow can't
+    # serialise that, so normalise to real datetimes before writing parquet.
+    if "game_date" in df.columns:
+        df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
+
+    # Write to a temp path then rename so a crash mid-write can't leave a
+    # corrupt cache file that the next run would try (and fail) to read.
+    tmp_path = path.with_suffix(".parquet.tmp")
+    df.to_parquet(tmp_path)
+    tmp_path.replace(path)
     print(f"[builder] cached {len(df):,} pitches to {path}")
     return df
 
