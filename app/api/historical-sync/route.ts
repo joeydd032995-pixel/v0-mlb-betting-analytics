@@ -22,6 +22,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { fetchGamesByDate, fetchGameLinescore, fetchPitcherStats, fetchTeamStats } from "@/lib/api/mlb-stats"
+import { fetchHistoricalWeather } from "@/lib/api/weather"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
 import { STADIUM_PARK_FACTORS } from "@/lib/constants/mlb-stadiums"
@@ -121,7 +122,7 @@ function buildLightTeam(teamId: string, stats: MLBTeamHittingStats | null): Team
   }
 }
 
-function buildLightGame(apiGame: MLBGame, date: string): Game {
+function buildLightGame(apiGame: MLBGame, date: string, weather: Weather = NEUTRAL_WEATHER): Game {
   const venue = apiGame.venue?.name ?? "Unknown Stadium"
   const parkFactor = STADIUM_PARK_FACTORS[venue] ?? 1.0
   const homeTeamId = resolveTeamId(apiGame.teams.home.team.name)
@@ -144,7 +145,7 @@ function buildLightGame(apiGame: MLBGame, date: string): Game {
     awayPitcherId,
     venue,
     parkFactor,
-    weather: NEUTRAL_WEATHER,
+    weather,
     odds: undefined,
   }
 }
@@ -267,12 +268,30 @@ export async function GET(request: Request) {
 
       // 4. Generate + upsert ModelPrediction rows
       //    Collect unique pitcher and team IDs for this day's games
+
+      // 4a. When recompute=true, prefetch real historical weather per venue
+      //     (one Open-Meteo call each, free + cached on the route handler).
+      //     For non-recompute calls we keep the legacy NEUTRAL_WEATHER so
+      //     existing behaviour is unchanged.
+      const venueWeather = new Map<string, Weather>()
+      if (recompute) {
+        const venuesToday = [
+          ...new Set(finalGames.map((g) => g.venue?.name ?? "Unknown Stadium")),
+        ]
+        const weatherEntries = await Promise.all(
+          venuesToday.map(async (v) => [v, await fetchHistoricalWeather(v, date)] as const)
+        )
+        for (const [v, w] of weatherEntries) venueWeather.set(v, w)
+      }
+
       const pitcherIds = new Set<string>()
       const teamIds    = new Set<string>()
       const gameObjs: Game[] = []
 
       for (const apiGame of finalGames) {
-        const g = buildLightGame(apiGame, date)
+        const venue = apiGame.venue?.name ?? "Unknown Stadium"
+        const wx = recompute ? (venueWeather.get(venue) ?? NEUTRAL_WEATHER) : NEUTRAL_WEATHER
+        const g = buildLightGame(apiGame, date, wx)
         gameObjs.push(g)
         if (!g.homePitcherId.startsWith("tbd-")) pitcherIds.add(g.homePitcherId)
         if (!g.awayPitcherId.startsWith("tbd-")) pitcherIds.add(g.awayPitcherId)
@@ -345,9 +364,9 @@ export async function GET(request: Request) {
         // filter or downweight these rows.  recomputedAt timestamps when this
         // row was last touched by a recompute=true run.
         const inputsPresence = {
-          weather: false,
-          odds: false,
-          lineup: false,
+          weather: recompute,
+          odds:    false,
+          lineup:  false,
           ...(recompute ? { recomputedAt: new Date().toISOString() } : {}),
         }
         await prisma.modelPrediction.upsert({

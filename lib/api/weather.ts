@@ -84,3 +84,79 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
     return DOME_WEATHER
   }
 }
+
+// ─── Open-Meteo Archive (free, no auth, historical back to 1940) ─────────────
+
+const ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+
+interface OpenMeteoResponse {
+  hourly: {
+    time: string[]
+    temperature_2m: number[]
+    wind_speed_10m: number[]
+    wind_direction_10m: number[]
+    relative_humidity_2m: number[]
+    pressure_msl: number[]
+    precipitation: number[]
+  }
+}
+
+function pickHourIndex(times: string[], targetHour = 19): number {
+  // Open-Meteo returns ISO local timestamps when timezone=auto.
+  // Pick the closest hour to first pitch (~7pm local).
+  for (let i = 0; i < times.length; i++) {
+    if (times[i].endsWith(`T${String(targetHour).padStart(2, "0")}:00`)) return i
+  }
+  return Math.min(targetHour, times.length - 1)
+}
+
+export async function fetchHistoricalWeather(venue: string, date: string): Promise<Weather> {
+  if (STADIUM_IS_DOME[venue]) return DOME_WEATHER
+  const coords = STADIUM_COORDS[venue]
+  if (!coords) return DOME_WEATHER
+
+  const params = new URLSearchParams({
+    latitude:         String(coords.lat),
+    longitude:        String(coords.lon),
+    start_date:       date,
+    end_date:         date,
+    hourly:           "temperature_2m,wind_speed_10m,wind_direction_10m,relative_humidity_2m,pressure_msl,precipitation",
+    timezone:         "auto",
+    temperature_unit: "fahrenheit",
+    wind_speed_unit:  "mph",
+  })
+
+  try {
+    const res = await fetch(`${ARCHIVE_URL}?${params}`, {
+      // Cache aggressively — archive data never changes.
+      next: { revalidate: 60 * 60 * 24 * 30 },
+    })
+    if (!res.ok) {
+      console.error(`[weather-archive] HTTP ${res.status} for ${venue} ${date}`)
+      return DOME_WEATHER
+    }
+    const data = (await res.json()) as OpenMeteoResponse
+    if (!data.hourly?.time?.length) return DOME_WEATHER
+
+    const i = pickHourIndex(data.hourly.time)
+    const temp     = Math.round(data.hourly.temperature_2m[i] ?? 72)
+    const speedMph = Math.round(data.hourly.wind_speed_10m[i] ?? 0)
+    const windDeg  = data.hourly.wind_direction_10m[i] ?? 0
+    const humidity = Math.round(data.hourly.relative_humidity_2m[i] ?? 50)
+    const pressure = data.hourly.pressure_msl[i] ?? 1013
+    const precip   = data.hourly.precipitation[i] ?? 0
+
+    return {
+      temperature:    temp,
+      windSpeed:      speedMph,
+      windDirection:  mapWindDirection(windDeg, speedMph, venue),
+      conditions:     precip > 0.5 ? "light-rain" : "clear",
+      humidity,
+      precipProb:     precip > 0 ? 0.6 : 0,
+      pressureHPa:    Math.round(pressure),
+    }
+  } catch (err) {
+    console.error(`[weather-archive] fetch error for ${venue} ${date}:`, err)
+    return DOME_WEATHER
+  }
+}
