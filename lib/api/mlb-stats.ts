@@ -98,6 +98,65 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
   }
 }
 
+// ─── Point-in-time helpers ────────────────────────────────────────────────────
+
+/**
+ * Bayesian blend weight for season-to-date vs prior-season stats.
+ * Mirrors the shrinkage weight in lib/nrfi-models.ts:54 (k = within/between var).
+ * At 2 starts w≈0.64, at 6 starts w≈0.84 — early-season leans on the prior.
+ */
+const BLEND_K = 1.14
+function blendWeight(sample: number): number {
+  return Math.min(0.97, sample / (sample + BLEND_K))
+}
+
+/**
+ * MLB innings-pitched strings use ".1"/".2" for one/two outs, NOT decimal
+ * fractions — "5.1" is 5⅓ innings, not 5.1.  parseFloat would distort every
+ * downstream ERA/WHIP/rate calculation.
+ */
+function parseBaseballInnings(value?: string | null): number {
+  if (!value) return 0
+  const [whole, frac = "0"] = String(value).split(".")
+  const innings = Number(whole) || 0
+  if (frac === "1") return innings + 1 / 3
+  if (frac === "2") return innings + 2 / 3
+  return innings
+}
+
+/** Module-level game-log caches, keyed `${id}:${season}`. One season's log
+ *  covers every game; callers filter by date in memory. Persists for the life
+ *  of the serverless invocation so a month's worth of games hits the API once
+ *  per (pitcher|team, season). */
+const pitcherGameLogCache = new Map<string, PitcherGameLogSplit[]>()
+const teamGameLogCache = new Map<string, TeamGameLogSplit[]>()
+
+export interface PitcherGameLogSplit {
+  date?: string
+  stat: {
+    gamesStarted?: number
+    inningsPitched?: string
+    earnedRuns?: number
+    strikeOuts?: number
+    baseOnBalls?: number
+    hits?: number
+    homeRuns?: number
+  }
+}
+
+export interface TeamGameLogSplit {
+  date?: string
+  stat: {
+    atBats?: number
+    hits?: number
+    baseOnBalls?: number
+    hitByPitch?: number
+    sacFlies?: number
+    totalBases?: number
+    runs?: number
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Returns today's MLB game slate. Each game includes probablePitcher if announced.
@@ -262,7 +321,8 @@ export async function fetchTeamLast5FirstInnings(
  * Returns null if the player has no stats yet this season (e.g. just called up).
  */
 export async function fetchPitcherStats(
-  playerId: number
+  playerId: number,
+  season: number | string = SEASON
 ): Promise<MLBPitcherSeasonStats | null> {
   type RawSplit = {
     stat: {
@@ -291,7 +351,7 @@ export async function fetchPitcherStats(
   }
 
   const data = await mlbFetch<{ people: RawPerson[] }>(
-    `/people/${playerId}?hydrate=stats(group=[pitching],type=[season])&season=${SEASON}`,
+    `/people/${playerId}?hydrate=stats(group=[pitching],type=[season])&season=${season}`,
     3600
   )
 
@@ -308,7 +368,7 @@ export async function fetchPitcherStats(
 
   const throws = (person.pitchHand?.code ?? "R") as "R" | "L" | "S"
 
-  // No 2026 stats yet — return name-only record so the pitcher card still shows up
+  // No stats for this season yet — return name-only record so the pitcher card still shows up
   if (!pitchingSplit) {
     return {
       fullName: person.fullName,
@@ -334,12 +394,173 @@ export async function fetchPitcherStats(
     whip: parseFloat(pitchingSplit.whip ?? "1.28") || 1.28,
     strikeOuts: pitchingSplit.strikeOuts ?? 0,
     baseOnBalls: pitchingSplit.baseOnBalls ?? 0,
-    inningsPitched: parseFloat(pitchingSplit.inningsPitched ?? "0") || 0,
+    inningsPitched: parseBaseballInnings(pitchingSplit.inningsPitched),
     hits: pitchingSplit.hits ?? 0,
     homeRuns: pitchingSplit.homeRuns ?? 0,
     wins: pitchingSplit.wins ?? 0,
     losses: pitchingSplit.losses ?? 0,
   }
+}
+
+/** kRate/bbRate/hrPer9 the same way buildLightPitcher derives them, so a
+ *  synthesized MLBPitcherSeasonStats round-trips to the intended rates. */
+function pitcherRates(s: {
+  inningsPitched: number
+  strikeOuts: number
+  baseOnBalls: number
+  homeRuns: number
+}): { kRate: number; bbRate: number; hrPer9: number } {
+  const bf = Math.max(1, s.inningsPitched * 4.3)
+  return {
+    kRate: s.strikeOuts / bf,
+    bbRate: s.baseOnBalls / bf,
+    hrPer9: s.inningsPitched > 0 ? (s.homeRuns / s.inningsPitched) * 9 : 1.1,
+  }
+}
+
+/**
+ * Pure core of fetchPitcherStatsAsOf: given a pitcher's game-log splits, a
+ * `beforeDate` cutoff, the prior-season line, and name/handedness, produce the
+ * blended point-in-time stats.
+ *
+ * Aggregates starts strictly before `beforeDate`, then Bayesian-blends
+ * season-to-date rates with the prior season so early-season games lean on
+ * last year instead of being starved.  The counting-stat fields are
+ * synthesized so buildLightPitcher re-derives the blended era/whip/kRate/etc.
+ *
+ * Returns `prior` (possibly null) when there are no qualifying starts — the
+ * caller handles the no-prior fallback.  Network-free, so unit-testable.
+ */
+export function computePitcherStatsAsOf(
+  splits: PitcherGameLogSplit[],
+  beforeDate: string,
+  prior: MLBPitcherSeasonStats | null,
+  meta: { fullName: string; throws: "R" | "L" | "S" }
+): MLBPitcherSeasonStats | null {
+  const priorStarts = splits.filter(
+    (s) => s.date && s.date < beforeDate && (s.stat.gamesStarted ?? 0) >= 1
+  )
+  if (priorStarts.length === 0) return prior
+
+  let ip = 0
+  let er = 0
+  let k = 0
+  let bb = 0
+  let hits = 0
+  let hr = 0
+  let starts = 0
+  for (const g of priorStarts) {
+    ip += parseBaseballInnings(g.stat.inningsPitched)
+    er += g.stat.earnedRuns ?? 0
+    k += g.stat.strikeOuts ?? 0
+    bb += g.stat.baseOnBalls ?? 0
+    hits += g.stat.hits ?? 0
+    hr += g.stat.homeRuns ?? 0
+    starts += g.stat.gamesStarted ?? 0
+  }
+
+  const tdEra = ip > 0 ? (er * 9) / ip : 4.0
+  const tdWhip = ip > 0 ? (bb + hits) / ip : 1.28
+  const td = pitcherRates({ inningsPitched: ip, strikeOuts: k, baseOnBalls: bb, homeRuns: hr })
+
+  if (!prior) {
+    // No prior season — use raw season-to-date (no blend).
+    return {
+      fullName: meta.fullName,
+      throws: meta.throws,
+      gamesStarted: starts,
+      era: tdEra,
+      whip: tdWhip,
+      strikeOuts: k,
+      baseOnBalls: bb,
+      inningsPitched: ip,
+      hits,
+      homeRuns: hr,
+      wins: 0,
+      losses: 0,
+    }
+  }
+
+  // Bayesian blend: season-to-date weighted by starts, prior fills the rest.
+  const w = blendWeight(starts)
+  const mix = (toDate: number, priorVal: number) => w * toDate + (1 - w) * priorVal
+  const priorRates = pitcherRates(prior)
+
+  const blendedEra = mix(tdEra, prior.era)
+  const blendedWhip = mix(tdWhip, prior.whip)
+  const blendedKRate = mix(td.kRate, priorRates.kRate)
+  const blendedBbRate = mix(td.bbRate, priorRates.bbRate)
+  const blendedHrPer9 = mix(td.hrPer9, priorRates.hrPer9)
+
+  // Synthesize counting stats over the real season-to-date IP so
+  // buildLightPitcher re-derives exactly the blended rates.
+  const bf = Math.max(1, ip * 4.3)
+  return {
+    fullName: meta.fullName,
+    throws: meta.throws,
+    gamesStarted: starts,
+    era: blendedEra,
+    whip: blendedWhip,
+    strikeOuts: blendedKRate * bf,
+    baseOnBalls: blendedBbRate * bf,
+    inningsPitched: ip,
+    hits: Math.max(0, blendedWhip * ip - blendedBbRate * bf),
+    homeRuns: (blendedHrPer9 * ip) / 9,
+    wins: 0,
+    losses: 0,
+  }
+}
+
+/**
+ * Point-in-time pitcher stats — fetches the season game log + prior-season line,
+ * then delegates to {@link computePitcherStatsAsOf}.  Returns the same
+ * MLBPitcherSeasonStats shape as fetchPitcherStats so callers need no changes.
+ */
+export async function fetchPitcherStatsAsOf(
+  playerId: number,
+  season: number,
+  beforeDate: string
+): Promise<MLBPitcherSeasonStats | null> {
+  type RawStatGroup = {
+    type: { displayName: string }
+    group: { displayName: string }
+    splits: PitcherGameLogSplit[]
+  }
+
+  const cacheKey = `${playerId}:${season}`
+  let splits = pitcherGameLogCache.get(cacheKey)
+  if (!splits) {
+    const data = await mlbFetch<{ people: Array<{ stats?: RawStatGroup[] }> }>(
+      `/people/${playerId}?hydrate=stats(group=[pitching],type=[gameLog])&season=${season}`,
+      3600
+    )
+    splits =
+      data?.people?.[0]?.stats?.find(
+        (s) =>
+          s.type?.displayName?.toLowerCase() === "gamelog" &&
+          s.group?.displayName?.toLowerCase() === "pitching"
+      )?.splits ?? []
+    pitcherGameLogCache.set(cacheKey, splits)
+  }
+
+  // Prior-season full line — the Bayesian prior; also the source of name/throws.
+  // fetchPitcherStats returns a synthetic 4.00/1.28 record (inningsPitched 0)
+  // when the player has no splits for that season.  That's fine for name/throws
+  // but must NOT be blended as a real prior — a rookie should take the raw
+  // season-to-date path, not get mixed with fabricated numbers.
+  const priorRecord = await fetchPitcherStats(playerId, season - 1)
+  const metaSource = priorRecord ?? (await fetchPitcherStats(playerId, season))
+  const meta = {
+    fullName: metaSource?.fullName ?? `Player ${playerId}`,
+    throws: metaSource?.throws ?? ("R" as const),
+  }
+  const prior =
+    priorRecord && priorRecord.inningsPitched > 0 ? priorRecord : null
+
+  const result = computePitcherStatsAsOf(splits, beforeDate, prior, meta)
+  // result is null only when there were no starts AND no prior — fall back to
+  // the current-season league-average record fetchPitcherStats provides.
+  return result ?? metaSource ?? fetchPitcherStats(playerId, season)
 }
 
 // ─── Active Starters ─────────────────────────────────────────────────────────
@@ -440,7 +661,8 @@ export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
  * Returns null if the team has no stats yet (very start of season).
  */
 export async function fetchTeamStats(
-  teamId: number
+  teamId: number,
+  season: number | string = SEASON
 ): Promise<MLBTeamHittingStats | null> {
   type RawSplit = {
     stat: {
@@ -459,7 +681,7 @@ export async function fetchTeamStats(
   }
 
   const data = await mlbFetch<{ stats: RawStatGroup[] }>(
-    `/teams/${teamId}/stats?stats=season&group=hitting&season=${SEASON}`,
+    `/teams/${teamId}/stats?stats=season&group=hitting&season=${season}`,
     3600
   )
 
@@ -481,4 +703,94 @@ export async function fetchTeamStats(
     ops: parseFloat(hittingSplit.ops ?? "0") || 0,
     runs: hittingSplit.runs ?? 0,
   }
+}
+
+/**
+ * Pure core of fetchTeamStatsAsOf: aggregates the team's game-log lines strictly
+ * BEFORE `beforeDate`, then Bayesian-blends season-to-date OBP/SLG/OPS with the
+ * prior season.  Returns `prior` (possibly null) when there are no qualifying
+ * games.  Network-free, so unit-testable.
+ */
+export function computeTeamStatsAsOf(
+  splits: TeamGameLogSplit[],
+  beforeDate: string,
+  prior: MLBTeamHittingStats | null
+): MLBTeamHittingStats | null {
+  const priorGames = splits.filter((s) => s.date && s.date < beforeDate)
+  if (priorGames.length === 0) return prior
+
+  let ab = 0
+  let h = 0
+  let bb = 0
+  let hbp = 0
+  let sf = 0
+  let tb = 0
+  let runs = 0
+  for (const g of priorGames) {
+    ab += g.stat.atBats ?? 0
+    h += g.stat.hits ?? 0
+    bb += g.stat.baseOnBalls ?? 0
+    hbp += g.stat.hitByPitch ?? 0
+    sf += g.stat.sacFlies ?? 0
+    tb += g.stat.totalBases ?? 0
+    runs += g.stat.runs ?? 0
+  }
+
+  const games = priorGames.length
+  const obpDenom = ab + bb + hbp + sf
+  const tdAvg = ab > 0 ? h / ab : 0.24
+  const tdObp = obpDenom > 0 ? (h + bb + hbp) / obpDenom : 0.31
+  const tdSlg = ab > 0 ? tb / ab : 0.39
+  const tdOps = tdObp + tdSlg
+
+  if (!prior) {
+    return { gamesPlayed: games, avg: tdAvg, obp: tdObp, slg: tdSlg, ops: tdOps, runs }
+  }
+
+  const w = blendWeight(games)
+  const mix = (toDate: number, priorVal: number) => w * toDate + (1 - w) * priorVal
+  return {
+    gamesPlayed: games,
+    avg: mix(tdAvg, prior.avg),
+    obp: mix(tdObp, prior.obp),
+    slg: mix(tdSlg, prior.slg),
+    ops: mix(tdOps, prior.ops),
+    runs,
+  }
+}
+
+/**
+ * Point-in-time team hitting stats — fetches the season game log + prior-season
+ * line, then delegates to {@link computeTeamStatsAsOf}.
+ */
+export async function fetchTeamStatsAsOf(
+  teamId: number,
+  season: number,
+  beforeDate: string
+): Promise<MLBTeamHittingStats | null> {
+  type RawStatGroup = {
+    type: { displayName: string }
+    group: { displayName: string }
+    splits: TeamGameLogSplit[]
+  }
+
+  const cacheKey = `${teamId}:${season}`
+  let splits = teamGameLogCache.get(cacheKey)
+  if (!splits) {
+    const data = await mlbFetch<{ stats?: RawStatGroup[] }>(
+      `/teams/${teamId}/stats?stats=gameLog&group=hitting&season=${season}`,
+      3600
+    )
+    splits =
+      data?.stats?.find(
+        (s) =>
+          s.type?.displayName?.toLowerCase() === "gamelog" &&
+          s.group?.displayName?.toLowerCase() === "hitting"
+      )?.splits ?? []
+    teamGameLogCache.set(cacheKey, splits)
+  }
+
+  const prior = await fetchTeamStats(teamId, season - 1)
+  const result = computeTeamStatsAsOf(splits, beforeDate, prior)
+  return result ?? fetchTeamStats(teamId, season)
 }

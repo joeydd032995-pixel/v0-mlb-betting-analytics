@@ -21,7 +21,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
-import { fetchGamesByDate, fetchGameLinescore, fetchPitcherStats, fetchTeamStats } from "@/lib/api/mlb-stats"
+import { fetchGamesByDate, fetchGameLinescore, fetchPitcherStatsAsOf, fetchTeamStatsAsOf } from "@/lib/api/mlb-stats"
 import { fetchHistoricalWeather } from "@/lib/api/weather"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
@@ -307,18 +307,25 @@ export async function GET(request: Request) {
         teamIds.add(g.awayTeamId)
       }
 
-      // Fetch pitcher + team stats in parallel
+      // Fetch pitcher + team stats in parallel.  Use the point-in-time as-of
+      // variants so a historical game is scored only with data available
+      // BEFORE that date (blended with the prior season).  "As of date" is
+      // always the correct semantics for a backfill, including 2026.
       const [pitcherStatsArr, teamStatsArr] = await Promise.all([
         Promise.all(
           [...pitcherIds].map((id) =>
-            fetchPitcherStats(parseInt(id)).then((s) => [id, s] as [string, MLBPitcherSeasonStats | null])
+            fetchPitcherStatsAsOf(parseInt(id), year, date).then(
+              (s) => [id, s] as [string, MLBPitcherSeasonStats | null]
+            )
           )
         ),
         Promise.all(
           [...teamIds].map((id) => {
             const teamNum = MLB_TEAMS[id]?.apiId
             if (!teamNum) return Promise.resolve([id, null] as [string, MLBTeamHittingStats | null])
-            return fetchTeamStats(teamNum).then((s) => [id, s] as [string, MLBTeamHittingStats | null])
+            return fetchTeamStatsAsOf(teamNum, year, date).then(
+              (s) => [id, s] as [string, MLBTeamHittingStats | null]
+            )
           })
         ),
       ])
