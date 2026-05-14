@@ -110,6 +110,20 @@ function blendWeight(sample: number): number {
   return Math.min(0.97, sample / (sample + BLEND_K))
 }
 
+/**
+ * MLB innings-pitched strings use ".1"/".2" for one/two outs, NOT decimal
+ * fractions — "5.1" is 5⅓ innings, not 5.1.  parseFloat would distort every
+ * downstream ERA/WHIP/rate calculation.
+ */
+function parseBaseballInnings(value?: string | null): number {
+  if (!value) return 0
+  const [whole, frac = "0"] = String(value).split(".")
+  const innings = Number(whole) || 0
+  if (frac === "1") return innings + 1 / 3
+  if (frac === "2") return innings + 2 / 3
+  return innings
+}
+
 /** Module-level game-log caches, keyed `${id}:${season}`. One season's log
  *  covers every game; callers filter by date in memory. Persists for the life
  *  of the serverless invocation so a month's worth of games hits the API once
@@ -380,7 +394,7 @@ export async function fetchPitcherStats(
     whip: parseFloat(pitchingSplit.whip ?? "1.28") || 1.28,
     strikeOuts: pitchingSplit.strikeOuts ?? 0,
     baseOnBalls: pitchingSplit.baseOnBalls ?? 0,
-    inningsPitched: parseFloat(pitchingSplit.inningsPitched ?? "0") || 0,
+    inningsPitched: parseBaseballInnings(pitchingSplit.inningsPitched),
     hits: pitchingSplit.hits ?? 0,
     homeRuns: pitchingSplit.homeRuns ?? 0,
     wins: pitchingSplit.wins ?? 0,
@@ -436,7 +450,7 @@ export function computePitcherStatsAsOf(
   let hr = 0
   let starts = 0
   for (const g of priorStarts) {
-    ip += parseFloat(g.stat.inningsPitched ?? "0") || 0
+    ip += parseBaseballInnings(g.stat.inningsPitched)
     er += g.stat.earnedRuns ?? 0
     k += g.stat.strikeOuts ?? 0
     bb += g.stat.baseOnBalls ?? 0
@@ -530,12 +544,18 @@ export async function fetchPitcherStatsAsOf(
   }
 
   // Prior-season full line — the Bayesian prior; also the source of name/throws.
-  const prior = await fetchPitcherStats(playerId, season - 1)
-  const metaSource = prior ?? (await fetchPitcherStats(playerId, season))
+  // fetchPitcherStats returns a synthetic 4.00/1.28 record (inningsPitched 0)
+  // when the player has no splits for that season.  That's fine for name/throws
+  // but must NOT be blended as a real prior — a rookie should take the raw
+  // season-to-date path, not get mixed with fabricated numbers.
+  const priorRecord = await fetchPitcherStats(playerId, season - 1)
+  const metaSource = priorRecord ?? (await fetchPitcherStats(playerId, season))
   const meta = {
     fullName: metaSource?.fullName ?? `Player ${playerId}`,
     throws: metaSource?.throws ?? ("R" as const),
   }
+  const prior =
+    priorRecord && priorRecord.inningsPitched > 0 ? priorRecord : null
 
   const result = computePitcherStatsAsOf(splits, beforeDate, prior, meta)
   // result is null only when there were no starts AND no prior — fall back to

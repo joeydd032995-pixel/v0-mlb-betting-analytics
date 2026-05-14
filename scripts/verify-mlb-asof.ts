@@ -116,7 +116,18 @@ ok("returns the prior-season record verbatim", noStarts === priorSeason)
 ok("returns null when there's no prior either",
    computePitcherStatsAsOf(pitcherStarts, earlyCutoff, null, meta) === null)
 
-// ─── 5. Team aggregation ──────────────────────────────────────────────────────
+// ─── 5. Baseball innings notation (".1" = ⅓, ".2" = ⅔) ────────────────────────
+
+console.log("computePitcherStatsAsOf — innings notation:")
+// "5.1" = 5⅓, "6.2" = 6⅔ → total ip should be exactly 12, not 11.3.
+const fractionalStarts: PitcherGameLogSplit[] = [
+  { date: "2024-04-05", stat: { gamesStarted: 1, inningsPitched: "5.1", earnedRuns: 0, strikeOuts: 0, baseOnBalls: 0, hits: 0, homeRuns: 0 } },
+  { date: "2024-04-11", stat: { gamesStarted: 1, inningsPitched: "6.2", earnedRuns: 0, strikeOuts: 0, baseOnBalls: 0, hits: 0, homeRuns: 0 } },
+]
+const fractional = computePitcherStatsAsOf(fractionalStarts, CUTOFF, null, meta)!
+approx('"5.1" + "6.2" aggregates to 12.0 IP (thirds, not decimals)', fractional.inningsPitched, 12.0)
+
+// ─── 6. Team aggregation ──────────────────────────────────────────────────────
 
 console.log("computeTeamStatsAsOf — aggregation:")
 // Two games: ab=70, h=21, bb=8, hbp=1, sf=1, tb=35, runs=9
