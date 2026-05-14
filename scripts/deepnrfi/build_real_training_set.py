@@ -95,7 +95,15 @@ DEFAULTS = {
     "weather_humidity":   50,
     "weather_pressure":   1013.25,
     "weather_air_density": 1.18,
+    "is_bullpen":         0,
+    "offense_factor":     1.0,
 }
+
+# Minimum window games before a count-based pitcher feature is trusted; below
+# the threshold the feature returns None so make_row's pf() imputes a DEFAULT.
+_MIN_GAMES_PITCHES_LAST5 = 3
+_MIN_GAMES_ROLLING3_IP = 2
+_MIN_GAMES_IS_BULLPEN = 2
 
 # Match lib/features/feature-vector.ts FEATURE_ORDER exactly.
 FEATURE_ORDER = [
@@ -260,7 +268,72 @@ def _safe_float(v: float | None) -> float | None:
     return float(v)
 
 
-def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int) -> dict:
+def _pitcher_window_games(p: pd.DataFrame) -> pd.DataFrame:
+    """Per-game_pk summary for one pitcher's window slice, sorted by date.
+
+    Columns: game_pk, game_date, min_inning, pitch_count, outs.  Built once and
+    sliced by the count-based features (pitches_last5, rolling3_ip, days_rest,
+    is_bullpen) so the per-game groupby happens only once.
+    """
+    cols = ["game_pk", "game_date", "min_inning", "pitch_count", "outs"]
+    if p.empty:
+        return pd.DataFrame(columns=cols)
+    rows = []
+    for game_pk, gp in p.groupby("game_pk"):
+        ev = gp[gp["events"].isin(PA_TERMINATING_EVENTS)]
+        n_pa = len(ev)
+        hits = (ev["events"].isin(["single", "double", "triple", "home_run"])).sum()
+        bbs = (ev["events"] == "walk").sum()
+        hbps = (ev["events"] == "hit_by_pitch").sum()
+        errors = (ev["events"] == "field_error").sum()
+        rows.append({
+            "game_pk":     game_pk,
+            "game_date":   gp["game_date"].iloc[0],
+            "min_inning":  int(gp["inning"].min()),
+            "pitch_count": len(gp),
+            "outs":        max(0, n_pa - hits - bbs - hbps - errors),
+        })
+    return pd.DataFrame(rows, columns=cols).sort_values("game_date").reset_index(drop=True)
+
+
+def _pitcher_babip(hits: int, hrs: int, k: int, n_pa: int, bbs: int, hbps: int) -> float | None:
+    """BABIP allowed: (H - HR) / balls-in-play, where BIP ≈ PA - BB - HBP - K - HR."""
+    bip = n_pa - bbs - hbps - k - hrs
+    if bip <= 0:
+        return None
+    return float((hits - hrs) / bip)
+
+
+def _pitcher_first_batter_obp(p: pd.DataFrame) -> float | None:
+    """OBP allowed to the leadoff hitter (inning 1, first PA), averaged over games.
+
+    Filters to PA-terminating events BEFORE picking the min at_bat_number so the
+    leadoff PA's outcome (not a mid-PA pitch with events=NaN) is what's scored.
+    """
+    if "at_bat_number" not in p.columns or "inning" not in p.columns:
+        return None
+    first_inn = p[(p["inning"] == 1) & (p["events"].isin(PA_TERMINATING_EVENTS))]
+    if first_inn.empty:
+        return None
+    on_base = {"single", "double", "triple", "home_run", "walk", "hit_by_pitch"}
+    skip = {"sac_fly", "sac_fly_double_play", "sac_bunt", "sac_bunt_double_play"}
+    results = []
+    for _, gp in first_inn.groupby("game_pk"):
+        gp_valid = gp[gp["at_bat_number"].notna()]
+        if gp_valid.empty:
+            # All-null at_bat_number for this game — idxmin() would return NA
+            # and .loc[] would raise.  No usable leadoff identifier; skip.
+            continue
+        ev = gp_valid.loc[gp_valid["at_bat_number"].idxmin(), "events"]
+        if ev in skip:
+            continue
+        results.append(1 if ev in on_base else 0)
+    if not results:
+        return None
+    return float(sum(results) / len(results))
+
+
+def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) -> dict:
     """Per-pitcher Statcast summary over a date-windowed slice."""
     p = window[window["pitcher"] == pitcher_id]
     if p.empty:
@@ -312,21 +385,53 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int) -> dict:
     bbs = (events["events"] == "walk").sum()
     hbps = (events["events"] == "hit_by_pitch").sum()
     errors = (events["events"] == "field_error").sum()
+    ks = (events["events"] == "strikeout").sum()
     outs = max(0, n_pa - hits - bbs - hbps - errors)
     hrs = (events["events"] == "home_run").sum()
     hr_per9 = (hrs * 27 / outs) if outs > 0 else None
 
+    babip = _pitcher_babip(int(hits), int(hrs), int(ks), n_pa, int(bbs), int(hbps))
+    first_batter_obp = _pitcher_first_batter_obp(p)
+
+    # Count-based features off the per-game summary.  Below the min-games
+    # threshold each returns None so make_row's pf() imputes a DEFAULT.
+    g = _pitcher_window_games(p)
+    if not g.empty:
+        days_rest = (game_date - g["game_date"].max()).days
+    else:
+        days_rest = None
+    pitches_last5 = (
+        int(g["pitch_count"].tail(5).sum())
+        if len(g) >= _MIN_GAMES_PITCHES_LAST5 else None
+    )
+    rolling3_ip = (
+        float(g["outs"].tail(3).sum()) / 3
+        if len(g) >= _MIN_GAMES_ROLLING3_IP else None
+    )
+    if len(g) >= _MIN_GAMES_IS_BULLPEN:
+        # "Enters after inning 1" OR "low pitch count" — the pitch-count clause
+        # catches true openers (inning 1, but quick hook) the min-inning misses.
+        is_bullpen = 1 if (g["min_inning"].median() > 1 or g["pitch_count"].median() < 40) else 0
+    else:
+        is_bullpen = None
+
     return {
-        "fb_velo":      fb_velo,
-        "fb_spin":      fb_spin,
-        "breaking_pct": breaking_pct,
-        "stuff_plus":   stuff_plus,
-        "k_rate":       k_rate,
-        "bb_rate":      bb_rate,
-        "hr_per9":      hr_per9,
-        "shrunk_nrfi":  shrunk_nrfi,
-        "starts":       starts,
-        "nrfi_rate":    nrfi_rate,
+        "fb_velo":          fb_velo,
+        "fb_spin":          fb_spin,
+        "breaking_pct":     breaking_pct,
+        "stuff_plus":       stuff_plus,
+        "k_rate":           k_rate,
+        "bb_rate":          bb_rate,
+        "hr_per9":          hr_per9,
+        "babip":            babip,
+        "first_batter_obp": first_batter_obp,
+        "pitches_last5":    pitches_last5,
+        "days_rest":        days_rest,
+        "rolling3_ip":      rolling3_ip,
+        "is_bullpen":       is_bullpen,
+        "shrunk_nrfi":      shrunk_nrfi,
+        "starts":           starts,
+        "nrfi_rate":        nrfi_rate,
     }
 
 
@@ -408,12 +513,16 @@ def aggregate_top_four(
             vs_hand_ops = _compute_ops(vs_hand_events) or ops
             vs_hand_mult = float(vs_hand_ops / max(0.5, ops))
 
+    # Offense factor — mirrors estimateOffenseFactor in lib/api/shared-helpers.ts.
+    offense_factor = min(1.35, max(0.65, ops / 0.720))
+
     return {
         "ops":                float(ops),
         "wrcplus":            float(wrcplus),
         "k_pct":              float(k_pct),
         "bb_pct":             float(bb_pct),
         "vs_hand_multiplier": vs_hand_mult,
+        "offense_factor":     float(offense_factor),
     }
 
 
@@ -473,39 +582,39 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "home_pitcher_k_rate":          pf(p_home, "k_rate", DEFAULTS["k_rate"]),
         "home_pitcher_bb_rate":         pf(p_home, "bb_rate", DEFAULTS["bb_rate"]),
         "home_pitcher_hr_per9":         pf(p_home, "hr_per9", DEFAULTS["hr_per9"]),
-        "home_pitcher_babip":           DEFAULTS["babip"],
-        "home_pitcher_first_batter_obp": DEFAULTS["first_batter_obp"],
+        "home_pitcher_babip":           pf(p_home, "babip", DEFAULTS["babip"]),
+        "home_pitcher_first_batter_obp": pf(p_home, "first_batter_obp", DEFAULTS["first_batter_obp"]),
         "home_pitcher_start_count":     pf(p_home, "starts", 0),
         "home_pitcher_recent_form":     pf(p_home, "nrfi_rate", DEFAULTS["recent_form"]),
         "home_pitcher_fb_velo":         pf(p_home, "fb_velo", DEFAULTS["fb_velo"]),
         "home_pitcher_fb_spin":         pf(p_home, "fb_spin", DEFAULTS["fb_spin"]),
         "home_pitcher_breaking_pct":    pf(p_home, "breaking_pct", DEFAULTS["breaking_pct"]),
         "home_pitcher_stuff_plus":      pf(p_home, "stuff_plus", DEFAULTS["stuff_plus"]),
-        "home_pitcher_pitches_last5":   DEFAULTS["pitches_last5"],
-        "home_pitcher_days_rest":       DEFAULTS["days_rest"],
-        "home_pitcher_rolling3_ip":     DEFAULTS["rolling3_ip"],
+        "home_pitcher_pitches_last5":   pf(p_home, "pitches_last5", DEFAULTS["pitches_last5"]),
+        "home_pitcher_days_rest":       pf(p_home, "days_rest", DEFAULTS["days_rest"]),
+        "home_pitcher_rolling3_ip":     pf(p_home, "rolling3_ip", DEFAULTS["rolling3_ip"]),
         "home_pitcher_vstop_woba":      DEFAULTS["vstop_woba"],
         "home_pitcher_vstop_k":         DEFAULTS["vstop_k"],
-        "home_pitcher_is_bullpen":      0,
+        "home_pitcher_is_bullpen":      pf(p_home, "is_bullpen", DEFAULTS["is_bullpen"]),
         # Pitcher: away
         "away_pitcher_shrunk_nrfi":     pf(p_away, "shrunk_nrfi", LEAGUE_AVG_NRFI),
         "away_pitcher_k_rate":          pf(p_away, "k_rate", DEFAULTS["k_rate"]),
         "away_pitcher_bb_rate":         pf(p_away, "bb_rate", DEFAULTS["bb_rate"]),
         "away_pitcher_hr_per9":         pf(p_away, "hr_per9", DEFAULTS["hr_per9"]),
-        "away_pitcher_babip":           DEFAULTS["babip"],
-        "away_pitcher_first_batter_obp": DEFAULTS["first_batter_obp"],
+        "away_pitcher_babip":           pf(p_away, "babip", DEFAULTS["babip"]),
+        "away_pitcher_first_batter_obp": pf(p_away, "first_batter_obp", DEFAULTS["first_batter_obp"]),
         "away_pitcher_start_count":     pf(p_away, "starts", 0),
         "away_pitcher_recent_form":     pf(p_away, "nrfi_rate", DEFAULTS["recent_form"]),
         "away_pitcher_fb_velo":         pf(p_away, "fb_velo", DEFAULTS["fb_velo"]),
         "away_pitcher_fb_spin":         pf(p_away, "fb_spin", DEFAULTS["fb_spin"]),
         "away_pitcher_breaking_pct":    pf(p_away, "breaking_pct", DEFAULTS["breaking_pct"]),
         "away_pitcher_stuff_plus":      pf(p_away, "stuff_plus", DEFAULTS["stuff_plus"]),
-        "away_pitcher_pitches_last5":   DEFAULTS["pitches_last5"],
-        "away_pitcher_days_rest":       DEFAULTS["days_rest"],
-        "away_pitcher_rolling3_ip":     DEFAULTS["rolling3_ip"],
+        "away_pitcher_pitches_last5":   pf(p_away, "pitches_last5", DEFAULTS["pitches_last5"]),
+        "away_pitcher_days_rest":       pf(p_away, "days_rest", DEFAULTS["days_rest"]),
+        "away_pitcher_rolling3_ip":     pf(p_away, "rolling3_ip", DEFAULTS["rolling3_ip"]),
         "away_pitcher_vstop_woba":      DEFAULTS["vstop_woba"],
         "away_pitcher_vstop_k":         DEFAULTS["vstop_k"],
-        "away_pitcher_is_bullpen":      0,
+        "away_pitcher_is_bullpen":      pf(p_away, "is_bullpen", DEFAULTS["is_bullpen"]),
         # Top-of-order
         "home_top4_ops":     pf(b_home, "ops", DEFAULTS["top4_ops"]),
         "home_top4_wrcplus": pf(b_home, "wrcplus", DEFAULTS["top4_wrcplus"]),
@@ -515,9 +624,8 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "away_top4_wrcplus": pf(b_away, "wrcplus", DEFAULTS["top4_wrcplus"]),
         "away_top4_k_pct":   pf(b_away, "k_pct", DEFAULTS["top4_k_pct"]),
         "away_top4_bb_pct":  pf(b_away, "bb_pct", DEFAULTS["top4_bb_pct"]),
-        # Static / placeholder
-        "home_offense_factor":     1.0,
-        "away_offense_factor":     1.0,
+        "home_offense_factor":     pf(b_home, "offense_factor", DEFAULTS["offense_factor"]),
+        "away_offense_factor":     pf(b_away, "offense_factor", DEFAULTS["offense_factor"]),
         "home_offense_vs_hand":    pf(b_home, "vs_hand_multiplier", 1.0),
         "away_offense_vs_hand":    pf(b_away, "vs_hand_multiplier", 1.0),
         "weather_temp_f":          float(wx.get("temp_f", DEFAULTS["weather_temp_f"])),
@@ -541,7 +649,8 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "away_rest_days":          DEFAULTS["days_rest"],
         "home_travel_miles":       0,
         "away_travel_miles":       0,
-        "is_bullpen_game":         0,
+        # A None is_bullpen (insufficient window data) is falsy → treated as starter.
+        "is_bullpen_game":         1 if (p_home.get("is_bullpen") or p_away.get("is_bullpen")) else 0,
         "ensemble7_nrfi":          meta.get("ensemble7_nrfi") if meta.get("ensemble7_nrfi") is not None else LEAGUE_AVG_NRFI,
     }
     out = {k: meta[k] for k in META_COLS}
@@ -633,8 +742,8 @@ def main() -> int:
             (statcast_df["game_date"] >= cutoff)
         ]
 
-        p_home = aggregate_pitcher(window, home_pid)
-        p_away = aggregate_pitcher(window, away_pid)
+        p_home = aggregate_pitcher(window, home_pid, game.date)
+        p_away = aggregate_pitcher(window, away_pid, game.date)
         # Home offense faces the away starter; away offense faces the home starter.
         away_throws = pitcher_throws(window, away_pid)
         home_throws = pitcher_throws(window, home_pid)
