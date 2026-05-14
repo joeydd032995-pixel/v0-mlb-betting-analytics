@@ -319,7 +319,12 @@ def _pitcher_first_batter_obp(p: pd.DataFrame) -> float | None:
     skip = {"sac_fly", "sac_fly_double_play", "sac_bunt", "sac_bunt_double_play"}
     results = []
     for _, gp in first_inn.groupby("game_pk"):
-        ev = gp.loc[gp["at_bat_number"].idxmin(), "events"]
+        gp_valid = gp[gp["at_bat_number"].notna()]
+        if gp_valid.empty:
+            # All-null at_bat_number for this game — idxmin() would return NA
+            # and .loc[] would raise.  No usable leadoff identifier; skip.
+            continue
+        ev = gp_valid.loc[gp_valid["at_bat_number"].idxmin(), "events"]
         if ev in skip:
             continue
         results.append(1 if ev in on_base else 0)

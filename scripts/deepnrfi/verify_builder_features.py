@@ -26,7 +26,6 @@ except ImportError as e:  # pragma: no cover
 from build_real_training_set import (
     aggregate_pitcher,
     aggregate_top_four,
-    _compute_ops,
 )
 
 failures = 0
@@ -161,7 +160,13 @@ ok("missing at_bat_number -> babip still computes", no_abn["babip"] is not None)
 print("aggregate_top_four — offense_factor:")
 b = aggregate_top_four(window, [501, 502], None)
 ok("returns a populated dict", bool(b))
-expected_of = min(1.35, max(0.65, b["ops"] / 0.720))
+# Hand-compute OPS from the 8 fixture PAs for batters 501/502 in build_window:
+# single, double, walk, strikeout, home_run, field_out, single, walk.
+#   hits=4 (2x1B,1x2B,1xHR), walks=2, n_pa=8, ab=8-2=6
+#   obp = (4+2)/8 = 0.75 ; tb = 2+2+0+4 = 8 ; slg = 8/6 ; ops = 0.75 + 8/6
+expected_ops = 0.75 + 8 / 6
+approx("ops computed from the 8 fixture PAs", b["ops"], expected_ops)
+expected_of = min(1.35, max(0.65, expected_ops / 0.720))
 approx("offense_factor = min(1.35, max(0.65, ops/0.720))", b["offense_factor"], expected_of)
 ok("offense_factor within clamp [0.65, 1.35]", 0.65 <= b["offense_factor"] <= 1.35)
 
