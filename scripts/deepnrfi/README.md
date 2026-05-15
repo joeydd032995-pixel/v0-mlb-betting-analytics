@@ -49,8 +49,20 @@ Total wall-clock ~4–6 hours, mostly background.  Run from the repo root.
    ```bash
    DATABASE_URL="<your Neon URL>" \
      python scripts/deepnrfi/build_real_training_set.py \
-       --from 2023-04-01 --to 2024-09-30
+       --from 2023-04-01 --to <yesterday-in-ET, e.g. 2026-05-14>
    ```
+
+   **Date-range guidance:**
+   - **Floor: 2023-04-01.**  The pitch-clock + larger-bases rule changes
+     landed in 2023 and changed the run environment.  Mixing 2022 and
+     earlier into the training set blends two regimes and contaminates the
+     signal.  Always start at 2023.
+   - **Ceiling: yesterday in ET.**  Today's games haven't resolved yet
+     (no `GameResult` label).  Statcast also lags Baseball Savant by a few
+     hours, so `today − 1` (or `today − 2` to be safe) is the practical
+     upper bound.  Always extend through the most recent completed
+     slate — a 2026 model trained only through 2024 leaves a year and a
+     half of regime signal on the table.
 
 3. **Train** on the real CSV:
 
