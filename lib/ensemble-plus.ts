@@ -2,11 +2,17 @@
  * 9-model stacker (Ensemble++).
  *
  * Combines:
- *   • The legacy 7-model ensemble probability (post-calibration, post-anchor)
- *   • DeepNRFI LightGBM probability (when artifact present)
- *   • Monte Carlo simulation P(NRFI) (when MC enabled)
+ *   • The legacy 7-model ensemble probability (post-spline, pre-anchor)
+ *   • DeepNRFI LightGBM probability (already passed through its own internal
+ *     calibrate-and-clamp inside lib/deepnrfi-model.ts)
+ *   • Monte Carlo simulation P(NRFI) — calibrated by the caller before it
+ *     reaches `combine9Models` so all three inputs sit on a comparable scale.
  *
- * Default static weights: 0.70 / 0.25 / 0.05.  When DeepNRFI or Monte Carlo
+ * The caller is responsible for keeping the three inputs on the same
+ * calibrated scale; otherwise the static stacker weights end up mixing
+ * non-comparable distributions and introduce variance the stacker can't fix.
+ *
+ * Default static weights: 0.75 / 0.20 / 0.05.  When DeepNRFI or Monte Carlo
  * is missing, the weights renormalise so the available models still cover 1.0.
  *
  * Future versions may swap to a logistic stacker (sub-flag STACKER_MODE).

@@ -3,9 +3,9 @@ Train the DeepNRFI LightGBM model.
 
 Inputs:
     scripts/deepnrfi/data/training.csv
-        Produced by `node scripts/deepnrfi/export_training_data.ts`.  One row
-        per historical game with all DeepNrfiFeatureVector columns plus a
-        binary `nrfi` label.
+        Produced by `python scripts/deepnrfi/build_real_training_set.py`.  One
+        row per historical game with all DeepNrfiFeatureVector columns plus a
+        binary `nrfi` label, reconstructed point-in-time from Statcast.
 
 Outputs (under scripts/deepnrfi/artifacts/):
     model_v{N}.txt                 LightGBM Booster text format (parseable by
@@ -254,7 +254,7 @@ def main() -> int:
         print(f"[deepnrfi] dry-run: synthetic dataset rows={len(df)}")
     else:
         if not Path(args.data).exists():
-            print(f"Training CSV not found: {args.data}.  Run scripts/deepnrfi/export_training_data.ts first.", file=sys.stderr)
+            print(f"Training CSV not found: {args.data}.  Run scripts/deepnrfi/build_real_training_set.py first.", file=sys.stderr)
             return 2
         df = pd.read_csv(args.data)
         print(f"[deepnrfi] loaded {len(df)} rows from {args.data}")

@@ -17,20 +17,20 @@ scripts/deepnrfi/
   predict.py            # Offline batch scorer
   recalibrate.py        # Refit calibration spline only
   backtest_v2.py        # Compare v1 (7 models) vs v2 (9 models) on holdout
-  export_training_data.ts # Build training CSV from Postgres
+  build_real_training_set.py # Point-in-time training CSV builder (canonical)
   requirements.txt
 ```
 
 ## Workflow
 
-There are two ways to build a training set.  The **point-in-time builder** is
-the recommended path — it reconstructs real Statcast + lineup features per
-game so you can train on real outcomes without a 14–30 day production shadow
-window.  The legacy `export_training_data.ts` path is kept for backwards
-compatibility and produces a sparse CSV (only `ensemble7_nrfi` is real, every
-other feature is a league-average placeholder).
+Training sets are built with the **point-in-time builder**, which reconstructs
+real Statcast + lineup features per game so the model trains on real outcomes
+without a 14–30 day production shadow window.  (The previous TypeScript
+exporter `export_training_data.ts` filled every non-ensemble feature with a
+league-average placeholder and has been removed — it was a point-in-time
+leakage / staleness hazard.)
 
-### Recommended: point-in-time real training set
+### Point-in-time real training set
 
 Total wall-clock ~4–6 hours, mostly background.  Run from the repo root.
 
@@ -71,16 +71,6 @@ Total wall-clock ~4–6 hours, mostly background.  Run from the repo root.
    ```bash
    python scripts/deepnrfi/backtest_v2.py --season 2024
    ```
-
-### Legacy: synthetic / sparse export
-
-Useful for smoke-testing the artifact-loading pipeline.  Produces a CSV where
-`ensemble7_nrfi` is the only real feature.
-
-```bash
-tsx scripts/deepnrfi/export_training_data.ts --from 2023-04-01 --to 2024-09-30
-python scripts/deepnrfi/train.py --version v1 --dry-run   # synthetic data
-```
 
 ## Compatibility notes
 
