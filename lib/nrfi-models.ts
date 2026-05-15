@@ -768,11 +768,22 @@ function computeMarkov24(pitcher: Pitcher, team: Team): number {
  * already-adjusted lambda from the engine.
  */
 function computeMAPREhalf(rawBaseLambda: number, pitcher: Pitcher, team: Team, side: "home" | "away"): number {
+  // barrelDev proxy: first-inning ERA / season ERA − 1.
+  // Positive value = pitcher allows more contact damage early than overall,
+  // amplifying MAPRE's M_pitchMix multiplier. Requires overall.era > 0 to avoid
+  // division by zero; firstInning.era === 0 is a valid clean-1st-innings signal.
+  const barrelDev = (
+    Number.isFinite(pitcher.overall.era) && pitcher.overall.era > 0 &&
+    Number.isFinite(pitcher.firstInning.era) && pitcher.firstInning.era >= 0
+  )
+    ? Math.max(-0.5, Math.min(0.5, pitcher.firstInning.era / pitcher.overall.era - 1.0))
+    : 0
+
   const inputs: MAPREInputs = {
     sOpsPlus:              team.firstInning.offenseFactor * 100,
     babip1st:              pitcher.firstInning.babip,
     hrPerPa1st:            pitcher.firstInning.hrPer9 / 38.7,
-    barrelDev:             0,
+    barrelDev,
     isHomePitcher:         side === "home",
     awayShortRestOrTravel: false,
   }
