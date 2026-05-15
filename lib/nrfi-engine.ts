@@ -521,11 +521,22 @@ export function computeNRFIPrediction(
   const scalarWeatherMult = computeWeatherMultiplier(game.weather)
   const legacyMult        = scalarWeatherMult * recentMult
 
+  // barrelDev proxy: first-inning ERA / season ERA − 1.
+  // Positive value = pitcher allows more contact damage early (worse first-inning
+  // command than overall), increasing MAPRE's M_pitchMix multiplier.
+  // Falls back to 0 when ERA data is unavailable (defaults to neutral).
+  const homeBarrelDev = (homePitcher.overall.era > 0 && homePitcher.firstInning.era > 0)
+    ? Math.max(-0.5, Math.min(0.5, homePitcher.firstInning.era / homePitcher.overall.era - 1.0))
+    : 0
+  const awayBarrelDev = (awayPitcher.overall.era > 0 && awayPitcher.firstInning.era > 0)
+    ? Math.max(-0.5, Math.min(0.5, awayPitcher.firstInning.era / awayPitcher.overall.era - 1.0))
+    : 0
+
   const homeMapreInputs: MAPREInputs = {
     sOpsPlus:              awayTeam.firstInning.offenseFactor * 100,
     babip1st:              homePitcher.firstInning.babip,
     hrPerPa1st:            homePitcher.firstInning.hrPer9 / 38.7,
-    barrelDev:             0,
+    barrelDev:             homeBarrelDev,
     isHomePitcher:         true,
     awayShortRestOrTravel: false,
   }
@@ -533,7 +544,7 @@ export function computeNRFIPrediction(
     sOpsPlus:              homeTeam.firstInning.offenseFactor * 100,
     babip1st:              awayPitcher.firstInning.babip,
     hrPerPa1st:            awayPitcher.firstInning.hrPer9 / 38.7,
-    barrelDev:             0,
+    barrelDev:             awayBarrelDev,
     isHomePitcher:         false,
     awayShortRestOrTravel: false,
   }

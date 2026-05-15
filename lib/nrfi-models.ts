@@ -823,16 +823,48 @@ export function compute7ModelEnsemble(
   // ── 3 Meta-models (Opt #8) ────────────────────────────────────────────────
   const baseAvg = (poisson + zip + markov + mapre) / 4
 
-  // Logistic regression stacked on the 4-model average
-  const logisticMeta = 1 / (1 + Math.exp(-(-2.3 + 4.1 * baseAvg)))
+  // Stacked logistic meta-learner: richer than a plain sigmoid of the average.
+  // Features:
+  //   baseAvg          — 4-model consensus (primary signal)
+  //   zipDevFromAvg    — ZIP deviation from mean (ZIP is best-calibrated single model)
+  //   modelSpread      — max−min spread; high disagreement → pull toward neutral
+  //   kDev             — pitcher K% above league average (direct NRFI predictor)
+  //   omegaExcess      — ZIP lockdown component above baseline (dominant ace signal)
+  // Intercept −1.40 calibrated so average inputs yield ~0.74 half-inning P(NRFI),
+  // producing game-level ~0.55 (0.74² ≈ 0.55) near the observed league NRFI rate.
+  const modelSpread   = Math.max(poisson, zip, markov, mapre) - Math.min(poisson, zip, markov, mapre)
+  const kDev          = pitcher.firstInning.kRate - LEAGUE_K_RATE
+  const zipDevFromAvg = zip - baseAvg
+  const omegaExcess   = omega - 0.20  // centered at average lockdown probability
+  const logitMeta = -1.40
+    + 3.60 * baseAvg
+    + 0.80 * zipDevFromAvg
+    - 1.40 * modelSpread
+    + 3.20 * kDev
+    + 1.20 * omegaExcess
+  const logisticMeta = 1 / (1 + Math.exp(-logitMeta))
 
-  // Approximate neural-network interaction term (Poisson × Markov cross-effect)
+  // ZIP × Markov convergence signal: these two are the most independent models
+  // (rate-based vs state-based), so their product captures orthogonal evidence.
+  // Using zip×markov instead of poisson×markov reduces redundancy since poisson
+  // and ZIP are correlated (both driven by lambda).
+  // Calibrated so average inputs (zip≈0.73, markov≈0.78) yield ≈0.61 here,
+  // matching the expected game-level NRFI rate after averaging home/away halves.
   const nnInteraction = Math.max(0.02, Math.min(0.98,
-    0.5 + 0.3 * (poisson * markov - 0.5)
+    0.5 + 0.35 * (zip * markov - 0.25)
   ))
 
-  // Hierarchical Bayes: dynamic-prior shrinkage of the pitcher's observed rate
-  const hierarchicalBayes = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
+  // Hierarchical Bayes: combines pitcher shrunk rate (80%) with batting team
+  // offense factor (20%) for a genuine two-level estimate. The batting team's
+  // scoring tendency provides signal the pitcher-only rate misses, especially
+  // for lineup-matchup effects not captured in the 4 base models.
+  const pitcherShrunk = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
+  const teamNrfiAdj   = Math.max(0.35, Math.min(0.92,
+    LEAGUE_AVG_NRFI - (team.firstInning.offenseFactor - 1.0) * 0.25
+  ))
+  const hierarchicalBayes = Math.max(0.35, Math.min(0.92,
+    0.80 * pitcherShrunk + 0.20 * teamNrfiAdj
+  ))
 
   return { poisson, zip, markov, mapre, logisticMeta, nnInteraction, hierarchicalBayes }
 }

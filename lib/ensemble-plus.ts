@@ -25,7 +25,11 @@ export interface CombineResult {
   weights: { ensemble7: number; deepNrfi: number; monteCarlo: number }
 }
 
-const DEFAULT_WEIGHTS = { ensemble7: 0.70, deepNrfi: 0.25, monteCarlo: 0.05 }
+// Conservative weighting: ensemble7 carries more mass because DeepNRFI only
+// improves over the baseline when its artifact is well-trained on point-in-time
+// data. Overweighting DeepNRFI when features are league-average placeholders
+// adds variance without signal and increases Brier score.
+const DEFAULT_WEIGHTS = { ensemble7: 0.75, deepNrfi: 0.20, monteCarlo: 0.05 }
 
 /**
  * Renormalise the default weights so only the present models contribute and

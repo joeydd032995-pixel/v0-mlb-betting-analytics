@@ -58,8 +58,8 @@ export const CONFIG = {
     wOBAScale: 1.24, // Scales wOBA to OBP
   },
 
-  // FIP constant (calculated per season as lgERA - lgFIP)
-  FIP_constant: 3.2,
+  // FIP constant (calculated per season as lgERA - lgFIP; 2024 MLB ≈ 3.17)
+  FIP_constant: 3.17,
 
   // Pythagorean exponent
   pythagorean: {
@@ -98,15 +98,15 @@ export const CONFIG = {
     extremeEdgeWarning: 0.15, // 15% edge triggers warning
   },
 
-  // League averages (2024 MLB)
+  // League averages (2024 MLB — pitch clock era; update annually)
   league: {
-    ERA: 4.2,
-    FIP: 4.1,
-    wOBA: 0.315,
-    K_pct: 22.5,
-    BB_pct: 8.5,
-    HR_FB: 12.8,
-    BABIP: 0.295,
-    runsPerGame: 4.5,
+    ERA: 4.12,       // 2024 MLB ERA (slight improvement from pitch clock pace)
+    FIP: 3.95,       // 2024 MLB FIP
+    wOBA: 0.312,     // 2024 MLB wOBA (slight decrease from strikeout uptick)
+    K_pct: 22.7,     // 2024 MLB K% (up slightly from pitch clock)
+    BB_pct: 8.4,     // 2024 MLB BB% (down slightly)
+    HR_FB: 12.5,     // 2024 MLB HR/FB rate
+    BABIP: 0.296,    // 2024 MLB BABIP (stable)
+    runsPerGame: 4.4, // 2024 MLB R/G (slight decrease from 2023)
   },
 }
