@@ -47,7 +47,7 @@ except ImportError as e:
 
 # Local modules — sibling files in the same scripts/deepnrfi/ dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from park_factors import lookup_park, lookup_venue  # noqa: E402
+from park_factors import lookup_park, lookup_venue, haversine_miles, venue_coords  # noqa: E402
 from weather_archive import prefetch_weather, fetch_game_weather  # noqa: E402
 
 
@@ -108,6 +108,11 @@ _MIN_GAMES_IS_BULLPEN = 2
 # PAs/inning a starter clears this in ~10-13 starts (about a month into the
 # season), which keeps tiny-sample relievers and call-ups on the default.
 _MIN_VSTOP_PA = 40
+
+# Cap team-level rest at 7 days so off-season -> opening day doesn't show
+# 180-day rest values that would dominate any LightGBM split.  Anything
+# longer than a week is effectively "fully rested" for our purposes.
+_TEAM_REST_CAP_DAYS = 7
 
 # Match lib/features/feature-vector.ts FEATURE_ORDER exactly.
 FEATURE_ORDER = [
@@ -617,7 +622,69 @@ def _wind_in_out_scalar(wind_mph: float, wind_dir_deg: float, park_orientation_d
     return float(wind_mph) * _math.cos(theta)
 
 
-def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict, wx: dict) -> dict:
+def compute_travel_rest_map(games: pd.DataFrame) -> dict[int, dict[str, float]]:
+    """Walk every game in date order and compute (home, away) rest_days +
+    travel_miles per game.  Returns {game_pk: {home_rest_days, away_rest_days,
+    home_travel_miles, away_travel_miles}}.
+
+    Travel = great-circle from the team's last venue to today's venue.  For the
+    home team this is usually 0 (home stand) but is non-zero when they just
+    returned from a road trip.  For the away team it's the distance from their
+    previous game's stadium to the current host's stadium.
+
+    Rest = days since the team's last game in the dataset.  First appearances
+    fall back to DEFAULTS["days_rest"]; the value is capped at
+    _TEAM_REST_CAP_DAYS so off-season -> opening day doesn't dominate splits.
+
+    Built once upfront so the per-game loop's resume logic (skip-if-already-in-CSV)
+    can't corrupt the tracker by skipping games mid-walk.
+    """
+    out: dict[int, dict[str, float]] = {}
+    # (last_date, last_venue_coords) per team; None coords if venue unmapped.
+    last: dict[str, tuple[date, tuple[float, float] | None]] = {}
+
+    for g in games.itertuples(index=False):
+        today_coords = venue_coords(g.home_team)
+        home_prev = last.get(g.home_team)
+        away_prev = last.get(g.away_team)
+
+        if home_prev is None:
+            home_rest = float(DEFAULTS["days_rest"])
+        else:
+            home_rest = min(float((g.date - home_prev[0]).days), float(_TEAM_REST_CAP_DAYS))
+
+        if away_prev is None:
+            away_rest = float(DEFAULTS["days_rest"])
+        else:
+            away_rest = min(float((g.date - away_prev[0]).days), float(_TEAM_REST_CAP_DAYS))
+
+        if home_prev is None or home_prev[1] is None or today_coords is None:
+            home_travel = 0.0
+        else:
+            home_travel = haversine_miles(
+                home_prev[1][0], home_prev[1][1], today_coords[0], today_coords[1]
+            )
+
+        if away_prev is None or away_prev[1] is None or today_coords is None:
+            away_travel = 0.0
+        else:
+            away_travel = haversine_miles(
+                away_prev[1][0], away_prev[1][1], today_coords[0], today_coords[1]
+            )
+
+        out[int(g.game_pk)] = {
+            "home_rest_days":    home_rest,
+            "away_rest_days":    away_rest,
+            "home_travel_miles": home_travel,
+            "away_travel_miles": away_travel,
+        }
+        last[g.home_team] = (g.date, today_coords)
+        last[g.away_team] = (g.date, today_coords)
+
+    return out
+
+
+def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict, wx: dict, tr: dict | None = None) -> dict:
     """Compose one CSV row.  Missing keys → defaults; presence is implicit in NaN handling."""
     def pf(d: dict, key: str, default):
         v = d.get(key)
@@ -696,10 +763,10 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "umpire_zone_tightness":   0,
         "umpire_career_nrfi":      LEAGUE_AVG_NRFI,
         "umpire_sample":           0,
-        "home_rest_days":          DEFAULTS["days_rest"],
-        "away_rest_days":          DEFAULTS["days_rest"],
-        "home_travel_miles":       0,
-        "away_travel_miles":       0,
+        "home_rest_days":          float((tr or {}).get("home_rest_days", DEFAULTS["days_rest"])),
+        "away_rest_days":          float((tr or {}).get("away_rest_days", DEFAULTS["days_rest"])),
+        "home_travel_miles":       float((tr or {}).get("home_travel_miles", 0.0)),
+        "away_travel_miles":       float((tr or {}).get("away_travel_miles", 0.0)),
         # A None is_bullpen (insufficient window data) is falsy → treated as starter.
         "is_bullpen_game":         1 if (p_home.get("is_bullpen") or p_away.get("is_bullpen")) else 0,
         "ensemble7_nrfi":          meta.get("ensemble7_nrfi") if meta.get("ensemble7_nrfi") is not None else LEAGUE_AVG_NRFI,
@@ -754,6 +821,11 @@ def main() -> int:
     # venue covering the entire date range; cached to data/weather_cache.parquet.
     venues_used = {lookup_venue(t) for t in games["home_team"].unique() if lookup_venue(t)}
     prefetch_weather(venues_used, args.date_from, args.date_to)
+
+    # 2c. Precompute per-game travel + rest from the full date-sorted slate.
+    # Built upfront so the resume-skip logic in the loop can't corrupt the
+    # per-team last-game tracker by mid-walk skips.
+    travel_rest = compute_travel_rest_map(games)
 
     # 3. Resume checkpoint
     already = load_existing_game_ids()
@@ -820,7 +892,8 @@ def main() -> int:
             "ensemble7_inputs_odds":    1 if ip.get("odds") else 0,
             "ensemble7_inputs_lineup":  1 if ip.get("lineup") else 0,
         }
-        chunk.append(make_row(meta, p_home, p_away, b_home, b_away, wx))
+        tr = travel_rest.get(int(game.game_pk))
+        chunk.append(make_row(meta, p_home, p_away, b_home, b_away, wx, tr))
         processed += 1
 
         # Flush every 200 rows so a crash resumes cleanly.

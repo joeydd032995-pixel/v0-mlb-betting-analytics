@@ -131,3 +131,35 @@ def lookup_park(home_team: str) -> ExtendedParkFactor:
 def lookup_venue(home_team: str) -> str | None:
     """Return the venue name for a home team, or None if unmapped."""
     return TEAM_TO_VENUE.get(home_team)
+
+
+# Earth's mean radius in miles.  Standard haversine constant; the wikipedia
+# article cites 3958.7613, but the half-mile precision matters for nothing
+# we're computing here (rest/travel features feed an LGBM tree split).
+_EARTH_RADIUS_MI = 3958.8
+
+
+def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two (lat, lon) coordinates in miles.
+
+    Pure-Python (no numpy dep at call sites) so the per-game loop stays cheap.
+    Returns 0.0 for identical coords (most common case: home stand)."""
+    from math import asin, cos, radians, sin, sqrt
+    if lat1 == lat2 and lon1 == lon2:
+        return 0.0
+    p1, p2 = radians(lat1), radians(lat2)
+    dp = p2 - p1
+    dl = radians(lon2 - lon1)
+    a = sin(dp / 2) ** 2 + cos(p1) * cos(p2) * sin(dl / 2) ** 2
+    return float(2 * _EARTH_RADIUS_MI * asin(sqrt(a)))
+
+
+def venue_coords(home_team: str) -> tuple[float, float] | None:
+    """(lat, lon) for the home team's venue, or None if the team isn't mapped."""
+    venue = TEAM_TO_VENUE.get(home_team)
+    if venue is None:
+        return None
+    park = PARK_FACTORS.get(venue)
+    if park is None:
+        return None
+    return float(park["lat"]), float(park["lon"])
