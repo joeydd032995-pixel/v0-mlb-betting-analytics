@@ -105,8 +105,8 @@ _MIN_GAMES_PITCHES_LAST5 = 3
 _MIN_GAMES_ROLLING3_IP = 2
 _MIN_GAMES_IS_BULLPEN = 2
 # Minimum first-inning PAs before vstop_woba / vstop_k are trusted.  At ~3.8
-# PAs/inning a starter clears this in ~10–13 starts — about a month into the
-# season — which keeps tiny-sample relievers and call-ups on the default.
+# PAs/inning a starter clears this in ~10-13 starts (about a month into the
+# season), which keeps tiny-sample relievers and call-ups on the default.
 _MIN_VSTOP_PA = 40
 
 # Match lib/features/feature-vector.ts FEATURE_ORDER exactly.
@@ -388,8 +388,8 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         if starts > 0:
             nrfi_rate = float(per_game.mean())
 
-    # First-inning splits ("vs top of order" by construction — inning 1 always
-    # faces batters 1–3).  These features were dead in the legacy builder
+    # First-inning splits ("vs top of order" by construction - inning 1 always
+    # faces batters 1-3).  These features were dead in the legacy builder
     # because they were never populated; the data has always been in the
     # Statcast slice we already pulled.
     fi_events = first_inning[first_inning["events"].isin(PA_TERMINATING_EVENTS)]

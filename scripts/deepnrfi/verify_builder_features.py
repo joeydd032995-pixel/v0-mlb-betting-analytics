@@ -118,7 +118,7 @@ def build_window() -> pd.DataFrame:
     rows += _reliever_game(200, 6, date(2024, 4, 17))
     # Pitcher 300 — single appearance.
     rows += _starter_game(300, 7, date(2024, 4, 10))
-    # Pitcher 400 — 14 starts × 4 first-inning PAs = 56 first-inning PAs
+    # Pitcher 400: 14 starts x 4 first-inning PAs = 56 first-inning PAs
     # (clears _MIN_VSTOP_PA = 40).  Each game: 1 single, 1 K, 1 walk, 1 FO.
     for i in range(14):
         rows += _vstop_starter_first_inning(400, 1000 + i, date(2024, 4, 1) + timedelta(days=i))
@@ -167,13 +167,13 @@ ok("rolling3_ip = None  (1 game < _MIN_GAMES_ROLLING3_IP)", p300["rolling3_ip"] 
 ok("days_rest still computed from the one game", p300["days_rest"] is not None)
 ok("babip still computed", p300["babip"] is not None)
 
-print("aggregate_pitcher — vstop splits:")
-# Pitcher 100 has 3 first-inning PAs/game × 3 games = 9 < _MIN_VSTOP_PA → None.
+print("aggregate_pitcher - vstop splits:")
+# Pitcher 100 has 3 first-inning PAs/game x 3 games = 9 < _MIN_VSTOP_PA -> None.
 ok("vstop_woba = None for pitcher 100 (9 first-inning PAs < _MIN_VSTOP_PA)",
    p100["vstop_woba"] is None, f"got {p100['vstop_woba']}")
 ok("vstop_k = None for pitcher 100 (9 first-inning PAs < _MIN_VSTOP_PA)",
    p100["vstop_k"] is None, f"got {p100['vstop_k']}")
-# Pitcher 400 has 14 × 4 = 56 first-inning PAs; vstop_k = 14/56 = 0.25.
+# Pitcher 400 has 14 x 4 = 56 first-inning PAs; vstop_k = 14/56 = 0.25.
 # vstop_woba: 14 walks (0.692), 14 singles (0.882), denom = 56 → 22.036 / 56 = 0.3935.
 p400 = aggregate_pitcher(window, 400, GAME_DATE)
 approx("vstop_k = 14/56 = 0.25 (14 K out of 56 first-inning PAs)",
