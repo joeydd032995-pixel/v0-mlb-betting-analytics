@@ -15,7 +15,7 @@ them directly against hand-built Statcast fixtures.
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 try:
     import pandas as pd
@@ -94,6 +94,18 @@ def _reliever_game(pitcher, game_pk, game_date):
     return rows  # pitch_count = 15, min_inning = 7
 
 
+def _vstop_starter_first_inning(pitcher, game_pk, game_date):
+    """Four first-inning PAs (single, K, walk, field_out) per game.  Used to
+    build up enough samples to clear _MIN_VSTOP_PA so vstop_woba / vstop_k
+    actually compute."""
+    return [
+        _pitch(pitcher, game_pk, game_date, 1, 1, "single"),
+        _pitch(pitcher, game_pk, game_date, 1, 2, "strikeout"),
+        _pitch(pitcher, game_pk, game_date, 1, 3, "walk"),
+        _pitch(pitcher, game_pk, game_date, 1, 4, "field_out"),
+    ] + [_pitch(pitcher, game_pk, game_date, 2, 20, None) for _ in range(40)]
+
+
 def build_window() -> pd.DataFrame:
     rows = []
     # Pitcher 100 — clear starter, 3 games, last on 2024-04-13.
@@ -106,6 +118,10 @@ def build_window() -> pd.DataFrame:
     rows += _reliever_game(200, 6, date(2024, 4, 17))
     # Pitcher 300 — single appearance.
     rows += _starter_game(300, 7, date(2024, 4, 10))
+    # Pitcher 400: 14 starts x 4 first-inning PAs = 56 first-inning PAs
+    # (clears _MIN_VSTOP_PA = 40).  Each game: 1 single, 1 K, 1 walk, 1 FO.
+    for i in range(14):
+        rows += _vstop_starter_first_inning(400, 1000 + i, date(2024, 4, 1) + timedelta(days=i))
     # Top-of-order batters 501/502 for the offense_factor test.
     for i, ev in enumerate(["single", "double", "walk", "strikeout", "home_run",
                             "field_out", "single", "walk"]):
@@ -150,6 +166,20 @@ ok("pitches_last5 = None  (1 game < _MIN_GAMES_PITCHES_LAST5)", p300["pitches_la
 ok("rolling3_ip = None  (1 game < _MIN_GAMES_ROLLING3_IP)", p300["rolling3_ip"] is None)
 ok("days_rest still computed from the one game", p300["days_rest"] is not None)
 ok("babip still computed", p300["babip"] is not None)
+
+print("aggregate_pitcher - vstop splits:")
+# Pitcher 100 has 3 first-inning PAs/game x 3 games = 9 < _MIN_VSTOP_PA -> None.
+ok("vstop_woba = None for pitcher 100 (9 first-inning PAs < _MIN_VSTOP_PA)",
+   p100["vstop_woba"] is None, f"got {p100['vstop_woba']}")
+ok("vstop_k = None for pitcher 100 (9 first-inning PAs < _MIN_VSTOP_PA)",
+   p100["vstop_k"] is None, f"got {p100['vstop_k']}")
+# Pitcher 400 has 14 x 4 = 56 first-inning PAs; vstop_k = 14/56 = 0.25.
+# vstop_woba: 14 walks (0.692), 14 singles (0.882), denom = 56 → 22.036 / 56 = 0.3935.
+p400 = aggregate_pitcher(window, 400, GAME_DATE)
+approx("vstop_k = 14/56 = 0.25 (14 K out of 56 first-inning PAs)",
+       p400["vstop_k"], 0.25, tol=1e-6)
+approx("vstop_woba ≈ 0.3935 (14 BB + 14 singles, 0 XBH)",
+       p400["vstop_woba"], 0.3935, tol=1e-4)
 
 print("aggregate_pitcher — edge cases:")
 ok("pitcher not in window -> {}", aggregate_pitcher(window, 99999, GAME_DATE) == {})
