@@ -36,6 +36,7 @@ import {
   ENSEMBLE_WEIGHTS,
   compute7ModelEnsemble,
   getLineupVsHand,
+  getLineupVsHandFromCard,
   applyDynamicShrinkage,
   getDynamicPriorWeight,
   type HalfInningEnsembleResult,
@@ -430,10 +431,19 @@ export function computeNRFIPrediction(
   const awayShrunkRate = applyDynamicShrinkage(awayPitcher, getDynamicPriorWeight(awayPitcher))
 
   // ── Opt #2: Handedness × lineup splits ──────────────────────────────────────
+  // When FLAGS.USE_REAL_LINEUPS is on and the posted lineup is on the Game,
+  // tilt the team rolling vs-hand factor by the actual leadoff trio's
+  // platoon-advantage mix.  Falls back to the plain team-level factor when
+  // the lineup is missing (e.g. flag off, or fetched before lineup is posted).
+  const useCard = FLAGS.USE_REAL_LINEUPS && game.lineups !== undefined
   // Top of 1st: away team bats vs home pitcher
-  const awayOffVsHand  = getLineupVsHand(homePitcher.throws, awayTeam)
+  const awayOffVsHand  = useCard
+    ? getLineupVsHandFromCard(homePitcher.throws, game.lineups?.away, awayTeam)
+    : getLineupVsHand(homePitcher.throws, awayTeam)
   // Bottom of 1st: home team bats vs away pitcher
-  const homeOffVsHand  = getLineupVsHand(awayPitcher.throws, homeTeam)
+  const homeOffVsHand  = useCard
+    ? getLineupVsHandFromCard(awayPitcher.throws, game.lineups?.home, homeTeam)
+    : getLineupVsHand(awayPitcher.throws, homeTeam)
 
   // ── Opt #3: Vector weather multiplier ────────────────────────────────────────
   const vectorWeatherMult = computeVectorWeatherMultiplier(game.weather)

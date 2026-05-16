@@ -728,6 +728,44 @@ export function getLineupVsHand(pitcherThrows: Pitcher["throws"], team: Team): n
     : (team.firstInning.vsRHP ?? team.firstInning.offenseFactor)
 }
 
+/**
+ * Lineup-card-aware version of getLineupVsHand.
+ *
+ * Starts with the team's rolling vs-hand factor (which already averages over
+ * a typical lineup mix) and tilts it by how much today's leadoff trio is
+ * stacked with platoon-advantage batters.  Switch hitters count as having
+ * the advantage by convention.
+ *
+ * Tilt scale: a fully-advantaged trio (3/3 opp-hand or switch) lifts the
+ * factor by 5%; a fully-disadvantaged trio (3/3 same-hand) drops it by 5%.
+ * Anchored at advFrac = 0.5 so a neutral lineup leaves the team factor
+ * unchanged.  5% is conservative — real platoon-skill is ~15-20 wOBA points
+ * (~5-8% performance) and the leadoff trio takes ~1/3 of game PAs.
+ *
+ * Falls back to the team rolling average when the lineup is missing, empty,
+ * or doesn't have at least the first three slots — so the live engine can
+ * call this unconditionally without checking flag state.
+ */
+export function getLineupVsHandFromCard(
+  pitcherThrows: Pitcher["throws"],
+  lineup: { slots: Array<{ order: number; hand: "L" | "R" | "S" }> } | undefined,
+  team: Team,
+): number {
+  const base = getLineupVsHand(pitcherThrows, team)
+  const top3 = lineup?.slots
+    ?.filter((s) => s.order >= 1 && s.order <= 3)
+    .slice(0, 3)
+  if (!top3 || top3.length < 3) return base
+
+  const opposite = pitcherThrows === "L" ? "R" : "L"
+  const advCount = top3.filter((s) => s.hand === opposite || s.hand === "S").length
+  const advFrac  = advCount / 3
+  // ±5% tilt at extremes, anchored at advFrac = 0.5 (neutral lineup).
+  const tilt = 1.0 + (advFrac - 0.5) * 0.10
+  // Clamp to keep the factor in the same band as team-level estimates.
+  return Math.max(0.5, Math.min(1.5, base * tilt))
+}
+
 // ─── Internal helpers for compute7ModelEnsemble ───────────────────────────────
 
 /**
