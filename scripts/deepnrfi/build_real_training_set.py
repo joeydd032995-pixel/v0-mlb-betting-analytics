@@ -104,6 +104,10 @@ DEFAULTS = {
 _MIN_GAMES_PITCHES_LAST5 = 3
 _MIN_GAMES_ROLLING3_IP = 2
 _MIN_GAMES_IS_BULLPEN = 2
+# Minimum first-inning PAs before vstop_woba / vstop_k are trusted.  At ~3.8
+# PAs/inning a starter clears this in ~10–13 starts — about a month into the
+# season — which keeps tiny-sample relievers and call-ups on the default.
+_MIN_VSTOP_PA = 40
 
 # Match lib/features/feature-vector.ts FEATURE_ORDER exactly.
 FEATURE_ORDER = [
@@ -384,6 +388,17 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         if starts > 0:
             nrfi_rate = float(per_game.mean())
 
+    # First-inning splits ("vs top of order" by construction — inning 1 always
+    # faces batters 1–3).  These features were dead in the legacy builder
+    # because they were never populated; the data has always been in the
+    # Statcast slice we already pulled.
+    fi_events = first_inning[first_inning["events"].isin(PA_TERMINATING_EVENTS)]
+    vstop_woba = None
+    vstop_k = None
+    if len(fi_events) >= _MIN_VSTOP_PA:
+        vstop_k = float((fi_events["events"] == "strikeout").sum() / len(fi_events))
+        vstop_woba = _compute_woba(fi_events)
+
     if nrfi_rate is not None:
         weight = starts / (starts + SHRINKAGE_K)
         shrunk = weight * nrfi_rate + (1 - weight) * LEAGUE_AVG_NRFI
@@ -443,7 +458,32 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         "shrunk_nrfi":      shrunk_nrfi,
         "starts":           starts,
         "nrfi_rate":        nrfi_rate,
+        "vstop_woba":       vstop_woba,
+        "vstop_k":          vstop_k,
     }
+
+
+def _compute_woba(events: pd.DataFrame) -> float | None:
+    """wOBA over a PA-terminating-events slice using 2024 MLB linear weights
+    (matches `WOBA_WEIGHTS` in lib/config.ts).  Returns None if empty."""
+    n_pa = len(events)
+    if n_pa == 0:
+        return None
+    bb     = (events["events"] == "walk").sum()
+    hbp    = (events["events"] == "hit_by_pitch").sum()
+    s      = (events["events"] == "single").sum()
+    d      = (events["events"] == "double").sum()
+    t      = (events["events"] == "triple").sum()
+    hr     = (events["events"] == "home_run").sum()
+    sf     = (events["events"].isin(["sac_fly", "sac_fly_double_play"])).sum()
+    sb     = (events["events"].isin(["sac_bunt", "sac_bunt_double_play"])).sum()
+    ab     = n_pa - bb - hbp - sf - sb
+    denom  = ab + bb + hbp + sf
+    if denom <= 0:
+        return None
+    numerator = (0.692 * bb + 0.722 * hbp + 0.882 * s + 1.254 * d
+                 + 1.590 * t + 2.050 * hr)
+    return float(numerator / denom)
 
 
 def _compute_ops(events: pd.DataFrame) -> float | None:
@@ -604,8 +644,8 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "home_pitcher_pitches_last5":   pf(p_home, "pitches_last5", DEFAULTS["pitches_last5"]),
         "home_pitcher_days_rest":       pf(p_home, "days_rest", DEFAULTS["days_rest"]),
         "home_pitcher_rolling3_ip":     pf(p_home, "rolling3_ip", DEFAULTS["rolling3_ip"]),
-        "home_pitcher_vstop_woba":      DEFAULTS["vstop_woba"],
-        "home_pitcher_vstop_k":         DEFAULTS["vstop_k"],
+        "home_pitcher_vstop_woba":      pf(p_home, "vstop_woba", DEFAULTS["vstop_woba"]),
+        "home_pitcher_vstop_k":         pf(p_home, "vstop_k", DEFAULTS["vstop_k"]),
         "home_pitcher_is_bullpen":      pf(p_home, "is_bullpen", DEFAULTS["is_bullpen"]),
         # Pitcher: away
         "away_pitcher_shrunk_nrfi":     pf(p_away, "shrunk_nrfi", LEAGUE_AVG_NRFI),
@@ -623,8 +663,8 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "away_pitcher_pitches_last5":   pf(p_away, "pitches_last5", DEFAULTS["pitches_last5"]),
         "away_pitcher_days_rest":       pf(p_away, "days_rest", DEFAULTS["days_rest"]),
         "away_pitcher_rolling3_ip":     pf(p_away, "rolling3_ip", DEFAULTS["rolling3_ip"]),
-        "away_pitcher_vstop_woba":      DEFAULTS["vstop_woba"],
-        "away_pitcher_vstop_k":         DEFAULTS["vstop_k"],
+        "away_pitcher_vstop_woba":      pf(p_away, "vstop_woba", DEFAULTS["vstop_woba"]),
+        "away_pitcher_vstop_k":         pf(p_away, "vstop_k", DEFAULTS["vstop_k"]),
         "away_pitcher_is_bullpen":      pf(p_away, "is_bullpen", DEFAULTS["is_bullpen"]),
         # Top-of-order
         "home_top4_ops":     pf(b_home, "ops", DEFAULTS["top4_ops"]),
