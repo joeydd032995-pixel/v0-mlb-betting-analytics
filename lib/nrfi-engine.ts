@@ -58,9 +58,26 @@ import { calibrateV2 } from "./calibration-v2"
 const MIN_KELLY_EDGE      = 0.03
 const KELLY_FRACTION      = 0.25
 const COLD_TEMP_THRESHOLD_F = 50
-/** Opt #1: updated blend — 76 % ensemble, 24 % league anchor */
+/**
+ * Final-stage shrinkage toward a league baseline:
+ *
+ *   nrfiProb = ENSEMBLE_BLEND × calibrated + (1 − ENSEMBLE_BLEND) × LEAGUE_ANCHOR
+ *
+ * - 0.516 is the raw 2024–2025 league NRFI rate (`LEAGUE_AVG_NRFI` in
+ *   `lib/nrfi-models.ts`).  That value is the *uncalibrated* base rate.
+ * - 0.614 is the same league rate after passing through the current
+ *   `CALIBRATION_KNOTS` spline in `lib/calibration.ts`, so the anchor lives on
+ *   the same scale as the model's calibrated output.  Both numbers describe
+ *   the same population — they're not in conflict.
+ * - 0.76 means the model's own calibrated probability carries 76 % of the
+ *   weight; the remaining 24 % shrinks it toward the calibrated league mean,
+ *   which is the regularisation step the third-party analytics report
+ *   recommended for low-signal domains like first-inning NRFI.
+ *
+ * Both constants should only be revised via walk-forward CV
+ * (`scripts/deepnrfi/backtest_v2.py`), never heuristically.
+ */
 const ENSEMBLE_BLEND      = 0.76
-/** Opt #1: anchor probability (league NRFI rate, calibration-adjusted) */
 const LEAGUE_ANCHOR       = 0.614
 /** Opt #7: widened clamp */
 const CLAMP_MIN           = 0.02
@@ -501,10 +518,18 @@ export function computeNRFIPrediction(
   if (useV2) {
     // Stacker takes pre-anchor signals; the league anchor is applied below to
     // the calibrated v2 output exactly once (matches v1's anchor placement).
+    // Run Monte Carlo through the v1 monotonic spline so it enters the
+    // stacker on the same calibrated scale as ensemble7 (post-spline) and
+    // DeepNRFI (post-internal-calibration). Without this the raw MC output
+    // mixes a different distribution into the static 0.75/0.20/0.05 weights.
+    const mcCalibrated =
+      mcResult && Number.isFinite(mcResult.pNRFI)
+        ? calibrateWithMonotonicSpline(mcResult.pNRFI)
+        : null
     const stack = combine9Models({
       ensemble7: calibrated7,
       deepNrfi: deepResult?.probability ?? null,
-      monteCarlo: mcResult?.pNRFI ?? null,
+      monteCarlo: mcCalibrated,
     })
     const calibratedV2 = calibrateV2(stack.final)
     const blendedV2 = ENSEMBLE_BLEND * calibratedV2 + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
