@@ -24,9 +24,13 @@ except ImportError as e:  # pragma: no cover
     raise SystemExit(1) from e
 
 from build_real_training_set import (
+    DEFAULTS,
+    _TEAM_REST_CAP_DAYS,
     aggregate_pitcher,
     aggregate_top_four,
+    compute_travel_rest_map,
 )
+from park_factors import haversine_miles, venue_coords
 
 failures = 0
 
@@ -199,6 +203,67 @@ approx("ops computed from the 8 fixture PAs", b["ops"], expected_ops)
 expected_of = min(1.35, max(0.65, expected_ops / 0.720))
 approx("offense_factor = min(1.35, max(0.65, ops/0.720))", b["offense_factor"], expected_of)
 ok("offense_factor within clamp [0.65, 1.35]", 0.65 <= b["offense_factor"] <= 1.35)
+
+print("haversine_miles + venue_coords:")
+ok("identical coords -> 0.0", haversine_miles(40.0, -75.0, 40.0, -75.0) == 0.0)
+# NYC (Yankee Stadium ~40.83, -73.93) -> LAX (Dodger Stadium ~34.07, -118.24)
+# Real great-circle is ~2445 miles; verify within 10mi tolerance.
+nyc_to_la = haversine_miles(40.8296, -73.9262, 34.0739, -118.2400)
+ok("NYC -> LA approx 2445 miles", abs(nyc_to_la - 2445) < 10,
+   f"got {nyc_to_la:.1f}")
+yc = venue_coords("New York Yankees")
+ok("venue_coords returns (lat, lon) for known team", yc == (40.8296, -73.9262),
+   f"got {yc}")
+ok("venue_coords returns None for unknown team",
+   venue_coords("Fake Team") is None)
+
+print("compute_travel_rest_map:")
+# Three-game slate: Yankees home Apr 1, then travel to Dodgers Apr 5 (away),
+# Dodgers host Yankees Apr 5 (home), then back to Yankees Apr 9 (home).
+# After Apr 1, Yankees were at NYY; Apr 5 they're at LAD (huge travel),
+# rested 4 days.  Dodgers' first game in window so they default.
+games_df = pd.DataFrame([
+    {"game_pk": 1, "date": date(2024, 4, 1),
+     "home_team": "New York Yankees", "away_team": "Boston Red Sox"},
+    {"game_pk": 2, "date": date(2024, 4, 5),
+     "home_team": "Los Angeles Dodgers", "away_team": "New York Yankees"},
+    {"game_pk": 3, "date": date(2024, 4, 9),
+     "home_team": "New York Yankees", "away_team": "Houston Astros"},
+])
+tr = compute_travel_rest_map(games_df)
+# Game 1: both teams have no prior -> defaults, travel 0
+ok("game 1 home_rest = DEFAULTS['days_rest'] (no prior)",
+   tr[1]["home_rest_days"] == float(DEFAULTS["days_rest"]),
+   f"got {tr[1]['home_rest_days']}")
+ok("game 1 home_travel = 0 (no prior)", tr[1]["home_travel_miles"] == 0.0)
+ok("game 1 away_travel = 0 (no prior)", tr[1]["away_travel_miles"] == 0.0)
+# Game 2: Dodgers (host) first appearance -> default rest, 0 travel.
+# Yankees (away) had Apr 1, so 4 days rest, travel NYC->LA ~2445 miles.
+ok("game 2 home_rest = DEFAULTS (Dodgers' first appearance)",
+   tr[2]["home_rest_days"] == float(DEFAULTS["days_rest"]),
+   f"got {tr[2]['home_rest_days']}")
+ok("game 2 away_rest = 4 (Yankees: Apr 5 - Apr 1)",
+   tr[2]["away_rest_days"] == 4.0, f"got {tr[2]['away_rest_days']}")
+ok("game 2 away_travel ~2445 miles (NYC -> LA)",
+   abs(tr[2]["away_travel_miles"] - 2445) < 10,
+   f"got {tr[2]['away_travel_miles']:.1f}")
+# Game 3: Yankees back home from LA -> 4 days rest, ~2445 miles travel home.
+approx("game 3 home_travel ~2445 miles (LA -> NYC)",
+       tr[3]["home_travel_miles"], 2445, tol=10)
+ok("game 3 home_rest = 4 (Yankees: Apr 9 - Apr 5)",
+   tr[3]["home_rest_days"] == 4.0, f"got {tr[3]['home_rest_days']}")
+
+# Rest cap: 30-day gap should clamp to _TEAM_REST_CAP_DAYS.
+gap_df = pd.DataFrame([
+    {"game_pk": 10, "date": date(2024, 4, 1),
+     "home_team": "New York Yankees", "away_team": "Boston Red Sox"},
+    {"game_pk": 11, "date": date(2024, 5, 1),
+     "home_team": "New York Yankees", "away_team": "Boston Red Sox"},
+])
+tr_gap = compute_travel_rest_map(gap_df)
+ok("rest_days capped at _TEAM_REST_CAP_DAYS",
+   tr_gap[11]["home_rest_days"] == float(_TEAM_REST_CAP_DAYS),
+   f"got {tr_gap[11]['home_rest_days']}")
 
 print()
 if failures:
