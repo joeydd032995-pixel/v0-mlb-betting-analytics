@@ -8,6 +8,7 @@
  */
 
 import type { Hand, Lineup, LineupSlot } from "@/lib/types"
+import { fetchBatterHand } from "./people"
 
 interface BoxscorePlayer {
   person: { id: number; fullName: string }
@@ -69,4 +70,20 @@ export async function fetchProbableLineup(gamePk: string | number): Promise<{ ho
     }
     return null
   }
+}
+
+/**
+ * Fill in real `slot.hand` values from the MLB /people endpoint.  The boxscore
+ * lookup defaults every slot to "R" because batsHand isn't on that payload;
+ * without enrichment the lineup card carries no platoon information beyond
+ * what the team rolling average already provides.  Mutates in place + returns
+ * the same lineup for chaining.
+ */
+export async function enrichLineupHands(lineup: Lineup): Promise<Lineup> {
+  await Promise.all(
+    lineup.slots.map(async (slot) => {
+      slot.hand = await fetchBatterHand(slot.mlbamId)
+    }),
+  )
+  return lineup
 }

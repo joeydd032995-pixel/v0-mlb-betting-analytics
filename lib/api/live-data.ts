@@ -15,6 +15,8 @@ import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
 import { PitchingStatsCalculator } from "../advanced-stats"
 import type { PitchingStats } from "../advanced-stats"
 import { resolveTeamId, estimateNrfiRate, estimateOffenseFactor } from "./shared-helpers"
+import { fetchProbableLineup, enrichLineupHands } from "./lineups"
+import { FLAGS } from "../config"
 
 // ─── PitchingStats shape builder ─────────────────────────────────────────────
 
@@ -352,6 +354,7 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         awayPitcherLast5,
         homeTeamLast5,
         awayTeamLast5,
+        lineups,
       ] = await Promise.all([
         fetchTeamStats(homeTeamApiId),
         fetchTeamStats(awayTeamApiId),
@@ -362,6 +365,19 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         awayPitcherApiId ? fetchPitcherLast5FirstInnings(awayPitcherApiId) : Promise.resolve([]),
         fetchTeamLast5FirstInnings(homeTeamApiId),
         fetchTeamLast5FirstInnings(awayTeamApiId),
+        // Only fetch when the flag is on; the lineup card is otherwise unused
+        // by the v1 path, so the extra HTTP round-trips would just slow the
+        // slate build without changing predictions.
+        FLAGS.USE_REAL_LINEUPS
+          ? fetchProbableLineup(apiGame.gamePk).then(async (lu) => {
+              if (!lu) return null
+              await Promise.all([
+                lu.home ? enrichLineupHands(lu.home) : Promise.resolve(),
+                lu.away ? enrichLineupHands(lu.away) : Promise.resolve(),
+              ])
+              return lu
+            })
+          : Promise.resolve(null),
       ])
 
       return {
@@ -370,6 +386,7 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         awayTeamStats,
         homePitcherStats,
         awayPitcherStats,
+        lineups,
         weather,
         homePitcherLast5,
         awayPitcherLast5,
@@ -395,6 +412,7 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
     awayPitcherLast5,
     homeTeamLast5,
     awayTeamLast5,
+    lineups,
   } of perGameData) {
     // Resolve odds
     const oddsEvent = matchOddsEvent(
@@ -407,6 +425,12 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
 
     // Map the game
     const game = mapGame(apiGame, weather, gameOdds, date)
+    if (lineups) {
+      game.lineups = {
+        home: lineups.home ?? undefined,
+        away: lineups.away ?? undefined,
+      }
+    }
     games.push(game)
 
     // Map pitchers

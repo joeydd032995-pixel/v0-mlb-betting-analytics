@@ -32,6 +32,13 @@ export const FLAGS = {
   ENSEMBLE_VERSION: (process.env.ENSEMBLE_VERSION === "v2.9models" ? "v2.9models" : "v1.7models") as EnsembleVersion,
   /** Number of Monte Carlo simulations per game (overrideable for tests). */
   MONTECARLO_SIMS: envPositiveInt("MONTECARLO_SIMS", 8000),
+  /**
+   * Fetch the actual posted batting order per game (~2 h pre-game) and use the
+   * leadoff trio's hand mix to tilt the team-level vs-hand offense factor.
+   * Falls back to the team rolling average when the lineup isn't posted yet or
+   * the flag is off — so safe to enable mid-day.
+   */
+  USE_REAL_LINEUPS: envBool("USE_REAL_LINEUPS"),
 } as const
 
 // Configuration for all statistical models and regression parameters
