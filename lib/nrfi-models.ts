@@ -34,9 +34,30 @@ const LEAGUE_HR_RATE = 0.034      // ~3.4 HR per 100 PA
 const LEAGUE_AVG_OBP = 0.314
 const LEAGUE_HIT_RATE = LEAGUE_AVG_OBP - LEAGUE_BB_RATE   // ≈ 0.229
 
+// ─── ERA-based barrel deviation proxy ────────────────────────────────────────
+
+/**
+ * barrelDev proxy: (1st-inning ERA / season ERA) − 1.
+ *
+ * Positive value means the pitcher allows more contact damage early than overall,
+ * amplifying MAPRE's M_pitchMix multiplier. Returns 0 (neutral) whenever ERA
+ * data is missing or non-finite. firstInning.era === 0 is valid (perfect early
+ * performer, yields barrelDev = −1.0, clamped to −0.5).
+ */
+export function computeBarrelDev(pitcher: Pitcher): number {
+  const seasonEra = pitcher.overall.era
+  const firstEra  = pitcher.firstInning.era
+  if (!Number.isFinite(seasonEra) || seasonEra <= 0) return 0
+  if (!Number.isFinite(firstEra)  || firstEra < 0)   return 0
+  return Math.max(-0.5, Math.min(0.5, firstEra / seasonEra - 1.0))
+}
+
 // ─── 1. Bayesian Hierarchical Shrinkage ───────────────────────────────────────
 
 /**
+ * @deprecated — live prediction path uses applyDynamicShrinkage (k=30/50/80).
+ * Kept for historical backtest reproducibility only (k≈1.14, much less aggressive).
+ *
  * Shrinks a pitcher's observed first-inning NRFI rate toward the league mean
  * based on sample size. Prevents a 0.00 ERA over 3 starts from being treated as elite.
  *
@@ -550,11 +571,11 @@ export function computeHalfInningEnsemble(
   umpireWideness: number = 0,
   mapreInputs?: MAPREInputs
 ): HalfInningEnsembleResult {
-  // Step 1: Bayesian shrinkage on the pitcher's NRFI rate
-  const { shrunkenRate, dataWeight } = bayesianShrinkage(
-    pitcher.firstInning.nrfiRate,
-    pitcher.firstInning.startCount
-  )
+  // Step 1: Dynamic Bayesian shrinkage — same formula as headline prediction.
+  const priorWeight  = getDynamicPriorWeight(pitcher)
+  const shrunkenRate = applyDynamicShrinkage(pitcher, priorWeight)
+  const n            = pitcher.firstInning.startCount || 1
+  const dataWeight   = n / (n + priorWeight)
 
   // Create a shrunk version of pitcher stats for models
   const shrunkPitcher: Pitcher = {
@@ -614,6 +635,8 @@ export function computeHalfInningEnsemble(
 }
 
 /**
+ * @deprecated — use blend7Models in nrfi-engine.ts with the 7-model ensemble path.
+ *
  * Final combined P(NRFI) from both half-inning ensemble results.
  *
  * Architecture: weighted arithmetic mean of per-model game-level NRFI probabilities.
@@ -714,6 +737,29 @@ export function applyDynamicShrinkage(pitcher: Pitcher, priorWeight: number): nu
   return Math.max(0.35, Math.min(0.92, shrunk))
 }
 
+// ─── Precomputed pitcher context ──────────────────────────────────────────────
+
+/**
+ * Precomputed per-pitcher values derived purely from pitcher data (no opponent,
+ * park, or weather inputs). Hoisted so the engine and every downstream model
+ * read the same values rather than recomputing from scratch.
+ */
+export interface PitcherContext {
+  shrunkRate:    number   // applyDynamicShrinkage output
+  priorWeight:   number   // k value (30 / 50 / 80)
+  dataWeight:    number   // n / (n + k) — how much we trust season data
+  rawBaseLambda: number   // −ln(shrunkRate), used by MAPRE
+}
+
+export function precomputePitcherContext(pitcher: Pitcher): PitcherContext {
+  const priorWeight   = getDynamicPriorWeight(pitcher)
+  const shrunkRate    = applyDynamicShrinkage(pitcher, priorWeight)
+  const n             = pitcher.firstInning.startCount || 1
+  const dataWeight    = n / (n + priorWeight)
+  const rawBaseLambda = -Math.log(Math.max(0.01, shrunkRate))
+  return { shrunkRate, priorWeight, dataWeight, rawBaseLambda }
+}
+
 // ─── Opt #2: Handedness × Lineup Splits ──────────────────────────────────────
 
 /**
@@ -785,49 +831,6 @@ function omegaFromKRate(kRate: number): number {
   return 1 / (1 + Math.exp(-logit))
 }
 
-/**
- * Markov-based P(NRFI) for one half-inning.
- * Uses handedness-adjusted offense (Opt #2) and the dynamically shrunk pitcher
- * rate (Opt #5) so these optimizations flow into the 48%-weighted model.
- */
-function computeMarkov24(pitcher: Pitcher, team: Team): number {
-  const lineupFactor = getLineupVsHand(pitcher.throws, team)
-  const shrunkRate   = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
-  // Clone pitcher with shrunk rate so computePAOutcomes uses calibrated rate.
-  const pitcherClone = { ...pitcher, firstInning: { ...pitcher.firstInning, nrfiRate: shrunkRate } }
-  const pa = computePAOutcomes(pitcherClone, lineupFactor)
-  return computeMarkovNrfi(pa).nrfiProb
-}
-
-/**
- * MAPRE-based P(NRFI) for one half-inning.
- * Receives the RAW base lambda (-ln(shrunkRate)) so that computeMAPREHalfInning
- * can apply its own offense/BABIP/HR multipliers without double-counting the
- * already-adjusted lambda from the engine.
- */
-function computeMAPREhalf(rawBaseLambda: number, pitcher: Pitcher, team: Team, side: "home" | "away"): number {
-  // barrelDev proxy: first-inning ERA / season ERA − 1.
-  // Positive value = pitcher allows more contact damage early than overall,
-  // amplifying MAPRE's M_pitchMix multiplier. Requires overall.era > 0 to avoid
-  // division by zero; firstInning.era === 0 is a valid clean-1st-innings signal.
-  const barrelDev = (
-    Number.isFinite(pitcher.overall.era) && pitcher.overall.era > 0 &&
-    Number.isFinite(pitcher.firstInning.era) && pitcher.firstInning.era >= 0
-  )
-    ? Math.max(-0.5, Math.min(0.5, pitcher.firstInning.era / pitcher.overall.era - 1.0))
-    : 0
-
-  const inputs: MAPREInputs = {
-    sOpsPlus:              team.firstInning.offenseFactor * 100,
-    babip1st:              pitcher.firstInning.babip,
-    hrPerPa1st:            pitcher.firstInning.hrPer9 / 38.7,
-    barrelDev,
-    isHomePitcher:         side === "home",
-    awayShortRestOrTravel: false,
-  }
-  return computeMAPREHalfInning(rawBaseLambda, inputs).nrfiProb
-}
-
 // ─── 7-Model Ensemble Computation ────────────────────────────────────────────
 
 /** Return type for compute7ModelEnsemble */
@@ -839,6 +842,13 @@ export interface SevenModelResult {
   logisticMeta:      number
   nnInteraction:     number
   hierarchicalBayes: number
+  // Diagnostic fields for the UI breakdown (replaces computeHalfInningEnsemble output)
+  zipOmega:          number     // ZIP lockdown component (clamped to [0.08, 0.60])
+  zipLambda:         number     // lambda parameter (ZIP active-regime scoring rate)
+  mapreLambdaAdj:    number     // MAPRE-adjusted λ
+  shrunkNrfiRate:    number     // ctx.shrunkRate (dynamic Bayesian shrinkage)
+  dataWeight:        number     // ctx.dataWeight = n / (n + k)
+  paOutcomes:        PAOutcomes // PA outcomes for Markov diamond UI
 }
 
 /**
@@ -848,26 +858,41 @@ export interface SevenModelResult {
  * @param pitcher  The pitcher on the mound (used for ZIP omega, Markov PA outcomes, MAPRE).
  * @param team     The batting team (used for offense factor in Markov and MAPRE).
  * @param side     "home" → home pitcher is on the mound; "away" → away pitcher.
+ * @param ctx      Precomputed pitcher context (shrunkRate, rawBaseLambda, dataWeight).
  */
 export function compute7ModelEnsemble(
   lambda:  number,
   pitcher: Pitcher,
   team:    Team,
-  side:    "home" | "away"
+  side:    "home" | "away",
+  ctx:     PitcherContext
 ): SevenModelResult {
   // ── Original 4 models ─────────────────────────────────────────────────────
-  const poisson = Math.exp(-lambda)
+  const poisson    = Math.exp(-lambda)
 
-  const omega = omegaFromKRate(pitcher.firstInning.kRate)
-  const zip   = zipFromOmegaLambda(omega, lambda)
+  const omega      = omegaFromKRate(pitcher.firstInning.kRate)
+  const clampOmega = Math.max(0.08, Math.min(0.60, omega))
+  const zip        = clampOmega + (1 - clampOmega) * Math.exp(-lambda)
 
-  // Markov: uses handedness splits + shrunk rate (Opt #2 + #5); doesn't need lambda.
-  const markov = computeMarkov24(pitcher, team)
+  // Markov: handedness-adjusted offense (Opt #2) + shrunk rate from ctx (Opt #5).
+  // Inlined from the former computeMarkov24 so paOutcomes can be returned for UI.
+  const lineupFactor  = getLineupVsHand(pitcher.throws, team)
+  const shrunkPitcher = { ...pitcher, firstInning: { ...pitcher.firstInning, nrfiRate: ctx.shrunkRate } }
+  const paOutcomes    = computePAOutcomes(shrunkPitcher, lineupFactor)
+  const markov        = computeMarkovNrfi(paOutcomes).nrfiProb
 
-  // MAPRE: pass raw base lambda so its multipliers don't double-count park/weather/umpire.
-  const shrunkRate     = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
-  const rawBaseLambda  = -Math.log(Math.max(0.01, shrunkRate))
-  const mapre          = computeMAPREhalf(rawBaseLambda, pitcher, team, side)
+  // MAPRE: raw base lambda from ctx avoids double-counting park/weather/umpire.
+  // Inlined from the former computeMAPREhalf to capture lambdaAdj for UI.
+  const mapreInputs: MAPREInputs = {
+    sOpsPlus:              team.firstInning.offenseFactor * 100,
+    babip1st:              pitcher.firstInning.babip,
+    hrPerPa1st:            pitcher.firstInning.hrPer9 / 38.7,
+    barrelDev:             computeBarrelDev(pitcher),
+    isHomePitcher:         side === "home",
+    awayShortRestOrTravel: false,
+  }
+  const mapreResult = computeMAPREHalfInning(ctx.rawBaseLambda, mapreInputs)
+  const mapre       = mapreResult.nrfiProb
 
   // ── 3 Meta-models (Opt #8) ────────────────────────────────────────────────
   const baseAvg = (poisson + zip + markov + mapre) / 4
@@ -907,15 +932,22 @@ export function compute7ModelEnsemble(
   // offense factor (20%) for a genuine two-level estimate. The batting team's
   // scoring tendency provides signal the pitcher-only rate misses, especially
   // for lineup-matchup effects not captured in the 4 base models.
-  const pitcherShrunk = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
-  const teamNrfiAdj   = Math.max(0.35, Math.min(0.92,
+  const teamNrfiAdj = Math.max(0.35, Math.min(0.92,
     LEAGUE_AVG_NRFI - (team.firstInning.offenseFactor - 1.0) * 0.25
   ))
   const hierarchicalBayes = Math.max(0.35, Math.min(0.92,
-    0.80 * pitcherShrunk + 0.20 * teamNrfiAdj
+    0.80 * ctx.shrunkRate + 0.20 * teamNrfiAdj
   ))
 
-  return { poisson, zip, markov, mapre, logisticMeta, nnInteraction, hierarchicalBayes }
+  return {
+    poisson, zip, markov, mapre, logisticMeta, nnInteraction, hierarchicalBayes,
+    zipOmega:       clampOmega,
+    zipLambda:      lambda,
+    mapreLambdaAdj: mapreResult.lambdaAdj,
+    shrunkNrfiRate: ctx.shrunkRate,
+    dataWeight:     ctx.dataWeight,
+    paOutcomes,
+  }
 }
 
 // ─── Markov State Snapshot (Phase 6: interactive MarkovDiamond UI) ────────────

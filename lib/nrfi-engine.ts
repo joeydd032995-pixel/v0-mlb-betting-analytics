@@ -31,17 +31,13 @@ import type {
   Weather,
 } from "./types"
 import {
-  computeHalfInningEnsemble,
-  combineHalfInnings,
   ENSEMBLE_WEIGHTS,
   compute7ModelEnsemble,
   getLineupVsHand,
   getLineupVsHandFromCard,
-  applyDynamicShrinkage,
-  getDynamicPriorWeight,
-  type HalfInningEnsembleResult,
-  type MAPREInputs,
+  precomputePitcherContext,
   type SevenModelResult,
+  type PitcherContext,
 } from "./nrfi-models"
 import { calibrateWithMonotonicSpline } from "./calibration"
 import { computeVectorWeatherMultiplier } from "./weather"
@@ -80,9 +76,13 @@ const COLD_TEMP_THRESHOLD_F = 50
  */
 const ENSEMBLE_BLEND      = 0.76
 const LEAGUE_ANCHOR       = 0.614
-/** Opt #7: widened clamp */
-const CLAMP_MIN           = 0.02
-const CLAMP_MAX           = 0.98
+// Effective output range under the current calibration spline + league-anchor blend:
+//   min = 0.76 × 0.060 + 0.24 × 0.614 ≈ 0.193
+//   max = 0.76 × 0.930 + 0.24 × 0.614 ≈ 0.854
+// These clamps guard against pathological calibration outputs, not the engine's
+// expressive range. Revise only via walk-forward CV (scripts/deepnrfi/backtest_v2.py).
+const CLAMP_MIN           = 0.18
+const CLAMP_MAX           = 0.86
 const NRFI_CALL_THRESHOLD = 0.52
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -444,8 +444,8 @@ export function computeNRFIPrediction(
   const tempF = game.weather.conditions === "dome" ? 72 : (game.weather.temperature ?? 72)
 
   // ── Opt #5: Dynamic Bayesian shrinkage on pitcher NRFI rates ────────────────
-  const homeShrunkRate = applyDynamicShrinkage(homePitcher, getDynamicPriorWeight(homePitcher))
-  const awayShrunkRate = applyDynamicShrinkage(awayPitcher, getDynamicPriorWeight(awayPitcher))
+  const homeCtx = precomputePitcherContext(homePitcher)
+  const awayCtx = precomputePitcherContext(awayPitcher)
 
   // ── Opt #2: Handedness × lineup splits ──────────────────────────────────────
   // When FLAGS.USE_REAL_LINEUPS is on and the posted lineup is on the Game,
@@ -476,18 +476,18 @@ export function computeNRFIPrediction(
   // ── Lambda per half-inning ───────────────────────────────────────────────────
   // awayScoresLambda: expected runs for away team (top 1st) vs home pitcher
   const awayScoresLambda = Math.max(0.05,
-    computeLambda(homeShrunkRate, awayOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
+    computeLambda(homeCtx.shrunkRate, awayOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
   )
   // homeScoresLambda: expected runs for home team (bottom 1st) vs away pitcher
   const homeScoresLambda = Math.max(0.05,
-    computeLambda(awayShrunkRate, homeOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
+    computeLambda(awayCtx.shrunkRate, homeOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
   )
 
   // ── Opt #8: 7-model ensemble per half ───────────────────────────────────────
   // "home half" = home pitcher on mound, away team batting
-  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home")
+  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx)
   // "away half" = away pitcher on mound, home team batting
-  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away")
+  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx)
 
   // ── Blend + Opt #6: calibration ─────────────────────────────────────────────
   const rawEnsemble7    = blend7Models(homeHalf7, awayHalf7)
@@ -512,7 +512,7 @@ export function computeNRFIPrediction(
 
   const mcResult = FLAGS.ENABLE_MONTECARLO
     ? (() => {
-        const { homePAProbs, awayPAProbs } = paProbsFromContext(homePitcher, awayPitcher, homeTeam, awayTeam)
+        const { homePAProbs, awayPAProbs } = paProbsFromContext(homePitcher, awayPitcher, homeTeam, awayTeam, homeCtx, awayCtx)
         return simulateGameFirstInning(homePAProbs, awayPAProbs, {
           nSims: FLAGS.MONTECARLO_SIMS,
           seed: hashGameId(game.id),
@@ -552,89 +552,52 @@ export function computeNRFIPrediction(
   }
   const yrfiProb = 1 - nrfiProb   // symmetry guaranteed
 
-  // ── Legacy 4-model ensemble (kept for modelBreakdown UI display) ─────────────
-  const scalarWeatherMult = computeWeatherMultiplier(game.weather)
-  const legacyMult        = scalarWeatherMult * recentMult
-
-  // barrelDev proxy: first-inning ERA / season ERA − 1.
-  // Positive value = pitcher allows more contact damage early (worse first-inning
-  // command than overall), increasing MAPRE's M_pitchMix multiplier.
-  // Falls back to 0 when ERA data is unavailable (defaults to neutral).
-  // Requires overall.era > 0 to avoid division by zero; firstInning.era === 0
-  // is a valid clean-1st-innings signal (yields barrelDev = −1.0 → clamped to −0.5).
-  const homeBarrelDev = (
-    Number.isFinite(homePitcher.overall.era) && homePitcher.overall.era > 0 &&
-    Number.isFinite(homePitcher.firstInning.era) && homePitcher.firstInning.era >= 0
-  )
-    ? Math.max(-0.5, Math.min(0.5, homePitcher.firstInning.era / homePitcher.overall.era - 1.0))
-    : 0
-  const awayBarrelDev = (
-    Number.isFinite(awayPitcher.overall.era) && awayPitcher.overall.era > 0 &&
-    Number.isFinite(awayPitcher.firstInning.era) && awayPitcher.firstInning.era >= 0
-  )
-    ? Math.max(-0.5, Math.min(0.5, awayPitcher.firstInning.era / awayPitcher.overall.era - 1.0))
-    : 0
-
-  const homeMapreInputs: MAPREInputs = {
-    sOpsPlus:              awayTeam.firstInning.offenseFactor * 100,
-    babip1st:              homePitcher.firstInning.babip,
-    hrPerPa1st:            homePitcher.firstInning.hrPer9 / 38.7,
-    barrelDev:             homeBarrelDev,
-    isHomePitcher:         true,
-    awayShortRestOrTravel: false,
-  }
-  const awayMapreInputs: MAPREInputs = {
-    sOpsPlus:              homeTeam.firstInning.offenseFactor * 100,
-    babip1st:              awayPitcher.firstInning.babip,
-    hrPerPa1st:            awayPitcher.firstInning.hrPer9 / 38.7,
-    barrelDev:             awayBarrelDev,
-    isHomePitcher:         false,
-    awayShortRestOrTravel: false,
-  }
-  const homeHalfRaw: HalfInningEnsembleResult = computeHalfInningEnsemble(
-    homePitcher, awayTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, homeMapreInputs
-  )
-  const awayHalfRaw: HalfInningEnsembleResult = computeHalfInningEnsemble(
-    awayPitcher, homeTeam.firstInning.offenseFactor, game.parkFactor, tempF, 0, awayMapreInputs
-  )
-
-  // Intentional split: base-4 display fields (poissonNrfi … shrunkNrfiRate) come from
-  // computeHalfInningEnsemble (homeHalfRaw/awayHalfRaw) to preserve diagnostic outputs
-  // unique to that path — zipOmega, mapreLambdaAdj, bayesianDataWeight, shrunkNrfiRate.
-  // The headline nrfiProb and meta-model fields derive from compute7ModelEnsemble
-  // (homeHalf7/awayHalf7), which uses fully-optimised lambdas (vector weather, umpire
-  // bias, handedness splits).  halfInningConsensus reasons over the base-4 values, which
-  // is acceptable because the two paths share the same Bayesian-shrunk λ foundation.
+  // ── Model breakdown UI (fields from the 7-model path — same pipeline as headline) ──
   const homeHalfUI: HalfInningModelBreakdown = {
-    poissonNrfi:           homeHalfRaw.poissonNrfi,
-    zipNrfi:               homeHalfRaw.zipNrfi,
-    zipOmega:              homeHalfRaw.zipOmega,
-    zipLambda:             homeHalfRaw.zipLambda,
-    markovNrfi:            homeHalfRaw.markovNrfi,
-    mapreNrfi:             homeHalfRaw.mapreNrfi,
-    mapreLambdaAdj:        homeHalfRaw.mapreLambdaAdj,
-    bayesianDataWeight:    homeHalfRaw.bayesianDataWeight,
-    shrunkNrfiRate:        homeHalfRaw.shrunkNrfiRate,
+    poissonNrfi:           homeHalf7.poisson,
+    zipNrfi:               homeHalf7.zip,
+    zipOmega:              homeHalf7.zipOmega,
+    zipLambda:             homeHalf7.zipLambda,
+    markovNrfi:            homeHalf7.markov,
+    mapreNrfi:             homeHalf7.mapre,
+    mapreLambdaAdj:        homeHalf7.mapreLambdaAdj,
+    bayesianDataWeight:    homeHalf7.dataWeight,
+    shrunkNrfiRate:        homeHalf7.shrunkNrfiRate,
     logisticMetaNrfi:      homeHalf7.logisticMeta,
     nnInteractionNrfi:     homeHalf7.nnInteraction,
     hierarchicalBayesNrfi: homeHalf7.hierarchicalBayes,
+    paOutcomes: {
+      outProb:    homeHalf7.paOutcomes.out,
+      walkProb:   homeHalf7.paOutcomes.walk,
+      singleProb: homeHalf7.paOutcomes.single,
+      doubleProb: homeHalf7.paOutcomes.double,
+      tripleProb: homeHalf7.paOutcomes.triple,
+      hrProb:     homeHalf7.paOutcomes.hr,
+    },
   }
   const awayHalfUI: HalfInningModelBreakdown = {
-    poissonNrfi:           awayHalfRaw.poissonNrfi,
-    zipNrfi:               awayHalfRaw.zipNrfi,
-    zipOmega:              awayHalfRaw.zipOmega,
-    zipLambda:             awayHalfRaw.zipLambda,
-    markovNrfi:            awayHalfRaw.markovNrfi,
-    mapreNrfi:             awayHalfRaw.mapreNrfi,
-    mapreLambdaAdj:        awayHalfRaw.mapreLambdaAdj,
-    bayesianDataWeight:    awayHalfRaw.bayesianDataWeight,
-    shrunkNrfiRate:        awayHalfRaw.shrunkNrfiRate,
+    poissonNrfi:           awayHalf7.poisson,
+    zipNrfi:               awayHalf7.zip,
+    zipOmega:              awayHalf7.zipOmega,
+    zipLambda:             awayHalf7.zipLambda,
+    markovNrfi:            awayHalf7.markov,
+    mapreNrfi:             awayHalf7.mapre,
+    mapreLambdaAdj:        awayHalf7.mapreLambdaAdj,
+    bayesianDataWeight:    awayHalf7.dataWeight,
+    shrunkNrfiRate:        awayHalf7.shrunkNrfiRate,
     logisticMetaNrfi:      awayHalf7.logisticMeta,
     nnInteractionNrfi:     awayHalf7.nnInteraction,
     hierarchicalBayesNrfi: awayHalf7.hierarchicalBayes,
+    paOutcomes: {
+      outProb:    awayHalf7.paOutcomes.out,
+      walkProb:   awayHalf7.paOutcomes.walk,
+      singleProb: awayHalf7.paOutcomes.single,
+      doubleProb: awayHalf7.paOutcomes.double,
+      tripleProb: awayHalf7.paOutcomes.triple,
+      hrProb:     awayHalf7.paOutcomes.hr,
+    },
   }
-  const consensus     = (halfInningConsensus(homeHalfUI) + halfInningConsensus(awayHalfUI)) / 2
-  const legacyEnsemble = combineHalfInnings(homeHalfRaw, awayHalfRaw)
+  const consensus = (halfInningConsensus(homeHalfUI) + halfInningConsensus(awayHalfUI)) / 2
 
   const modelBreakdown: ModelBreakdown = {
     ensembleNrfi:   nrfiProb,
