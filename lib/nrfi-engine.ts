@@ -37,7 +37,6 @@ import {
   getLineupVsHandFromCard,
   precomputePitcherContext,
   type SevenModelResult,
-  type PitcherContext,
 } from "./nrfi-models"
 import { calibrateWithMonotonicSpline } from "./calibration"
 import { computeVectorWeatherMultiplier } from "./weather"
@@ -440,8 +439,6 @@ export function computeNRFIPrediction(
     )
     return null
   }
-
-  const tempF = game.weather.conditions === "dome" ? 72 : (game.weather.temperature ?? 72)
 
   // ── Opt #5: Dynamic Bayesian shrinkage on pitcher NRFI rates ────────────────
   const homeCtx = precomputePitcherContext(homePitcher)
