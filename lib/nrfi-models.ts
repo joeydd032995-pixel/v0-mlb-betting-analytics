@@ -256,27 +256,25 @@ export function computeMarkovNrfi(
   initOuts: OutCount = 0,
   initRunners: RunnerBits = 0
 ): MarkovResult {
-  // stateProb[outs][runners] = P(in this state AND 0 runs scored so far)
-  const stateProb: number[][] = [
-    new Array(8).fill(0),
-    new Array(8).fill(0),
-    new Array(8).fill(0),
-  ]
-  stateProb[initOuts][initRunners] = 1.0   // Start: initOuts outs, initRunners config, P=1
+  // Two flat 24-element buffers (3 outs × 8 runner configs). Swap between them
+  // each iteration rather than allocating 3 × new Array(8) per iteration —
+  // avoids up to 90 JS object allocations per call under backtest load.
+  const bufA = new Float64Array(24)
+  const bufB = new Float64Array(24)
 
-  let nrfiAccum = 0              // Accumulates P(3 outs, 0 runs)
-  let runScoredBranchWeight = 0  // See MarkovResult.runScoredBranchWeight
+  bufA[initOuts * 8 + initRunners] = 1.0
+
+  let curr = bufA
+  let next = bufB
+  let nrfiAccum = 0
+  let runScoredBranchWeight = 0
 
   for (let iter = 0; iter < 30; iter++) {
-    const next: number[][] = [
-      new Array(8).fill(0),
-      new Array(8).fill(0),
-      new Array(8).fill(0),
-    ]
+    next.fill(0)
 
     for (let outs = 0; outs < 3; outs++) {
       for (let runners = 0; runners < 8; runners++) {
-        const p = stateProb[outs][runners]
+        const p = curr[outs * 8 + runners]
         if (p < 1e-10) continue
 
         // ─ Out (K or BIP out; simplified: no runner advancement on out) ─
@@ -284,41 +282,28 @@ export function computeMarkovNrfi(
         if (newOuts === 3) {
           nrfiAccum += p * pa.out
         } else {
-          next[newOuts][runners] += p * pa.out
+          next[newOuts * 8 + runners] += p * pa.out
         }
 
         // ─ Walk ─
         const [wR, wRuns] = applyWalk(runners)
-        if (wRuns === 0) {
-          next[outs][wR] += p * pa.walk
-        } else {
-          runScoredBranchWeight += p * pa.walk * wRuns
-        }
+        if (wRuns === 0) next[outs * 8 + wR] += p * pa.walk
+        else runScoredBranchWeight += p * pa.walk * wRuns
 
         // ─ Single ─
         const [sR, sRuns] = applySingle(runners)
-        if (sRuns === 0) {
-          next[outs][sR] += p * pa.single
-        } else {
-          runScoredBranchWeight += p * pa.single * sRuns
-        }
+        if (sRuns === 0) next[outs * 8 + sR] += p * pa.single
+        else runScoredBranchWeight += p * pa.single * sRuns
 
         // ─ Double ─
         const [dR, dRuns] = applyDouble(runners)
-        if (dRuns === 0) {
-          next[outs][dR] += p * pa.double
-        } else {
-          runScoredBranchWeight += p * pa.double * dRuns
-        }
+        if (dRuns === 0) next[outs * 8 + dR] += p * pa.double
+        else runScoredBranchWeight += p * pa.double * dRuns
 
         // ─ Triple ─
         const [tR, tRuns] = applyTriple(runners)
-        if (tRuns === 0) {
-          // Batter on 3rd, no runs scored yet — NRFI still possible
-          next[outs][tR] += p * pa.triple
-        } else {
-          runScoredBranchWeight += p * pa.triple * tRuns
-        }
+        if (tRuns === 0) next[outs * 8 + tR] += p * pa.triple
+        else runScoredBranchWeight += p * pa.triple * tRuns
 
         // ─ HR — always scores, branch eliminated from NRFI ─
         const [, hRuns] = applyHR(runners)
@@ -326,11 +311,11 @@ export function computeMarkovNrfi(
       }
     }
 
-    for (let o = 0; o < 3; o++)
-      for (let r = 0; r < 8; r++)
-        stateProb[o][r] = next[o][r]
+    // O(1) buffer swap — no data copied.
+    const tmp = curr; curr = next; next = tmp
 
-    const remaining = stateProb.flat().reduce((a, b) => a + b, 0)
+    let remaining = 0
+    for (let i = 0; i < 24; i++) remaining += curr[i]
     if (remaining < 1e-5) break
   }
 
@@ -478,18 +463,30 @@ export interface MAPREHalfResult {
  * @param baseLambda  −ln(shrunkNrfiRate) — the raw Poisson λ before offense/park
  * @param inputs      MAPRE context inputs (all optional; defaults to league avg)
  */
+
+// Treat babip values outside plausible range as missing-data sentinels.
+// APIs frequently return 0 for null numeric fields; a genuine BABIP of 0 over
+// any real sample is essentially impossible, and values above 0.60 likewise.
+function sanitizeBabip(raw: number | undefined): number | undefined {
+  if (raw == null || !Number.isFinite(raw)) return undefined
+  if (raw < 0.10 || raw > 0.60)            return undefined
+  return raw
+}
+
 export function computeMAPREHalfInning(
   baseLambda: number,
   inputs: MAPREInputs = {}
 ): MAPREHalfResult {
   const {
     sOpsPlus            = 100,
-    babip1st            = 0.295,
+    babip1st: babipRaw,
     hrPerPa1st          = 0.034,
     barrelDev           = 0,
     isHomePitcher       = false,
     awayShortRestOrTravel = false,
   } = inputs
+  // sanitizeBabip treats 0 (API sentinel) and implausible values as missing data.
+  const babip1st = sanitizeBabip(babipRaw) ?? 0.295
 
   // ── Multipliers (each capped [0.70, 1.50]) ────────────────────────────────
   const clampM = (v: number) => Math.max(0.70, Math.min(1.50, v))
@@ -689,9 +686,14 @@ export function combineHalfInnings(
 // All new exports below; every existing function above is unchanged.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ─── Optimized 7-Model Ensemble Weights (Rolling 30-day CV) ──────────────────
-// Pre-normalized to sum exactly to 1.0 (raw scores were 0.12/0.30/0.48/0.10/0.05/0.03/0.02
-// totalling 1.10; divided by 1.10 and rounded to 5 dp).
+// ─── 7-Model Ensemble Weights ────────────────────────────────────────────────
+// Pre-normalized to sum to 1.0 (raw scores 0.12/0.30/0.48/0.10/0.05/0.03/0.02,
+// divided by their 1.10 sum). The base-four ratio (12:30:48:10) matches
+// MODEL_CONFIG exactly, suggesting these weights were initialized from MODEL_CONFIG
+// rather than via unconstrained CV over all 7 dimensions.
+// TODO: run scripts/deepnrfi/backtest_v2.py with a --free-weights flag (scipy
+// SLSQP, Dirichlet constraint) to validate or replace these values. Until then,
+// do not describe them as "CV-optimized" in documentation or PRs.
 export const ENSEMBLE_WEIGHTS = {
   poisson:           0.10909,
   zip:               0.27273,
@@ -712,8 +714,8 @@ export const ENSEMBLE_WEIGHTS = {
  * Bullpen games            → large k (80) = heavy shrinkage toward league avg
  * Full-time starters       → k = 50 (default)
  *
- * pitcher.careerFirstInnings and pitcher.isBullpenGame are optional extensions
- * not yet in PitcherFirstInningStats; we fall back gracefully when absent.
+ * pitcher.firstInning.careerFirstInnings and .isBullpenGame are optional fields
+ * in PitcherFirstInningStats; we fall back gracefully when absent.
  */
 export function getDynamicPriorWeight(pitcher: Pitcher): number {
   // Check bullpen flag first — these pitchers typically have careerIP < 100 too,
@@ -765,8 +767,8 @@ export function precomputePitcherContext(pitcher: Pitcher): PitcherContext {
 /**
  * Return the batting team's offense factor against the pitcher's throwing hand.
  *
- * team.firstInning.vsLHP / vsRHP are optional extensions not yet in
- * TeamFirstInningStats; we fall back to the overall offenseFactor when absent.
+ * team.firstInning.vsLHP / vsRHP are optional fields in TeamFirstInningStats;
+ * fall back to offenseFactor when absent (pre-2025 data or missing splits).
  */
 export function getLineupVsHand(pitcherThrows: Pitcher["throws"], team: Team): number {
   return pitcherThrows === "L"
