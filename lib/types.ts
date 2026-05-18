@@ -57,6 +57,12 @@ export interface TeamFirstInningStats {
     /** Average walk rate (0-1). */
     bb_pct: number
   }
+  /**
+   * First-inning sOPS+ (park-adjusted OPS in the first inning only; 100 = league average).
+   * Sourced from MLB Stats API statSplits with sitCodes=1 when available.
+   * Falls back to offenseFactor * 100 in compute7ModelEnsemble when absent.
+   */
+  sOpsPlus?: number
 }
 
 export interface Pitcher {
@@ -221,6 +227,8 @@ export interface NRFIPrediction {
   awayScores0Prob: number
   confidence: ConfidenceLevel
   confidenceScore: number
+  /** How far from a 50/50 coin-flip the prediction is. 0.0 = neutral, 1.0 = maximum. Separate from confidenceScore (reliability). */
+  conviction: number
   recommendation: Recommendation
   factors: PredictionFactor[]
   modelInputs: ModelInputs
@@ -294,7 +302,7 @@ export interface HalfInningModelBreakdown {
   markovNrfi: number
   /** MAPRE P(no score) for this half (per-half, no ρ) */
   mapreNrfi: number
-  /** MAPRE adjusted λ — stored so combineHalfInnings can apply ρ and Neg Binomial */
+  /** MAPRE adjusted λ for this half-inning */
   mapreLambdaAdj: number
   /** 0–1: how much weight is on actual season data vs league average */
   bayesianDataWeight: number

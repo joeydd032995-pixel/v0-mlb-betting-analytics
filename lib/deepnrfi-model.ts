@@ -264,8 +264,8 @@ export function loadDeepNrfiModel(): LoadedHandle | null {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Manifest
     const modelFile = manifest.modelFile ?? `model_${manifest.activeVersion}.txt`
     const calibFile = manifest.calibrationFile ?? `calibration_${manifest.activeVersion}.json`
-    const modelPath = path.join(dir, modelFile)
-    const calibPath = path.join(dir, calibFile)
+    const modelPath = path.join(dir, path.basename(modelFile))
+    const calibPath = path.join(dir, path.basename(calibFile))
     if (!fs.existsSync(modelPath)) {
       console.warn(`[deepnrfi] manifest references missing model file ${modelFile} — falling back to legacy ensemble`)
       CACHED_HANDLE = null

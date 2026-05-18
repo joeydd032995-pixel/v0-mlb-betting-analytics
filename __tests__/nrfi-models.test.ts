@@ -6,8 +6,10 @@ import {
   computeZIPModel,
   computeMarkovNrfi,
   computeMAPREHalfInning,
+  computePAOutcomes,
   log5,
   LEAGUE_AVG_NRFI,
+  ENSEMBLE_WEIGHTS,
 } from "../lib/nrfi-models"
 import type { Pitcher } from "../lib/types"
 
@@ -186,7 +188,8 @@ describe("computeMarkovNrfi", () => {
 
   it("returns near-minimum NRFI when every PA is a HR", () => {
     const allHR = { out: 0, walk: 0, single: 0, double: 0, triple: 0, hr: 1.0 }
-    expect(computeMarkovNrfi(allHR).nrfiProb).toBeLessThan(0.15)
+    expect(computeMarkovNrfi(allHR).nrfiProb).toBeLessThan(0.05)
+    expect(computeMarkovNrfi(allHR).nrfiProb).toBeGreaterThanOrEqual(0.02)
   })
 
   it("P(NRFI) decreases as walk rate increases", () => {
@@ -222,5 +225,68 @@ describe("computeMAPREHalfInning — babip sanitization", () => {
     const tooHigh  = computeMAPREHalfInning(0.60, { babip1st: 0.70 })
     const baseline = computeMAPREHalfInning(0.60, {})
     expect(tooHigh.lambdaAdj).toBeCloseTo(baseline.lambdaAdj, 6)
+  })
+})
+
+// ─── computePAOutcomes — probability invariants (Fix 1 regression guard) ──────
+
+describe("computePAOutcomes — probability invariants", () => {
+  it("PA probabilities always sum to exactly 1.0 across all offense factors", () => {
+    const offenseFactors = [0.70, 0.85, 1.00, 1.15, 1.30, 1.50]
+    for (const offenseFactor of offenseFactors) {
+      const pa  = computePAOutcomes(makePitcher({}), offenseFactor)
+      const sum = pa.out + pa.walk + pa.single + pa.double + pa.triple + pa.hr
+      expect(sum, `offenseFactor=${offenseFactor}`).toBeCloseTo(1.0, 5)
+    }
+  })
+
+  it("all PA outcome probabilities are non-negative", () => {
+    const pa = computePAOutcomes(makePitcher({ kRate: 0.10 }), 1.5)
+    expect(pa.out).toBeGreaterThanOrEqual(0)
+    expect(pa.walk).toBeGreaterThanOrEqual(0)
+    expect(pa.single).toBeGreaterThanOrEqual(0)
+    expect(pa.double).toBeGreaterThanOrEqual(0)
+    expect(pa.triple).toBeGreaterThanOrEqual(0)
+    expect(pa.hr).toBeGreaterThanOrEqual(0)
+  })
+
+  it("out floor does not cause PA sum to exceed 1.0 (regression guard)", () => {
+    // This exact scenario triggered the original bug: low K-rate pitcher + high offense
+    const aggressivePitcher = makePitcher({ kRate: 0.10 })
+    const pa  = computePAOutcomes(aggressivePitcher, 1.50)
+    const sum = pa.out + pa.walk + pa.single + pa.double + pa.triple + pa.hr
+    expect(sum).toBeLessThanOrEqual(1.0001)
+  })
+
+  it("higher offenseFactor increases on-base probability", () => {
+    const paLow  = computePAOutcomes(makePitcher({}), 0.80)
+    const paHigh = computePAOutcomes(makePitcher({}), 1.40)
+    const onBaseLow  = paLow.walk  + paLow.single  + paLow.double  + paLow.triple  + paLow.hr
+    const onBaseHigh = paHigh.walk + paHigh.single + paHigh.double + paHigh.triple + paHigh.hr
+    expect(onBaseHigh).toBeGreaterThan(onBaseLow)
+  })
+})
+
+// ─── ENSEMBLE_WEIGHTS invariants (Fix 4A) ────────────────────────────────────
+
+describe("ENSEMBLE_WEIGHTS", () => {
+  it("all weights sum to exactly 1.0", () => {
+    const sum = Object.values(ENSEMBLE_WEIGHTS).reduce((a, b) => a + b, 0)
+    expect(sum).toBeCloseTo(1.0, 6)
+  })
+
+  it("has exactly 7 keys", () => {
+    expect(Object.keys(ENSEMBLE_WEIGHTS)).toHaveLength(7)
+  })
+
+  it("all weights are positive", () => {
+    for (const [k, v] of Object.entries(ENSEMBLE_WEIGHTS)) {
+      expect(v, k).toBeGreaterThan(0)
+    }
+  })
+
+  it("markov has the largest weight", () => {
+    const maxWeight = Math.max(...Object.values(ENSEMBLE_WEIGHTS))
+    expect(ENSEMBLE_WEIGHTS.markov).toBeCloseTo(maxWeight, 6)
   })
 })

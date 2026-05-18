@@ -158,9 +158,24 @@ export function computePAOutcomes(
   const triple   = nonHrHit * 0.07
 
   // Remaining probability = outs (K + BIP outs)
-  const out = Math.max(0.35, 1 - bbProb - single - double_ - triple - hrProb)
+  const rawOut = 1 - bbProb - single - double_ - triple - hrProb
+  const out    = Math.max(0.35, rawOut)
 
-  return { out, walk: bbProb, single, double: double_, triple, hr: hrProb }
+  // Normalise so the six probabilities always sum to exactly 1.0.
+  // When rawOut >= 0.35 the total is already 1.0 and norm = 1.0 (no-op).
+  // When the out floor activates, all components are scaled down proportionally
+  // so the Markov chain receives a valid probability distribution.
+  const total = out + bbProb + single + double_ + triple + hrProb
+  const norm  = 1 / total
+
+  return {
+    out:    out     * norm,
+    walk:   bbProb  * norm,
+    single: single  * norm,
+    double: double_ * norm,
+    triple: triple  * norm,
+    hr:     hrProb  * norm,
+  }
 }
 
 // ─── 3. Markov Chain (24-state inning model) ──────────────────────────────────
@@ -320,7 +335,7 @@ export function computeMarkovNrfi(
   }
 
   return {
-    nrfiProb: Math.max(0.1, Math.min(0.98, nrfiAccum)),
+    nrfiProb: Math.max(0.02, Math.min(0.98, nrfiAccum)),
     runScoredBranchWeight,
   }
 }
@@ -517,192 +532,38 @@ export function computeMAPREHalfInning(
  * Internal per-half-inning result from the four-model ensemble.
  * Named distinctly from the UI-facing ModelBreakdown in lib/types.ts.
  */
-export interface HalfInningEnsembleResult {
-  /** Raw weighted ensemble P(NRFI) for this half-inning (calibration applied at game level) */
-  ensembleNrfi: number
-  /** Raw Poisson P(NRFI) for this half-inning (before ensemble) */
-  poissonNrfi: number
-  /** ZIP model P(NRFI) for this half-inning */
-  zipNrfi: number
-  /** ZIP lockdown component (omega) */
-  zipOmega: number
-  /** ZIP active-inning scoring rate (lambda) */
-  zipLambda: number
-  /** Markov Chain P(NRFI) for this half-inning */
-  markovNrfi: number
-  /** MAPRE P(NRFI) for this half-inning (no ρ; ρ applied in combineHalfInnings) */
-  mapreNrfi: number
-  /** MAPRE adjusted λ stored for ρ and Negative Binomial calc at game level */
-  mapreLambdaAdj: number
-  /** How much the model trusts season data vs league average (0=all league, 1=all data) */
-  bayesianDataWeight: number
-  /** The shrunk (Bayesian-adjusted) NRFI rate fed into models */
-  shrunkNrfiRate: number
-  /** Ensemble weights actually applied */
-  weights: { poisson: number; zip: number; markov: number; mapre: number }
-  /** Log-5 matchup PA outcomes used as input to Markov */
-  paOutcomes: PAOutcomes
-}
-
-/** Both half-inning ensemble results for a single game. */
-export interface HalfInningPair {
-  home: HalfInningEnsembleResult
-  away: HalfInningEnsembleResult
-}
-
-/**
- * Compute ensemble P(NRFI) for ONE half-inning using all four models.
- *
- * The Bayesian shrinkage is a pre-processing step (data quality) that feeds
- * into the Poisson, ZIP, Markov, and MAPRE models rather than being a 5th vote.
- *
- * Ensemble weights: Poisson 18%, ZIP 39%, Markov 31%, MAPRE 12%
- * Cross-half ρ correlation and the Negative Binomial option for MAPRE are
- * applied in combineHalfInnings where both lambda values are available.
- */
-export function computeHalfInningEnsemble(
-  pitcher: Pitcher,
-  offenseFactor: number,
-  parkFactor: number,
-  temperatureF: number,
-  umpireWideness: number = 0,
-  mapreInputs?: MAPREInputs
-): HalfInningEnsembleResult {
-  // Step 1: Dynamic Bayesian shrinkage — same formula as headline prediction.
-  const priorWeight  = getDynamicPriorWeight(pitcher)
-  const shrunkenRate = applyDynamicShrinkage(pitcher, priorWeight)
-  const n            = pitcher.firstInning.startCount || 1
-  const dataWeight   = n / (n + priorWeight)
-
-  // Create a shrunk version of pitcher stats for models
-  const shrunkPitcher: Pitcher = {
-    ...pitcher,
-    firstInning: { ...pitcher.firstInning, nrfiRate: shrunkenRate },
-  }
-
-  // Step 2: Poisson model (standard, using shrunk rate)
-  const poissonLambda = -Math.log(Math.max(0.01, shrunkenRate))
-  const adjustedLambda =
-    poissonLambda *
-    offenseFactor *
-    parkFactor *
-    (1 + (temperatureF - 72) * 0.004)
-  const poissonNrfi = Math.exp(-adjustedLambda)
-
-  // Step 3: ZIP model (using shrunk pitcher stats)
-  const zipResult = computeZIPModel(
-    shrunkPitcher,
-    offenseFactor,
-    parkFactor,
-    temperatureF,
-    umpireWideness
-  )
-
-  // Step 4: Markov Chain (using Log-5 PA outcomes derived from shrunk stats)
-  const paOutcomes = computePAOutcomes(shrunkPitcher, offenseFactor)
-  const markovResult = computeMarkovNrfi(paOutcomes)
-
-  // Step 5: MAPRE — uses raw poissonLambda (pre offense/park) as base
-  // Its multipliers (M_sOPS, M_BAbip, M_HR, M_pitchMix) replace the standard
-  // offense × park adjustment with 2024–2025 calibrated 1st-inning factors.
-  const mapreResult = computeMAPREHalfInning(poissonLambda, mapreInputs)
-
-  // Step 6: Raw weighted ensemble — scale/bias calibration applied at game level in combineHalfInnings
-  const weights = { poisson: MODEL_CONFIG.poisson.weight, zip: MODEL_CONFIG.zip.weight, markov: MODEL_CONFIG.markov.weight, mapre: MODEL_CONFIG.mapre.weight }
-  const ensembleNrfi =
-    weights.poisson * poissonNrfi +
-    weights.zip     * zipResult.nrfiProb +
-    weights.markov  * markovResult.nrfiProb +
-    weights.mapre   * mapreResult.nrfiProb
-
-  return {
-    ensembleNrfi,
-    poissonNrfi,
-    zipNrfi: zipResult.nrfiProb,
-    zipOmega: zipResult.omega,
-    zipLambda: zipResult.lambda,
-    markovNrfi: markovResult.nrfiProb,
-    mapreNrfi: mapreResult.nrfiProb,
-    mapreLambdaAdj: mapreResult.lambdaAdj,
-    bayesianDataWeight: dataWeight,
-    shrunkNrfiRate: shrunkenRate,
-    weights,
-    paOutcomes,
-  }
-}
-
-/**
- * @deprecated — use blend7Models in nrfi-engine.ts with the 7-model ensemble path.
- *
- * Final combined P(NRFI) from both half-inning ensemble results.
- *
- * Architecture: weighted arithmetic mean of per-model game-level NRFI probabilities.
- *  • Poisson (18%): P(home=0) × P(away=0), independence assumption
- *  • ZIP (39%):     product of half-inning ZIP probabilities
- *  • Markov (31%):  product of half-inning Markov probabilities
- *  • MAPRE (12%):   full-game prob with ρ=0.06 cross-half correlation and
- *                   optional Negative Binomial overdispersion (λ_total_adj > 0.8)
- */
-export function combineHalfInnings(
-  homeBreakdown: HalfInningEnsembleResult,
-  awayBreakdown: HalfInningEnsembleResult
-): number {
-  // ── Per-model game-level NRFI probabilities (product of independent halves) ─
-  const poissonGame = homeBreakdown.poissonNrfi * awayBreakdown.poissonNrfi
-  const zipGame     = homeBreakdown.zipNrfi     * awayBreakdown.zipNrfi
-  const markovGame  = homeBreakdown.markovNrfi  * awayBreakdown.markovNrfi
-
-  // ── Full MAPRE with ρ correlation (12% weight) ────────────────────────────
-  // λ_total combines both halves; ρ=0.06 activates when both halves are high-run.
-  const lambdaTotal = homeBreakdown.mapreLambdaAdj + awayBreakdown.mapreLambdaAdj
-  const rho = (homeBreakdown.mapreLambdaAdj > 0.60 && awayBreakdown.mapreLambdaAdj > 0.60)
-    ? 0.06
-    : 0
-  const lambdaTotalAdj = lambdaTotal * (1 + rho)
-
-  // Negative Binomial when overdispersion is meaningful (λ_total_adj > 0.8, r = 1.3)
-  const r = 1.3
-  const mapreFullProb = lambdaTotalAdj > 0.8
-    ? Math.pow(r / (r + lambdaTotalAdj), r)
-    : Math.exp(-lambdaTotalAdj)
-
-  // ── Apply per-model scale/bias then blend with configured weights ─────────
-  const cfg = MODEL_CONFIG
-  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
-  const adjPoisson = clamp01(poissonGame    * cfg.poisson.scale + cfg.poisson.bias)
-  const adjZip     = clamp01(zipGame        * cfg.zip.scale     + cfg.zip.bias)
-  const adjMarkov  = clamp01(markovGame     * cfg.markov.scale  + cfg.markov.bias)
-  const adjMapre   = clamp01(mapreFullProb  * cfg.mapre.scale   + cfg.mapre.bias)
-  return Math.max(0.05, Math.min(0.95,
-    cfg.poisson.weight * adjPoisson +
-    cfg.zip.weight     * adjZip +
-    cfg.markov.weight  * adjMarkov +
-    cfg.mapre.weight   * adjMapre
-  ))
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // 7-MODEL ENSEMBLE ADDITIONS (Post-Optimization)
-// All new exports below; every existing function above is unchanged.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── 7-Model Ensemble Weights ────────────────────────────────────────────────
-// Pre-normalized to sum to 1.0 (raw scores 0.12/0.30/0.48/0.10/0.05/0.03/0.02,
-// divided by their 1.10 sum). The base-four ratio (12:30:48:10) matches
-// MODEL_CONFIG exactly, suggesting these weights were initialized from MODEL_CONFIG
-// rather than via unconstrained CV over all 7 dimensions.
+// Raw design-intent weights. Edit these to change the blend; normalisation below
+// ensures the exported ENSEMBLE_WEIGHTS always sum to exactly 1.0 regardless of
+// floating-point rounding. The base-four ratio (12:30:48:10) matches MODEL_CONFIG.
 // TODO: run scripts/deepnrfi/backtest_v2.py with a --free-weights flag (scipy
 // SLSQP, Dirichlet constraint) to validate or replace these values. Until then,
 // do not describe them as "CV-optimized" in documentation or PRs.
-export const ENSEMBLE_WEIGHTS = {
-  poisson:           0.10909,
-  zip:               0.27273,
-  markov:            0.43636,
-  mapre:             0.09091,
-  logisticMeta:      0.04545,
-  nnInteraction:     0.02727,
-  hierarchicalBayes: 0.01818,
-} as const
+const RAW_ENSEMBLE_WEIGHTS = {
+  poisson:           0.12,
+  zip:               0.30,
+  markov:            0.48,
+  mapre:             0.10,
+  logisticMeta:      0.05,
+  nnInteraction:     0.03,
+  hierarchicalBayes: 0.02,
+}
+const _rawWeightSum = Object.values(RAW_ENSEMBLE_WEIGHTS).reduce((a, b) => a + b, 0)
+export const ENSEMBLE_WEIGHTS = Object.fromEntries(
+  Object.entries(RAW_ENSEMBLE_WEIGHTS).map(([k, v]) => [k, v / _rawWeightSum])
+) as {
+  poisson:           number
+  zip:               number
+  markov:            number
+  mapre:             number
+  logisticMeta:      number
+  nnInteraction:     number
+  hierarchicalBayes: number
+}
 
 // ─── Opt #5: Dynamic Bayesian Shrinkage ──────────────────────────────────────
 
@@ -816,16 +677,6 @@ export function getLineupVsHandFromCard(
 
 // ─── Internal helpers for compute7ModelEnsemble ───────────────────────────────
 
-/**
- * Simplified ZIP formula: P(Y=0) = ω + (1−ω)·e^(−λ)
- * omega is derived from the pitcher's K-rate via the same logistic fit used in
- * computeZIPModel, but here we accept a precomputed omega directly.
- */
-function zipFromOmegaLambda(omega: number, lambda: number): number {
-  const clampedOmega = Math.max(0.08, Math.min(0.60, omega))
-  return clampedOmega + (1 - clampedOmega) * Math.exp(-lambda)
-}
-
 /** Derive lockdown probability (omega) from a pitcher's K-rate. */
 function omegaFromKRate(kRate: number): number {
   const kDev    = kRate - LEAGUE_K_RATE
@@ -886,7 +737,7 @@ export function compute7ModelEnsemble(
   // MAPRE: raw base lambda from ctx avoids double-counting park/weather/umpire.
   // Inlined from the former computeMAPREhalf to capture lambdaAdj for UI.
   const mapreInputs: MAPREInputs = {
-    sOpsPlus:              team.firstInning.offenseFactor * 100,
+    sOpsPlus:              team.firstInning.sOpsPlus ?? team.firstInning.offenseFactor * 100,
     babip1st:              pitcher.firstInning.babip,
     hrPerPa1st:            pitcher.firstInning.hrPer9 / 38.7,
     barrelDev:             computeBarrelDev(pitcher),

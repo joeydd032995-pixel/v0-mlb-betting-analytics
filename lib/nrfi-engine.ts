@@ -32,6 +32,7 @@ import type {
 } from "./types"
 import {
   ENSEMBLE_WEIGHTS,
+  LEAGUE_AVG_NRFI,
   compute7ModelEnsemble,
   getLineupVsHand,
   getLineupVsHandFromCard,
@@ -59,25 +60,22 @@ const COLD_TEMP_THRESHOLD_F = 50
  *
  *   nrfiProb = ENSEMBLE_BLEND × calibrated + (1 − ENSEMBLE_BLEND) × LEAGUE_ANCHOR
  *
- * - 0.516 is the raw 2024–2025 league NRFI rate (`LEAGUE_AVG_NRFI` in
- *   `lib/nrfi-models.ts`).  That value is the *uncalibrated* base rate.
- * - 0.614 is the same league rate after passing through the current
- *   `CALIBRATION_KNOTS` spline in `lib/calibration.ts`, so the anchor lives on
- *   the same scale as the model's calibrated output.  Both numbers describe
- *   the same population — they're not in conflict.
+ * - LEAGUE_AVG_NRFI (0.516) is the raw 2024–2025 league NRFI rate.
+ * - LEAGUE_ANCHOR is that value passed through the calibration spline so it
+ *   lives on the same scale as the model's calibrated output (≈ 0.559 under
+ *   the current Apr-2025 knots). Computed at module load so it auto-updates
+ *   whenever calibration knots are re-fitted — no magic number to track.
  * - 0.76 means the model's own calibrated probability carries 76 % of the
- *   weight; the remaining 24 % shrinks it toward the calibrated league mean,
- *   which is the regularisation step the third-party analytics report
- *   recommended for low-signal domains like first-inning NRFI.
+ *   weight; the remaining 24 % shrinks it toward the calibrated league mean.
  *
- * Both constants should only be revised via walk-forward CV
+ * ENSEMBLE_BLEND should only be revised via walk-forward CV
  * (`scripts/deepnrfi/backtest_v2.py`), never heuristically.
  */
 const ENSEMBLE_BLEND      = 0.76
-const LEAGUE_ANCHOR       = 0.614
+const LEAGUE_ANCHOR       = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)
 // Effective output range under the current calibration spline + league-anchor blend:
-//   min = 0.76 × 0.060 + 0.24 × 0.614 ≈ 0.193
-//   max = 0.76 × 0.930 + 0.24 × 0.614 ≈ 0.854
+//   min = 0.76 × 0.060 + 0.24 × 0.559 ≈ 0.180
+//   max = 0.76 × 0.930 + 0.24 × 0.559 ≈ 0.841
 // These clamps guard against pathological calibration outputs, not the engine's
 // expressive range. Revise only via walk-forward CV (scripts/deepnrfi/backtest_v2.py).
 const CLAMP_MIN           = 0.18
@@ -116,11 +114,7 @@ function hashGameId(id: string): number {
 
 // ─── Opt #3: Vector Weather Multiplier ───────────────────────────────────────
 
-/**
- * Scalar weather multiplier kept for backward compatibility and for feeding
- * temperatureF into computeHalfInningEnsemble (ZIP model).
- * The lambda computation now uses the vector version.
- */
+/** Scalar weather multiplier kept for backward compatibility. The lambda computation uses the vector version. */
 export function computeWeatherMultiplier(weather: Weather): number {
   if (weather.conditions === "dome") return 1.0
   let m = 1.0
@@ -327,9 +321,12 @@ function computeConfidence(
   awayPitcher:     Pitcher,
   modelConsensus   = 0.5,
   mcVariance?:     number,
-): { level: ConfidenceLevel; score: number } {
+): { level: ConfidenceLevel; score: number; conviction: number } {
+  // ── Reliability score (true confidence) ──────────────────────────────────
+  // Driven by sample size, model agreement, and form stability — NOT by how
+  // far the prediction is from 50%. That's conviction, a separate concept.
   let score = 50
-  score += Math.abs(nrfiProbability - 0.5) * 70
+
   const minStarts = Math.min(
     homePitcher.firstInning.startCount,
     awayPitcher.firstInning.startCount
@@ -338,6 +335,7 @@ function computeConfidence(
   else if (minStarts >= 10) score += 6
   else if (minStarts <= 3) score -= 14
   else score -= 8
+
   const consistency = (p: Pitcher) => {
     const r = p.firstInning.last5Results
     if (r.length < 3) return 0
@@ -346,15 +344,22 @@ function computeConfidence(
   }
   score -= (consistency(homePitcher) + consistency(awayPitcher)) * 15
   score += (modelConsensus - 0.5) * 16
+
   // Monte Carlo uncertainty: variance > ~1.5 (very volatile inning) → confidence penalty.
   if (mcVariance !== undefined && mcVariance > 0) {
     if (mcVariance > 1.8) score -= 8
     else if (mcVariance > 1.4) score -= 4
     else if (mcVariance < 0.6) score += 3
   }
+
   score = Math.max(10, Math.min(98, Math.round(score)))
   const level: ConfidenceLevel = score >= 62 ? "High" : score >= 45 ? "Medium" : "Low"
-  return { level, score }
+
+  // ── Conviction (strength of the prediction, separate from reliability) ────
+  // 0.0 = coin-flip, 1.0 = maximum certainty.
+  const conviction = Math.abs(nrfiProbability - 0.5) * 2
+
+  return { level, score, conviction }
 }
 
 // ─── Recommendation ───────────────────────────────────────────────────────────
@@ -605,7 +610,7 @@ export function computeNRFIPrediction(
     consensusNote:   outlierNote(homeHalfUI, awayHalfUI),
   }
 
-  const { level: confidence, score: confScore } = computeConfidence(
+  const { level: confidence, score: confScore, conviction } = computeConfidence(
     nrfiProb, homePitcher, awayPitcher, consensus, mcResult?.variance,
   )
 
@@ -633,6 +638,7 @@ export function computeNRFIPrediction(
     awayScores0Prob:   Math.exp(-awayScoresLambda),
     confidence,
     confidenceScore:   confScore,
+    conviction,
     recommendation:    getRecommendation(nrfiProb),
     factors,
     modelInputs,
