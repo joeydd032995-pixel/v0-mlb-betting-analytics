@@ -11,7 +11,7 @@
  * They are ensembled with the base Poisson model to produce a final probability.
  */
 
-import type { Pitcher, Team } from "./types"
+import type { Pitcher, Team, EnsembleWeights } from "./types"
 
 // ─── League Constants ─────────────────────────────────────────────────────────
 
@@ -537,9 +537,11 @@ export function computeMAPREHalfInning(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── 7-Model Ensemble Weights ────────────────────────────────────────────────
-// Raw design-intent weights. Edit these to change the blend; normalisation below
-// ensures the exported ENSEMBLE_WEIGHTS always sum to exactly 1.0 regardless of
-// floating-point rounding. The base-four ratio (12:30:48:10) matches MODEL_CONFIG.
+// Raw design-intent weights. Edit these to change the blend; normalisation
+// enforces sum-to-1.0 regardless of floating-point rounding.
+// Note: the base-four ratio here (12:30:48:10) deliberately differs from
+// MODEL_CONFIG (18:39:31:12) — the 7-model ensemble shifts more weight onto
+// Markov and less onto ZIP vs the original 4-model stack.
 // TODO: run scripts/deepnrfi/backtest_v2.py with a --free-weights flag (scipy
 // SLSQP, Dirichlet constraint) to validate or replace these values. Until then,
 // do not describe them as "CV-optimized" in documentation or PRs.
@@ -553,17 +555,9 @@ const RAW_ENSEMBLE_WEIGHTS = {
   hierarchicalBayes: 0.02,
 }
 const _rawWeightSum = Object.values(RAW_ENSEMBLE_WEIGHTS).reduce((a, b) => a + b, 0)
-export const ENSEMBLE_WEIGHTS = Object.fromEntries(
+export const ENSEMBLE_WEIGHTS: EnsembleWeights = Object.fromEntries(
   Object.entries(RAW_ENSEMBLE_WEIGHTS).map(([k, v]) => [k, v / _rawWeightSum])
-) as {
-  poisson:           number
-  zip:               number
-  markov:            number
-  mapre:             number
-  logisticMeta:      number
-  nnInteraction:     number
-  hierarchicalBayes: number
-}
+) as EnsembleWeights
 
 // ─── Opt #5: Dynamic Bayesian Shrinkage ──────────────────────────────────────
 

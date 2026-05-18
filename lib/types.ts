@@ -1,5 +1,15 @@
 // ─── Core Types for NRFI/YRFI Prediction Engine ───────────────────────────────
 
+export type EnsembleWeights = {
+  poisson:           number
+  zip:               number
+  markov:            number
+  mapre:             number
+  logisticMeta:      number
+  nnInteraction:     number
+  hierarchicalBayes: number
+}
+
 export type Hand = "R" | "L" | "S"
 export type League = "AL" | "NL"
 export type Division = "East" | "Central" | "West"
