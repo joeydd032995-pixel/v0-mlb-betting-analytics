@@ -20,6 +20,7 @@ import { prisma } from "@/lib/prisma"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { simulateGameFirstInning } from "@/lib/monte-carlo"
 import { paProbsFromContext } from "@/lib/monte-carlo-bridge"
+import { precomputePitcherContext } from "@/lib/nrfi-models"
 import type { MonteCarloResult } from "@/lib/types"
 
 export const dynamic = "force-dynamic"
@@ -103,7 +104,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ available: false, reason: "Missing pitcher/team data." })
     }
 
-    const { homePAProbs, awayPAProbs } = paProbsFromContext(homePitcher, awayPitcher, homeTeam, awayTeam)
+    const homeCtx = precomputePitcherContext(homePitcher)
+    const awayCtx = precomputePitcherContext(awayPitcher)
+    const { homePAProbs, awayPAProbs } = paProbsFromContext(homePitcher, awayPitcher, homeTeam, awayTeam, homeCtx, awayCtx)
     const result = simulateGameFirstInning(homePAProbs, awayPAProbs, {
       nSims,
       seed: hashGameId(gameId),

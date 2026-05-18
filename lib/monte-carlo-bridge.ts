@@ -10,17 +10,15 @@
 import type { Pitcher, Team, PerPAProbs } from "./types"
 import {
   computePAOutcomes,
-  applyDynamicShrinkage,
-  getDynamicPriorWeight,
   getLineupVsHand,
+  type PitcherContext,
 } from "./nrfi-models"
 
-function buildPAProbs(pitcher: Pitcher, battingTeam: Team): PerPAProbs {
-  const lineupFactor = getLineupVsHand(pitcher.throws, battingTeam)
-  const shrunk = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))
+function buildPAProbs(pitcher: Pitcher, battingTeam: Team, ctx: PitcherContext): PerPAProbs {
+  const lineupFactor  = getLineupVsHand(pitcher.throws, battingTeam)
   const shrunkPitcher: Pitcher = {
     ...pitcher,
-    firstInning: { ...pitcher.firstInning, nrfiRate: shrunk },
+    firstInning: { ...pitcher.firstInning, nrfiRate: ctx.shrunkRate },
   }
   const pa = computePAOutcomes(shrunkPitcher, lineupFactor)
   return {
@@ -40,9 +38,11 @@ export function paProbsFromContext(
   awayPitcher: Pitcher,
   homeTeam: Team,
   awayTeam: Team,
+  homeCtx: PitcherContext,
+  awayCtx: PitcherContext,
 ): { homePAProbs: PerPAProbs; awayPAProbs: PerPAProbs } {
   return {
-    homePAProbs: buildPAProbs(homePitcher, awayTeam),
-    awayPAProbs: buildPAProbs(awayPitcher, homeTeam),
+    homePAProbs: buildPAProbs(homePitcher, awayTeam, homeCtx),
+    awayPAProbs: buildPAProbs(awayPitcher, homeTeam, awayCtx),
   }
 }
