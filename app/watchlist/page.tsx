@@ -1,69 +1,80 @@
 import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
-import { Heart, Clock } from "lucide-react"
+import Link from "next/link"
 import { prisma } from "@/lib/prisma"
+import { SectionLabel } from "@/components/diamond/SectionLabel"
+import { WatchlistRow } from "@/components/watchlist/WatchlistRow"
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  })
+}
 
 export default async function WatchlistPage() {
   const { userId } = await auth()
-
-  if (!userId) {
-    redirect("/sign-in")
-  }
+  if (!userId) redirect("/sign-in")
 
   const watchlist = await prisma.watchlistItem.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
   })
 
+  const rows = watchlist.map((w) => ({
+    ...w,
+    createdAt: w.createdAt.toISOString(),
+    updatedAt: w.updatedAt.toISOString(),
+  }))
+
   return (
-    <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400">
-              <Heart className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">My Watchlist</h1>
-              <p className="text-sm text-muted-foreground">
-                Games you're tracking for betting decisions.
-              </p>
-            </div>
-          </div>
+    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
+      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
+        <div className="flex items-center justify-between">
+          <SectionLabel index="01">Watchlist</SectionLabel>
+          {rows.length > 0 && (
+            <span className="font-jet text-[11px] text-ds-muted">
+              {rows.length} game{rows.length !== 1 ? "s" : ""} tracked
+            </span>
+          )}
         </div>
 
-        {watchlist.length === 0 ? (
-          <div className="rounded-lg border border-border/30 bg-card/50 p-12 text-center">
-            <Heart className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-sm font-medium text-foreground">No games in your watchlist yet</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Add games to your watchlist from the dashboard to track them here.
+        {rows.length === 0 ? (
+          <div
+            className="rounded-[14px] border border-ds-line p-12 text-center"
+            style={{ background: "var(--ds-panel)" }}
+          >
+            <p className="font-jet text-[12px] text-ds-muted mb-1">No games in your watchlist yet.</p>
+            <p className="font-jet text-[11px] text-ds-muted/60">
+              Add games from the{" "}
+              <Link href="/" className="text-sky-400 hover:text-sky-300 underline">
+                prediction dashboard
+              </Link>{" "}
+              to track them here.
             </p>
           </div>
         ) : (
-          <div className="grid gap-4">
-            <div className="text-xs text-muted-foreground">
-              {watchlist.length} game{watchlist.length !== 1 ? "s" : ""} in watchlist
-            </div>
-            {watchlist.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-lg border border-border/30 bg-card/50 p-4 hover:bg-card/70 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Game {item.gameId}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      <Clock className="h-3 w-3 inline mr-1" />
-                      Added {item.createdAt.toLocaleDateString()}
-                    </p>
-                  </div>
-                  <button className="rounded-md border border-border/30 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors">
-                    View
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div
+            className="rounded-[14px] border border-ds-line overflow-hidden"
+            style={{ background: "var(--ds-panel)" }}
+          >
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-ds-line">
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Game ID</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Added</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item) => (
+                  <WatchlistRow
+                    key={item.id}
+                    gameId={item.gameId}
+                    added={fmtDate(item.createdAt)}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </main>
