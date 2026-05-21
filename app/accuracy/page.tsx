@@ -13,6 +13,7 @@ export default async function AccuracyPage() {
   let dbPredictions: TrackedPrediction[] = []
 
   if (userId) {
+    try {
     const rows = await prisma.modelPrediction.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -61,6 +62,9 @@ export default async function AccuracyPage() {
       actualResult: r.actualResult as "NRFI" | "YRFI" | undefined,
       correct:      r.correct ?? undefined,
     }))
+    } catch (err) {
+      console.error("[accuracy] DB query failed — falling back to localStorage only:", err)
+    }
   }
 
   return (

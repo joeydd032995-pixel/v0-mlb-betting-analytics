@@ -1,4 +1,5 @@
 // app/layout.tsx
+/* eslint-disable @next/next/no-page-custom-font */
 import type React from "react"
 import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
@@ -39,8 +40,22 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const inner = (
-    <html lang="en" className="dark" style={{ background: "var(--ds-bg)" }}>
-      <body className="font-sans antialiased flex flex-col min-h-screen" style={{ background: "var(--ds-bg)", color: "var(--ds-ink)" }}>
+    <html lang="en" className="dark" style={{ background: "var(--hm-abyss)" }}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Bebas+Neue&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body
+        className="antialiased flex flex-col min-h-screen"
+        style={{
+          background: "var(--hm-abyss)",
+          color: "var(--hm-chalk)",
+          fontFamily: "var(--font-ui)",
+        }}
+      >
         <DensityProvider>
         <TooltipProvider>
         <SiteHeader />
@@ -56,11 +71,11 @@ export default function RootLayout({
           richColors
           toastOptions={{
             style: {
-              background: "oklch(0.205 0 0)",
-              border: "1px solid oklch(0.269 0 0)",
-              color: "oklch(0.985 0 0)",
+              background: "var(--hm-pitch)",
+              border: "1px solid var(--hm-fence)",
+              color: "var(--hm-chalk)",
             },
-            className: "font-sans text-sm",
+            className: "font-ui text-sm",
           }}
         />
 
