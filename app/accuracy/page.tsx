@@ -17,7 +17,7 @@ export default async function AccuracyPage() {
     const rows = await prisma.modelPrediction.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
-      take: 500,
+      take: 2000,
     })
 
     dbPredictions = rows.map((r) => ({
