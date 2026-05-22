@@ -15,7 +15,7 @@ export default async function AccuracyPage() {
   if (userId) {
     try {
     const rows = await prisma.modelPrediction.findMany({
-      where: { userId },
+      where: { OR: [{ userId }, { userId: null }] },
       orderBy: { createdAt: "desc" },
       take: 2000,
     })
