@@ -34,7 +34,8 @@ next-env.d.ts
 
 # agent skills (local dev tools — not part of the repo)
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
 scripts/deepnrfi/__pycache__/
 
 # Python virtual environments
