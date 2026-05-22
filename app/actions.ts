@@ -1,6 +1,6 @@
 "use server"
 
-import { auth } from "@clerk/nextjs/server"
+import { auth, currentUser } from "@clerk/nextjs/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
@@ -25,7 +25,6 @@ const PlaceBetSchema = z.object({
 const SettleBetSchema = z.object({
   betId:  z.string().min(1),
   result: z.enum(["NRFI", "YRFI"]),
-  pnl:    z.number(),
 })
 
 const AdjustBankrollSchema = z.object({
@@ -52,10 +51,15 @@ export async function placeBetAction(
   const { gameId, amount, odds, prediction } = parsed.data
 
   try {
+    const clerkUser = await currentUser()
+    if (!clerkUser) return { ok: false, error: "Unauthorized" }
+    const email = clerkUser.emailAddresses.find(
+      (e) => e.id === clerkUser.primaryEmailAddressId
+    )?.emailAddress ?? `${userId}@unknown.local`
     await prisma.user.upsert({
       where: { id: userId },
-      create: { id: userId, email: `${userId}@placeholder.local` },
-      update: {},
+      create: { id: userId, email },
+      update: { email },
     })
 
     await prisma.$transaction(async (tx) => {
@@ -105,18 +109,28 @@ export async function settleBetAction(
   const parsed = SettleBetSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.flatten().formErrors.join(", ") }
 
-  const { betId, result, pnl } = parsed.data
+  const { betId, result } = parsed.data
 
   const existing = await prisma.bet.findUnique({ where: { id: betId } })
   if (!existing) return { ok: false, error: "Bet not found" }
   if (existing.userId !== userId) return { ok: false, error: "Forbidden" }
   if (existing.result) return { ok: false, error: "Bet already settled" }
+  if (existing.odds === 0) return { ok: false, error: "Bet has invalid odds" }
 
-  const returnAmount = pnl > 0 ? pnl + existing.amount : 0
+  const won = existing.prediction === result
+  const decimalOdds = existing.odds > 0
+    ? existing.odds / 100 + 1
+    : 100 / Math.abs(existing.odds) + 1
+  const pnl = won ? existing.amount * (decimalOdds - 1) : -existing.amount
+  const returnAmount = won ? existing.amount + pnl : 0
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.bet.update({ where: { id: betId }, data: { result, pnl } })
+      const { count } = await tx.bet.updateMany({
+        where: { id: betId, userId, result: null },
+        data: { result, pnl },
+      })
+      if (count !== 1) throw new Error("Bet already settled")
 
       const updatedBankroll = await tx.bankroll.upsert({
         where: { userId },
@@ -201,10 +215,15 @@ export async function initBankrollAction(
 
   const { startingBalance } = parsed.data
 
+  const clerkUser = await currentUser()
+  if (!clerkUser) return { ok: false, error: "Unauthorized" }
+  const email = clerkUser.emailAddresses.find(
+    (e) => e.id === clerkUser.primaryEmailAddressId
+  )?.emailAddress ?? `${userId}@unknown.local`
   await prisma.user.upsert({
     where: { id: userId },
-    create: { id: userId, email: `${userId}@placeholder.local` },
-    update: {},
+    create: { id: userId, email },
+    update: { email },
   })
 
   const existing = await prisma.bankroll.findUnique({ where: { userId } })

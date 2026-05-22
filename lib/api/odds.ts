@@ -21,10 +21,9 @@ export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
     console.warn("[odds] THE_ODDS_API_KEY is not set — skipping odds fetch")
     return []
   }
-  // Build URL separately so the key never appears in logged error messages.
   const url =
     `${BASE_URL}/sports/baseball_mlb/odds` +
-    `?regions=us&markets=batter_first_inning_scored&oddsFormat=american&apiKey=${API_KEY}`
+    `?regions=us&markets=batter_first_inning_scored&oddsFormat=american&apiKey=${encodeURIComponent(API_KEY)}`
   try {
     const res = await fetch(url, { next: { revalidate: 60 } })
     if (!res.ok) {

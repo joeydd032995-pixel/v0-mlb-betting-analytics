@@ -22,8 +22,13 @@ async function mlbApiGet(path: string) {
 }
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production" && !process.env.ENABLE_DEBUG_ENDPOINT) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
 
   // Test MLB Stats API endpoints
@@ -34,11 +39,12 @@ export async function GET() {
   ])
 
   // Count games in the schedule response
+  interface GameSummary { gameId: number; matchup: string; time: string; homeStarter: string; awayStarter: string }
   let gameCount = 0
-  let gameDetails: any[] = []
+  let gameDetails: GameSummary[] = []
   if (schedule.data?.dates?.[0]?.games) {
     gameCount = schedule.data.dates[0].games.length
-    gameDetails = schedule.data.dates[0].games.slice(0, 2).map((g: any) => ({
+    gameDetails = schedule.data.dates[0].games.slice(0, 2).map((g: { gamePk: number; gameDateTime: string; teams: { away: { team: { name: string }; probablePitcher?: { fullName: string } }; home: { team: { name: string }; probablePitcher?: { fullName: string } } } }) => ({
       gameId: g.gamePk,
       matchup: `${g.teams.away.team.name} @ ${g.teams.home.team.name}`,
       time: g.gameDateTime,
@@ -72,7 +78,7 @@ export async function GET() {
       teams: {
         status: teams.status,
         teamCount: teams.data?.teams?.length ?? 0,
-        mlbTeams: teams.data?.teams?.map((t: any) => ({
+        mlbTeams: teams.data?.teams?.map((t: { id: number; name: string; abbreviation: string }) => ({
           id: t.id,
           name: t.name,
           abbreviation: t.abbreviation,
@@ -82,7 +88,7 @@ export async function GET() {
       // Leagues info
       leagues: {
         status: leagues.status,
-        leaguesFound: leagues.data?.leagues?.map((l: any) => ({
+        leaguesFound: leagues.data?.leagues?.map((l: { id: number; name: string }) => ({
           id: l.id,
           name: l.name,
         })) ?? [],

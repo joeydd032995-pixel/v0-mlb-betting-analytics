@@ -49,6 +49,7 @@ import { simulateGameFirstInning } from "./monte-carlo"
 import { paProbsFromContext } from "./monte-carlo-bridge"
 import { combine9Models } from "./ensemble-plus"
 import { calibrateV2 } from "./calibration-v2"
+import { hashGameId } from "@/lib/utils/hash"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -100,34 +101,6 @@ function kellyFraction(edge: number, odds: number): number {
 function expectedValue(modelProb: number, odds: number): number {
   const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
   return modelProb * b - (1 - modelProb)
-}
-
-/** Deterministic 32-bit hash of a game id — used to seed the Monte Carlo RNG. */
-function hashGameId(id: string): number {
-  let h = 2166136261
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-// ─── Opt #3: Vector Weather Multiplier ───────────────────────────────────────
-
-/** Scalar weather multiplier kept for backward compatibility. The lambda computation uses the vector version. */
-export function computeWeatherMultiplier(weather: Weather): number {
-  if (weather.conditions === "dome") return 1.0
-  let m = 1.0
-  if (weather.windDirection === "out" && weather.windSpeed > 5)
-    m += (weather.windSpeed - 5) * 0.0045
-  else if (weather.windDirection === "in" && weather.windSpeed > 5)
-    m -= (weather.windSpeed - 5) * 0.003
-  if (weather.temperature < COLD_TEMP_THRESHOLD_F)
-    m -= (COLD_TEMP_THRESHOLD_F - weather.temperature) * 0.003
-  else if (weather.temperature > 85)
-    m += (weather.temperature - 85) * 0.002
-  if (weather.conditions === "light-rain") m -= 0.03
-  return Math.max(0.82, Math.min(1.22, m))
 }
 
 // ─── Recent Form Multiplier ───────────────────────────────────────────────────

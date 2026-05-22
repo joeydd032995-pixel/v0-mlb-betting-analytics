@@ -14,9 +14,11 @@
  */
 
 import { NextResponse } from "next/server"
+import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return ""
@@ -31,6 +33,9 @@ function row(fields: unknown[]): string {
 }
 
 export async function GET() {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
   try {
     const [gameResults, predictions] = await Promise.all([
       prisma.gameResult.findMany({
@@ -110,7 +115,7 @@ export async function GET() {
       status: 200,
       headers: {
         "Content-Type":        "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="nrfi-data-${new Date().toISOString().split("T")[0]}.csv"`,
+        "Content-Disposition": `attachment; filename="nrfi-data-${new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())}.csv"`,
         "Cache-Control":       "no-store",
       },
     })

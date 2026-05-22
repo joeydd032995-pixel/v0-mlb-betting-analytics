@@ -12,6 +12,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server"
+import { auth } from "@clerk/nextjs/server"
 import { promises as fs } from "node:fs"
 import path from "node:path"
 import { prisma } from "@/lib/prisma"
@@ -43,6 +44,9 @@ async function readGlobalImportance(): Promise<
 }
 
 export async function GET(request: NextRequest) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
   const url = new URL(request.url)
   const gameId = url.searchParams.get("gameId")
   const wantGlobal = url.searchParams.get("global") === "true"

@@ -22,19 +22,11 @@ import { simulateGameFirstInning } from "@/lib/monte-carlo"
 import { paProbsFromContext } from "@/lib/monte-carlo-bridge"
 import { precomputePitcherContext } from "@/lib/nrfi-models"
 import type { MonteCarloResult } from "@/lib/types"
+import { hashGameId } from "@/lib/utils/hash"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
-
-function hashGameId(id: string): number {
-  let h = 2166136261
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
 
 async function readPersisted(gameId: string): Promise<MonteCarloResult | null> {
   try {
