@@ -13,6 +13,7 @@ import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function GET() {
   const { userId } = await auth()

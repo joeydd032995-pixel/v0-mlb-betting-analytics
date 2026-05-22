@@ -59,7 +59,7 @@ export async function placeBetAction(
     await prisma.user.upsert({
       where: { id: userId },
       create: { id: userId, email },
-      update: {},
+      update: { email },
     })
 
     await prisma.$transaction(async (tx) => {
@@ -115,6 +115,7 @@ export async function settleBetAction(
   if (!existing) return { ok: false, error: "Bet not found" }
   if (existing.userId !== userId) return { ok: false, error: "Forbidden" }
   if (existing.result) return { ok: false, error: "Bet already settled" }
+  if (existing.odds === 0) return { ok: false, error: "Bet has invalid odds" }
 
   const won = existing.prediction === result
   const decimalOdds = existing.odds > 0
@@ -125,7 +126,11 @@ export async function settleBetAction(
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.bet.update({ where: { id: betId }, data: { result, pnl } })
+      const { count } = await tx.bet.updateMany({
+        where: { id: betId, userId, result: null },
+        data: { result, pnl },
+      })
+      if (count !== 1) throw new Error("Bet already settled")
 
       const updatedBankroll = await tx.bankroll.upsert({
         where: { userId },
@@ -218,7 +223,7 @@ export async function initBankrollAction(
   await prisma.user.upsert({
     where: { id: userId },
     create: { id: userId, email },
-    update: {},
+    update: { email },
   })
 
   const existing = await prisma.bankroll.findUnique({ where: { userId } })

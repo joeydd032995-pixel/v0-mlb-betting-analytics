@@ -18,6 +18,7 @@ import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return ""
@@ -114,7 +115,7 @@ export async function GET() {
       status: 200,
       headers: {
         "Content-Type":        "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="nrfi-data-${new Date().toISOString().split("T")[0]}.csv"`,
+        "Content-Disposition": `attachment; filename="nrfi-data-${new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())}.csv"`,
         "Cache-Control":       "no-store",
       },
     })
