@@ -124,12 +124,6 @@ function parseBaseballInnings(value?: string | null): number {
   return innings
 }
 
-/** Module-level game-log caches, keyed `${id}:${season}`. One season's log
- *  covers every game; callers filter by date in memory. Persists for the life
- *  of the serverless invocation so a month's worth of games hits the API once
- *  per (pitcher|team, season). */
-const pitcherGameLogCache = new Map<string, PitcherGameLogSplit[]>()
-const teamGameLogCache = new Map<string, TeamGameLogSplit[]>()
 
 export interface PitcherGameLogSplit {
   date?: string
@@ -527,21 +521,16 @@ export async function fetchPitcherStatsAsOf(
     splits: PitcherGameLogSplit[]
   }
 
-  const cacheKey = `${playerId}:${season}`
-  let splits = pitcherGameLogCache.get(cacheKey)
-  if (!splits) {
-    const data = await mlbFetch<{ people: Array<{ stats?: RawStatGroup[] }> }>(
-      `/people/${playerId}?hydrate=stats(group=[pitching],type=[gameLog])&season=${season}`,
-      3600
-    )
-    splits =
-      data?.people?.[0]?.stats?.find(
-        (s) =>
-          s.type?.displayName?.toLowerCase() === "gamelog" &&
-          s.group?.displayName?.toLowerCase() === "pitching"
-      )?.splits ?? []
-    pitcherGameLogCache.set(cacheKey, splits)
-  }
+  const data = await mlbFetch<{ people: Array<{ stats?: RawStatGroup[] }> }>(
+    `/people/${playerId}?hydrate=stats(group=[pitching],type=[gameLog])&season=${season}`,
+    3600
+  )
+  const splits =
+    data?.people?.[0]?.stats?.find(
+      (s) =>
+        s.type?.displayName?.toLowerCase() === "gamelog" &&
+        s.group?.displayName?.toLowerCase() === "pitching"
+    )?.splits ?? []
 
   // Prior-season full line — the Bayesian prior; also the source of name/throws.
   // fetchPitcherStats returns a synthetic 4.00/1.28 record (inningsPitched 0)
@@ -774,21 +763,16 @@ export async function fetchTeamStatsAsOf(
     splits: TeamGameLogSplit[]
   }
 
-  const cacheKey = `${teamId}:${season}`
-  let splits = teamGameLogCache.get(cacheKey)
-  if (!splits) {
-    const data = await mlbFetch<{ stats?: RawStatGroup[] }>(
-      `/teams/${teamId}/stats?stats=gameLog&group=hitting&season=${season}`,
-      3600
-    )
-    splits =
-      data?.stats?.find(
-        (s) =>
-          s.type?.displayName?.toLowerCase() === "gamelog" &&
-          s.group?.displayName?.toLowerCase() === "hitting"
-      )?.splits ?? []
-    teamGameLogCache.set(cacheKey, splits)
-  }
+  const data = await mlbFetch<{ stats?: RawStatGroup[] }>(
+    `/teams/${teamId}/stats?stats=gameLog&group=hitting&season=${season}`,
+    3600
+  )
+  const splits =
+    data?.stats?.find(
+      (s) =>
+        s.type?.displayName?.toLowerCase() === "gamelog" &&
+        s.group?.displayName?.toLowerCase() === "hitting"
+    )?.splits ?? []
 
   const prior = await fetchTeamStats(teamId, season - 1)
   const result = computeTeamStatsAsOf(splits, beforeDate, prior)

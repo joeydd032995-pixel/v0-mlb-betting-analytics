@@ -13,20 +13,14 @@ interface Props {
 export function SettleBetForm({ betId, amount, prediction, odds }: Props) {
   const [isPending, startTransition] = useTransition()
   const [result, setResult] = useState<"NRFI" | "YRFI">(prediction as "NRFI" | "YRFI")
-  const [pnl, setPnl] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [settled, setSettled] = useState(false)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const pnlValue = parseFloat(pnl)
-    if (isNaN(pnlValue)) {
-      setError("Enter a valid P&L amount")
-      return
-    }
     setError(null)
     startTransition(async () => {
-      const res = await settleBetAction({ betId, result, pnl: pnlValue })
+      const res = await settleBetAction({ betId, result })
       if (res.ok) {
         setSettled(true)
       } else {
@@ -67,20 +61,6 @@ export function SettleBetForm({ betId, amount, prediction, odds }: Props) {
         </label>
       ))}
 
-      {/* P&L */}
-      <label htmlFor={`pnl-${betId}`} className="sr-only">
-        P&L amount
-      </label>
-      <input
-        id={`pnl-${betId}`}
-        type="number"
-        step="0.01"
-        placeholder={`P&L (odds ${odds > 0 ? "+" : ""}${odds})`}
-        value={pnl}
-        onChange={(e) => setPnl(e.target.value)}
-        className="w-28 rounded border border-ds-line bg-transparent px-2 py-1 font-jet text-[11px] text-ds-fg placeholder-ds-muted focus:border-sky-400 focus:outline-none"
-      />
-
       {error && <span className="font-jet text-[10px] text-red-400">{error}</span>}
 
       <button
@@ -88,7 +68,7 @@ export function SettleBetForm({ betId, amount, prediction, odds }: Props) {
         disabled={isPending}
         className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 font-jet text-[10px] uppercase tracking-[0.1em] text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
       >
-        {isPending ? "Settling…" : `Settle ($${amount})`}
+        {isPending ? "Settling…" : `Settle ($${amount}, ${odds > 0 ? "+" : ""}${odds})`}
       </button>
     </form>
   )

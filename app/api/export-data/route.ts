@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from "next/server"
+import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -31,6 +32,9 @@ function row(fields: unknown[]): string {
 }
 
 export async function GET() {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
   try {
     const [gameResults, predictions] = await Promise.all([
       prisma.gameResult.findMany({
