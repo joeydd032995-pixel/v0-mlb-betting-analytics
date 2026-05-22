@@ -2,7 +2,6 @@
 
 import type { Game, NRFIPrediction, Team, Pitcher, ModelBreakdown } from "@/lib/types"
 import { METRIC_GLOSSARY } from "@/lib/types"
-import { Card } from "@/components/ui/card"
 import Link from "next/link"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,22 +9,10 @@ import { DeepNrfiPanel } from "@/components/ensemble/DeepNrfiPanel"
 import { MonteCarloHistogram } from "@/components/ensemble/MonteCarloHistogram"
 import { StackContributionBar } from "@/components/ensemble/StackContributionBar"
 import {
-  CloudSun,
-  Wind,
-  Thermometer,
-  Building2,
-  Clock,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  ChevronDown,
-  ChevronUp,
-  DollarSign,
-  BrainCircuit,
-  AlertTriangle,
-  HelpCircle,
-  BarChart3,
-  History,
+  CloudSun, Wind, Thermometer, Building2, Clock,
+  TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
+  DollarSign, BrainCircuit, AlertTriangle, HelpCircle,
+  BarChart3, History,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -39,23 +26,270 @@ interface Props {
   awayPitcher: Pitcher
 }
 
-function pct(n: number) {
-  return `${(n * 100).toFixed(1)}%`
-}
-
-function formatOdds(n: number) {
-  return n > 0 ? `+${n}` : `${n}`
-}
-
+function pct(n: number) { return `${(n * 100).toFixed(1)}%` }
+function formatOdds(n: number) { return n > 0 ? `+${n}` : `${n}` }
 type MetricGlossaryKey = keyof typeof METRIC_GLOSSARY
 
+// ─── Arc Gauge ────────────────────────────────────────────────────────────────
+// All constants are spec-locked — do not change.
+const ARC_R  = 80
+const ARC_CX = 100
+const ARC_CY = 90
+const START_DEG = -210
+const SWEEP_DEG = 200
+const VW = 200
+const VH = 140
+
+function polarToXY(angleDeg: number, r: number, cx: number, cy: number) {
+  const rad = (angleDeg * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+
+function arcPath(startDeg: number, endDeg: number, r: number, cx: number, cy: number) {
+  const s = polarToXY(startDeg, r, cx, cy)
+  const e = polarToXY(endDeg, r, cx, cy)
+  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0
+  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`
+}
+
+function ArcGauge({ probability, id }: { probability: number; id: string }) {
+  const isNrfi = probability >= 0.5
+  const pctVal = isNrfi
+    ? Math.round(probability * 100)
+    : Math.round((1 - probability) * 100)
+
+  const fillEnd = START_DEG + SWEEP_DEG * probability
+  const trackPath = arcPath(START_DEG, START_DEG + SWEEP_DEG, ARC_R, ARC_CX, ARC_CY)
+  const fillPath  = arcPath(START_DEG, fillEnd, ARC_R, ARC_CX, ARC_CY)
+
+  const trackColor = isNrfi ? "rgba(0,230,118,0.12)" : "rgba(255,23,68,0.12)"
+  const fillGrad   = isNrfi ? `url(#${id}-grad-nrfi)` : `url(#${id}-grad-yrfi)`
+  const textColor  = isNrfi ? "var(--hm-grass)" : "var(--hm-blood)"
+  const labelText  = isNrfi ? "NRFI" : "YRFI"
+
+  return (
+    <svg
+      viewBox={`0 0 ${VW} ${VH}`}
+      className="w-[100px] sm:w-[130px] flex-shrink-0"
+      style={{ overflow: "hidden" }}
+    >
+      <defs>
+        <linearGradient id={`${id}-grad-nrfi`} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="var(--hm-diamond)" />
+          <stop offset="100%" stopColor="var(--hm-grass)" />
+        </linearGradient>
+        <linearGradient id={`${id}-grad-yrfi`} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="var(--hm-gold)" />
+          <stop offset="100%" stopColor="var(--hm-blood)" />
+        </linearGradient>
+        <filter id={`${id}-glow`}>
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
+      {/* Track */}
+      <path d={trackPath} fill="none" stroke={trackColor} strokeWidth="7" strokeLinecap="round" />
+
+      {/* Fill arc */}
+      <path
+        d={fillPath}
+        fill="none"
+        stroke={fillGrad}
+        strokeWidth="7"
+        strokeLinecap="round"
+        filter={`url(#${id}-glow)`}
+      />
+
+      {/* Percentage */}
+      <text
+        x={ARC_CX} y={ARC_CY + 5}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontFamily="'Bebas Neue', sans-serif"
+        fontSize="28"
+        fill={textColor}
+        letterSpacing="0.5"
+      >
+        {pctVal}%
+      </text>
+
+      {/* NRFI / YRFI label */}
+      <text
+        x={ARC_CX} y={ARC_CY + 22}
+        textAnchor="middle"
+        fontFamily="'DM Mono', monospace"
+        fontSize="8"
+        fill={textColor}
+        letterSpacing="2"
+        opacity="0.85"
+      >
+        {labelText}
+      </text>
+
+      {/* Axis labels */}
+      <text x={14} y={VH - 3} textAnchor="middle" fontFamily="'DM Mono', monospace" fontSize="7" fill="var(--hm-smoke)">YRFI</text>
+      <text x={VW - 14} y={VH - 3} textAnchor="middle" fontFamily="'DM Mono', monospace" fontSize="7" fill="var(--hm-smoke)">NRFI</text>
+    </svg>
+  )
+}
+
+// ─── Recommendation badge ─────────────────────────────────────────────────────
+const REC_CFG: Record<NRFIPrediction["recommendation"], { label: string; color: string; bg: string; border: string }> = {
+  STRONG_NRFI: { label: "STRONG NRFI", color: "var(--hm-grass)",  bg: "rgba(0,230,118,.10)", border: "rgba(0,230,118,.45)" },
+  LEAN_NRFI:   { label: "LEAN NRFI",   color: "var(--hm-grass)",  bg: "rgba(0,230,118,.06)", border: "rgba(0,230,118,.25)" },
+  TOSS_UP:     { label: "TOSS-UP",     color: "var(--hm-smoke)",  bg: "rgba(96,125,139,.10)", border: "rgba(96,125,139,.35)" },
+  LEAN_YRFI:   { label: "LEAN YRFI",   color: "var(--hm-blood)",  bg: "rgba(255,23,68,.06)", border: "rgba(255,23,68,.25)" },
+  STRONG_YRFI: { label: "STRONG YRFI", color: "var(--hm-blood)",  bg: "rgba(255,23,68,.10)", border: "rgba(255,23,68,.45)" },
+}
+
+function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] }) {
+  const cfg = REC_CFG[rec]
+  return (
+    <span
+      className="inline-flex items-center rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.1em] uppercase"
+      style={{ fontSize: "10px", color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }}
+    >
+      {cfg.label}
+    </span>
+  )
+}
+
+function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
+  const color = level === "High" ? "var(--hm-gold)" : level === "Medium" ? "var(--hm-diamond)" : "var(--hm-smoke)"
+  const bg    = level === "High" ? "rgba(255,214,0,.08)"  : level === "Medium" ? "rgba(0,229,255,.08)" : "rgba(96,125,139,.08)"
+  const bdr   = level === "High" ? "rgba(255,214,0,.35)"  : level === "Medium" ? "rgba(0,229,255,.3)"  : "rgba(96,125,139,.3)"
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
+      style={{ fontSize: "9px", color, background: bg, border: `1px solid ${bdr}` }}
+    >
+      {level} <span style={{ opacity: 0.7 }}>{score}</span>
+    </span>
+  )
+}
+
+// ─── Probability bar ──────────────────────────────────────────────────────────
+function ProbabilityBar({ nrfi }: { nrfi: number }) {
+  const nrfiPct = Math.round(nrfi * 100)
+  return (
+    <div className="w-full">
+      <div className="flex h-2 overflow-hidden rounded-[2px]">
+        <div
+          className="transition-all duration-500"
+          style={{ width: `${nrfiPct}%`, background: "var(--hm-grass)" }}
+        />
+        <div className="flex-1 transition-all duration-500" style={{ background: "var(--hm-blood)" }} />
+      </div>
+      <div className="mt-1 flex justify-between">
+        <span className="font-mono tracking-[0.08em]" style={{ fontSize: "9px", color: "var(--hm-grass)" }}>NRFI {nrfiPct}%</span>
+        <span className="font-mono tracking-[0.08em]" style={{ fontSize: "9px", color: "var(--hm-blood)" }}>YRFI {100 - nrfiPct}%</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Form pips ────────────────────────────────────────────────────────────────
+function FormPip({ value }: { value: boolean }) {
+  return (
+    <span
+      className="inline-flex h-5 w-5 items-center justify-center rounded-[2px] font-mono font-bold"
+      style={{
+        fontSize: "9px",
+        background: value ? "rgba(0,230,118,0.15)" : "rgba(255,23,68,0.12)",
+        color: value ? "var(--hm-grass)" : "var(--hm-blood)",
+        border: `1px solid ${value ? "rgba(0,230,118,0.3)" : "rgba(255,23,68,0.25)"}`,
+      }}
+    >
+      {value ? "N" : "Y"}
+    </span>
+  )
+}
+
+function PitcherFormRow({ name, results }: { name: string; results: boolean[] }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-32 shrink-0 truncate font-ui" style={{ fontSize: "11px", color: "var(--hm-mist)" }}>{name}</span>
+      <div className="flex gap-1">{results.map((r, i) => <FormPip key={i} value={r} />)}</div>
+      <span className="font-mono" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+        {results.filter(Boolean).length}/{results.length}
+      </span>
+    </div>
+  )
+}
+
+function TeamFormRow({ abbr, results }: { abbr: string; results: boolean[] }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-32 shrink-0 font-mono uppercase tracking-[0.1em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+        {abbr} <span style={{ opacity: 0.5 }}>off</span>
+      </span>
+      <div className="flex gap-1">{results.map((r, i) => <FormPip key={i} value={r} />)}</div>
+      <span className="font-mono" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+        {results.filter(Boolean).length}/{results.length}
+      </span>
+    </div>
+  )
+}
+
+// ─── Factor icon ──────────────────────────────────────────────────────────────
+function FactorIcon({ impact }: { impact: NRFIPrediction["factors"][0]["impact"] }) {
+  if (impact === "positive") return <TrendingUp className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--hm-grass)" }} />
+  if (impact === "negative") return <TrendingDown className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--hm-blood)" }} />
+  return <Minus className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--hm-smoke)" }} />
+}
+
+// ─── Weather badge ────────────────────────────────────────────────────────────
+function WeatherBadge({ game }: { game: Game }) {
+  const w = game.weather
+  if (w.conditions === "dome") {
+    return (
+      <span className="flex items-center gap-1 font-mono tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+        <Building2 size={11} /> DOME
+      </span>
+    )
+  }
+  return (
+    <span className="flex items-center gap-1 font-mono tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+      <Thermometer size={11} />
+      {w.temperature}°F
+      {w.windSpeed > 3 && (
+        <><Wind size={11} className="ml-0.5" />{w.windSpeed}mph</>
+      )}
+    </span>
+  )
+}
+
+// ─── Model consensus ──────────────────────────────────────────────────────────
+function consensusLabel(score: number) {
+  if (score >= 0.80) return { label: "Models Agree",   color: "var(--hm-grass)",  bg: "rgba(0,230,118,.07)",  bdr: "rgba(0,230,118,.3)" }
+  if (score >= 0.55) return { label: "Mixed Signals",  color: "var(--hm-gold)",   bg: "rgba(255,214,0,.07)",  bdr: "rgba(255,214,0,.3)" }
+  return               { label: "Models Diverge", color: "var(--hm-blood)",  bg: "rgba(255,23,68,.07)",  bdr: "rgba(255,23,68,.3)" }
+}
+
+function ModelConsensusBadge({ consensus }: { consensus: number }) {
+  const c = consensusLabel(consensus)
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
+      style={{ fontSize: "9px", color: c.color, background: c.bg, border: `1px solid ${c.bdr}` }}
+    >
+      <BrainCircuit size={10} />{c.label}
+    </span>
+  )
+}
+
+// ─── Model tooltip label ──────────────────────────────────────────────────────
 function MetricLabel({ label, glossaryKey }: { label: string; glossaryKey: MetricGlossaryKey }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div className="flex items-center gap-1 cursor-help">
-          <span className="text-xs text-muted-foreground">{label}</span>
-          <HelpCircle className="h-3 w-3 text-muted-foreground/50 hover:text-muted-foreground transition-colors" />
+          <span className="font-mono uppercase tracking-[0.1em]" style={{ fontSize: "8px", color: "var(--hm-smoke)" }}>{label}</span>
+          <HelpCircle size={9} style={{ color: "var(--hm-smoke)", opacity: 0.5 }} />
         </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs text-xs">{METRIC_GLOSSARY[glossaryKey]}</TooltipContent>
@@ -63,273 +297,87 @@ function MetricLabel({ label, glossaryKey }: { label: string; glossaryKey: Metri
   )
 }
 
-function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] }) {
-  const map = {
-    STRONG_NRFI: { label: "STRONG NRFI", cls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
-    LEAN_NRFI: { label: "LEAN NRFI", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
-    TOSS_UP: { label: "TOSS-UP", cls: "bg-zinc-500/20 text-zinc-300 border-zinc-500/40" },
-    LEAN_YRFI: { label: "LEAN YRFI", cls: "bg-rose-500/10 text-rose-400 border-rose-500/30" },
-    STRONG_YRFI: { label: "STRONG YRFI", cls: "bg-rose-500/20 text-rose-300 border-rose-500/40" },
-  }
-  const { label, cls } = map[rec]
-  return (
-    <span className={cn("inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold tracking-wide", cls)}>
-      {label}
-    </span>
-  )
-}
-
-function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
-  const cls =
-    level === "High"
-      ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-      : level === "Medium"
-        ? "bg-sky-500/15 text-sky-300 border-sky-500/30"
-        : "bg-zinc-500/15 text-zinc-400 border-zinc-500/30"
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium", cls)}>
-      {level} {score}
-    </span>
-  )
-}
-
-function ProbabilityGauge({ probability }: { probability: number }) {
-  const pct = Math.round(probability * 100)
-  const isNrfi = probability >= 0.5
-
-  // Create conic gradient: emerald (NRFI) from 0 to probability, rose (YRFI) for remainder
-  const gaugeStyle = {
-    background: `conic-gradient(
-      from 0deg,
-      #10b981 0deg,
-      #10b981 ${probability * 360}deg,
-      #f43f5e ${probability * 360}deg,
-      #f43f5e 360deg
-    )`,
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative w-24 h-24 rounded-full flex items-center justify-center" style={gaugeStyle}>
-        {/* Inner circle to create donut effect */}
-        <div className="absolute w-20 h-20 rounded-full bg-background flex items-center justify-center">
-          <div className="text-center">
-            <div className={cn(
-              "text-2xl font-black tabular-nums leading-none",
-              isNrfi ? "text-emerald-400" : "text-rose-400"
-            )}>
-              {pct}%
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="text-xs font-semibold text-muted-foreground">
-        {isNrfi ? "NRFI" : "YRFI"}
-      </div>
-    </div>
-  )
-}
-
-function ProbabilityBar({ nrfi, yrfi }: { nrfi: number; yrfi: number }) {
-  const nrfiPct = Math.round(nrfi * 100)
-  const yrfiPct = 100 - nrfiPct
-  return (
-    <div className="w-full">
-      <div className="flex h-3 overflow-hidden rounded-full">
-        <div
-          className="bg-emerald-500 transition-all"
-          style={{ width: `${nrfiPct}%` }}
-        />
-        <div
-          className="bg-rose-500 transition-all"
-          style={{ width: `${yrfiPct}%` }}
-        />
-      </div>
-      <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-        <span className="text-emerald-400 font-medium">NRFI {nrfiPct}%</span>
-        <span className="text-rose-400 font-medium">YRFI {yrfiPct}%</span>
-      </div>
-    </div>
-  )
-}
-
-
-function FactorIcon({ impact }: { impact: NRFIPrediction["factors"][0]["impact"] }) {
-  if (impact === "positive") return <TrendingUp className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
-  if (impact === "negative") return <TrendingDown className="h-3.5 w-3.5 text-rose-400 flex-shrink-0" />
-  return <Minus className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
-}
-
-function WeatherBadge({ game }: { game: Game }) {
-  const w = game.weather
-  if (w.conditions === "dome") {
-    return (
-      <span className="flex items-center gap-1 text-xs text-zinc-400">
-        <Building2 className="h-3 w-3" /> Dome
-      </span>
-    )
-  }
-  return (
-    <span className="flex items-center gap-1 text-xs text-zinc-400">
-      <Thermometer className="h-3 w-3" />
-      {w.temperature}°F
-      {w.windSpeed > 3 && (
-        <>
-          <Wind className="ml-1 h-3 w-3" />
-          {w.windSpeed}mph {w.windDirection}
-        </>
-      )}
-    </span>
-  )
-}
-
-// ─── Idea 1: Model Consensus Meter ───────────────────────────────────────────
-
-function consensusLabel(score: number) {
-  if (score >= 0.80) return { label: "Models Agree", cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/8" }
-  if (score >= 0.55) return { label: "Mixed Signals", cls: "text-amber-400 border-amber-500/30 bg-amber-500/8" }
-  return { label: "Models Diverge", cls: "text-rose-400 border-rose-500/30 bg-rose-500/8" }
-}
-
-/** Compact one-line consensus badge shown in the main (non-expanded) card */
-function ModelConsensusBadge({ consensus }: { consensus: number }) {
-  const { label, cls } = consensusLabel(consensus)
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium", cls)}>
-      <BrainCircuit className="h-3 w-3" />
-      {label}
-    </span>
-  )
-}
-
+// ─── Model breakdown panel ────────────────────────────────────────────────────
 function ModelRow({ name, p, detail }: { name: string; p: number; detail: string }) {
   const pctVal = Math.round(p * 100)
   const isNrfi = p >= 0.5
   return (
     <div>
       <div className="flex items-center gap-2 mb-0.5">
-        <span className="w-24 text-[11px] font-semibold text-foreground/80">{name}</span>
-        <span className="flex-1 text-[10px] text-muted-foreground truncate">{detail}</span>
-        <span className={cn("text-xs font-bold tabular-nums", isNrfi ? "text-emerald-400" : "text-rose-400")}>
-          {pctVal}%
-        </span>
+        <span className="w-24 font-mono uppercase tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-mist)" }}>{name}</span>
+        <span className="flex-1 truncate font-ui" style={{ fontSize: "10px", color: "var(--hm-smoke)" }}>{detail}</span>
+        <span className="font-mono font-bold tabular-nums" style={{ fontSize: "10px", color: isNrfi ? "var(--hm-grass)" : "var(--hm-blood)" }}>{pctVal}%</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted/50">
+      <div className="h-1.5 overflow-hidden rounded-[2px]" style={{ background: "rgba(255,255,255,0.06)" }}>
         <div
-          className={cn("h-full rounded-full", isNrfi ? "bg-emerald-500" : "bg-rose-500")}
-          style={{ width: `${pctVal}%` }}
+          className="h-full rounded-[2px] transition-all"
+          style={{ width: `${pctVal}%`, background: isNrfi ? "var(--hm-grass)" : "var(--hm-blood)" }}
         />
       </div>
     </div>
   )
 }
 
-/** Full model breakdown panel shown in the expanded section */
-function ModelBreakdownPanel({
-  bd,
-  awayAbbr,
-  homeAbbr,
-}: {
-  bd: ModelBreakdown
-  awayAbbr: string
-  homeAbbr: string
-}) {
-  // Game-level per-model NRFI: both half-innings must hold for NRFI
-  // homeHalfInning = home pitcher (stops away team) ; awayHalfInning = away pitcher (stops home team)
+function ModelBreakdownPanel({ bd, awayAbbr, homeAbbr }: { bd: ModelBreakdown; awayAbbr: string; homeAbbr: string }) {
   const hh = bd.homeHalfInning
   const ah = bd.awayHalfInning
-
   const baseModels = [
-    {
-      name: "Poisson",
-      p: hh.poissonNrfi * ah.poissonNrfi,
-      detail: "Bayesian-shrunk λ via e^(−λ)",
-    },
-    {
-      name: "ZIP",
-      p: hh.zipNrfi * ah.zipNrfi,
-      detail: `ω ${(hh.zipOmega * 100).toFixed(0)}% / ${(ah.zipOmega * 100).toFixed(0)}% lockdown`,
-    },
-    {
-      name: "Markov",
-      p: hh.markovNrfi * ah.markovNrfi,
-      detail: "24-state base-out chain · handedness splits",
-    },
-    {
-      name: "MAPRE",
-      p: hh.mapreNrfi * ah.mapreNrfi,
-      detail: "sOPS+, BAbip, HR/PA, HFA, rest/travel",
-    },
+    { name: "Poisson", p: hh.poissonNrfi * ah.poissonNrfi, detail: "Bayesian-shrunk λ via e^(−λ)" },
+    { name: "ZIP",     p: hh.zipNrfi * ah.zipNrfi, detail: `ω ${(hh.zipOmega * 100).toFixed(0)}% / ${(ah.zipOmega * 100).toFixed(0)}% lockdown` },
+    { name: "Markov",  p: hh.markovNrfi * ah.markovNrfi, detail: "24-state base-out chain · handedness" },
+    { name: "MAPRE",   p: hh.mapreNrfi * ah.mapreNrfi, detail: "sOPS+, BAbip, HR/PA, HFA, rest" },
   ]
-
   const metaModels = [
     ...(hh.logisticMetaNrfi != null && ah.logisticMetaNrfi != null
-      ? [{ name: "Logistic Stack", p: hh.logisticMetaNrfi * ah.logisticMetaNrfi, detail: "Logistic regression stacked on base-4 avg" }]
-      : []),
+      ? [{ name: "Logistic Stack", p: hh.logisticMetaNrfi * ah.logisticMetaNrfi, detail: "Logistic regression on base-4 avg" }] : []),
     ...(hh.nnInteractionNrfi != null && ah.nnInteractionNrfi != null
-      ? [{ name: "NN Interaction", p: (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2, detail: "Poisson × Markov cross-model interaction" }]
-      : []),
+      ? [{ name: "NN Interaction", p: (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2, detail: "Poisson × Markov cross-model interaction" }] : []),
     ...(hh.hierarchicalBayesNrfi != null && ah.hierarchicalBayesNrfi != null
-      ? [{ name: "Hier. Bayes", p: (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2, detail: "Dynamic-prior shrunk pitcher rate" }]
-      : []),
+      ? [{ name: "Hier. Bayes", p: (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2, detail: "Dynamic-prior shrunk pitcher rate" }] : []),
   ]
-
-  const hasMeta = metaModels.length > 0
-  const ensembleLabel = hasMeta ? "7-Model Ensemble" : "Model Ensemble"
-
-  const { label, cls } = consensusLabel(bd.modelConsensus)
+  const { label, color, bg, bdr } = consensusLabel(bd.modelConsensus)
 
   return (
-    <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/5 p-3">
+    <div
+      className="mt-3 rounded-[8px] p-3"
+      style={{ background: "rgba(0,229,255,0.04)", border: "1px solid rgba(0,229,255,0.15)" }}
+    >
       <div className="flex items-center justify-between mb-2.5">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
-          <BrainCircuit className="h-3.5 w-3.5" />
-          {ensembleLabel}
+        <p className="flex items-center gap-1.5 font-mono uppercase tracking-[0.1em]" style={{ fontSize: "9px", color: "var(--hm-diamond)" }}>
+          <BrainCircuit size={12} />
+          {metaModels.length > 0 ? "7-MODEL ENSEMBLE" : "MODEL ENSEMBLE"}
         </p>
-        <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold", cls)}>
+        <span
+          className="inline-flex items-center rounded-[3px] px-[6px] py-[2px] font-mono uppercase tracking-[0.06em]"
+          style={{ fontSize: "8px", color, background: bg, border: `1px solid ${bdr}` }}
+        >
           {label}
         </span>
       </div>
-
-      {/* Base models */}
-      <div className="space-y-2">
-        {baseModels.map((m) => <ModelRow key={m.name} {...m} />)}
-      </div>
-
-      {/* Meta-models separator + rows */}
-      {hasMeta && (
+      <div className="space-y-2">{baseModels.map((m) => <ModelRow key={m.name} {...m} />)}</div>
+      {metaModels.length > 0 && (
         <>
           <div className="my-2 flex items-center gap-2">
-            <div className="flex-1 border-t border-sky-500/20" />
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-sky-400/60">Meta-models</span>
-            <div className="flex-1 border-t border-sky-500/20" />
+            <div className="flex-1" style={{ borderTop: "1px solid rgba(0,229,255,0.12)" }} />
+            <span className="font-mono uppercase tracking-[0.14em]" style={{ fontSize: "8px", color: "var(--hm-smoke)" }}>Meta-models</span>
+            <div className="flex-1" style={{ borderTop: "1px solid rgba(0,229,255,0.12)" }} />
           </div>
-          <div className="space-y-2">
-            {metaModels.map((m) => <ModelRow key={m.name} {...m} />)}
-          </div>
+          <div className="space-y-2">{metaModels.map((m) => <ModelRow key={m.name} {...m} />)}</div>
         </>
       )}
-
-      {/* Bayesian data-trust for each pitcher */}
-      <div className="mt-2.5 grid grid-cols-2 gap-x-4 border-t border-sky-500/15 pt-2 text-[10px]">
+      <div className="mt-2.5 grid grid-cols-2 gap-x-4 pt-2 font-mono" style={{ borderTop: "1px solid rgba(0,229,255,0.1)", fontSize: "9px" }}>
         <div>
-          <span className="text-muted-foreground">{awayAbbr} pitcher trust </span>
-          <span className="font-semibold text-sky-300">
-            {(bd.homeHalfInning.bayesianDataWeight * 100).toFixed(0)}% season
-          </span>
+          <span style={{ color: "var(--hm-smoke)" }}>{awayAbbr} trust </span>
+          <span style={{ color: "var(--hm-diamond)" }}>{(bd.homeHalfInning.bayesianDataWeight * 100).toFixed(0)}% season</span>
         </div>
         <div>
-          <span className="text-muted-foreground">{homeAbbr} pitcher trust </span>
-          <span className="font-semibold text-sky-300">
-            {(bd.awayHalfInning.bayesianDataWeight * 100).toFixed(0)}% season
-          </span>
+          <span style={{ color: "var(--hm-smoke)" }}>{homeAbbr} trust </span>
+          <span style={{ color: "var(--hm-diamond)" }}>{(bd.awayHalfInning.bayesianDataWeight * 100).toFixed(0)}% season</span>
         </div>
       </div>
-
-      {/* Outlier note */}
       {bd.consensusNote && (
-        <div className="mt-1.5 flex items-start gap-1 text-[10px] text-amber-400">
-          <AlertTriangle className="h-3 w-3 flex-shrink-0 mt-px" />
+        <div className="mt-1.5 flex items-start gap-1 font-ui" style={{ fontSize: "10px", color: "var(--hm-gold)" }}>
+          <AlertTriangle size={11} className="flex-shrink-0 mt-px" />
           <span className="italic">{bd.consensusNote}</span>
         </div>
       )}
@@ -337,88 +385,122 @@ function ModelBreakdownPanel({
   )
 }
 
+// ─── Main card ────────────────────────────────────────────────────────────────
 export function GamePredictionCard({
-  game,
-  prediction,
-  homeTeam,
-  awayTeam,
-  homePitcher,
-  awayPitcher,
+  game, prediction, homeTeam, awayTeam, homePitcher, awayPitcher,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
-  const nrfiPct = Math.round(prediction.nrfiProbability * 100)
   const isNrfiFavored = prediction.nrfiProbability >= 0.5
   const va = prediction.valueAnalysis
+  const gaugeId = `gauge-${game.id}`
+
+  // Top stripe color based on recommendation
+  const stripeColor = isNrfiFavored ? "var(--hm-grass)" : prediction.recommendation === "TOSS_UP" ? "var(--hm-smoke)" : "var(--hm-blood)"
 
   return (
-    <Card className="flex flex-col overflow-hidden border border-border/60 bg-card/80 backdrop-blur">
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Clock className="h-3 w-3" />
-          <span className="font-medium">{game.time} {game.timeZone}</span>
-          <span className="hidden sm:inline text-zinc-600">·</span>
-          <span className="hidden sm:inline truncate max-w-[140px]">{game.venue}</span>
-        </div>
+    <div
+      className="flex flex-col overflow-hidden rounded-[14px] relative"
+      style={{
+        background: "linear-gradient(160deg, var(--hm-pitch) 0%, var(--hm-void) 100%)",
+        border: "1px solid var(--hm-fence)",
+      }}
+    >
+      {/* Top accent stripe */}
+      <div aria-hidden style={{ height: "2px", background: stripeColor, opacity: 0.75 }} />
+
+      {/* Header row */}
+      <div
+        className="flex items-center justify-between px-3 sm:px-4 py-2"
+        style={{ borderBottom: "1px solid var(--hm-fence)" }}
+      >
         <div className="flex items-center gap-2">
-          <WeatherBadge game={game} />
+          <Clock size={11} style={{ color: "var(--hm-smoke)" }} />
+          <span className="font-mono tracking-[0.06em]" style={{ fontSize: "10px", color: "var(--hm-mist)" }}>
+            {game.time} {game.timeZone}
+          </span>
+          <span className="hidden sm:inline" style={{ color: "var(--hm-fence)" }}>·</span>
+          <span className="hidden sm:inline font-ui truncate max-w-[140px]" style={{ fontSize: "11px", color: "var(--hm-smoke)" }}>
+            {game.venue}
+          </span>
+        </div>
+        <WeatherBadge game={game} />
+      </div>
+
+      {/* Matchup row */}
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 sm:py-4">
+        {/* Away team */}
+        <div className="flex flex-col items-start gap-[3px] flex-1 min-w-0">
+          <span
+            className="font-headline leading-none tracking-[0.03em]"
+            style={{ fontSize: "22px", color: "var(--hm-chalk)" }}
+          >
+            {awayTeam.abbreviation}
+          </span>
+          <span className="font-ui truncate max-w-full" style={{ fontSize: "11px", color: "var(--hm-mist)" }}>
+            {awayPitcher.name}
+          </span>
+          <span className="font-mono uppercase tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+            {awayPitcher.throws}HP · {pct(awayPitcher.firstInning.nrfiRate)} NRFI
+          </span>
+        </div>
+
+        {/* Arc gauge */}
+        <ArcGauge probability={prediction.nrfiProbability} id={gaugeId} />
+
+        {/* Home team */}
+        <div className="flex flex-col items-end gap-[3px] flex-1 min-w-0">
+          <span
+            className="font-headline leading-none tracking-[0.03em]"
+            style={{ fontSize: "22px", color: "var(--hm-chalk)" }}
+          >
+            {homeTeam.abbreviation}
+          </span>
+          <span className="font-ui truncate max-w-full text-right" style={{ fontSize: "11px", color: "var(--hm-mist)" }}>
+            {homePitcher.name}
+          </span>
+          <span className="font-mono uppercase tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+            {pct(homePitcher.firstInning.nrfiRate)} NRFI · {homePitcher.throws}HP
+          </span>
         </div>
       </div>
 
-      {/* Teams row + Matchup summary */}
-      <div className="border-b border-border/50 px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          {/* Away team */}
-          <div className="flex flex-col items-start gap-0.5 min-w-0">
-            <span className="text-lg font-bold text-foreground">{awayTeam.abbreviation}</span>
-            <span className="text-xs text-muted-foreground truncate">{awayPitcher.name}</span>
-            <span className="text-xs text-zinc-500">{awayPitcher.throws}HP · {pct(awayPitcher.firstInning.nrfiRate)} NRFI</span>
-          </div>
-
-          {/* Center probability gauge */}
-          <div className="flex flex-col items-center gap-1 flex-shrink-0">
-            <span className="text-xs font-medium text-muted-foreground">@</span>
-            <ProbabilityGauge probability={prediction.nrfiProbability} />
-          </div>
-
-          {/* Home team */}
-          <div className="flex flex-col items-end gap-0.5 min-w-0">
-            <span className="text-lg font-bold text-foreground">{homeTeam.abbreviation}</span>
-            <span className="text-xs text-muted-foreground truncate">{homePitcher.name}</span>
-            <span className="text-xs text-zinc-500">{homePitcher.throws}HP · {pct(homePitcher.firstInning.nrfiRate)} NRFI</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabbed content */}
+      {/* Tabs */}
       <Tabs defaultValue="overview" className="flex flex-col">
-        <TabsList className="w-full justify-start rounded-none border-b border-border/30 bg-transparent px-4 py-2">
-          <TabsTrigger value="overview" className="gap-1.5">
-            <BarChart3 className="h-3.5 w-3.5" />
-            Overview
-          </TabsTrigger>
-          <TabsTrigger value="historical" className="gap-1.5">
-            <History className="h-3.5 w-3.5" />
-            Historical
-          </TabsTrigger>
-          <TabsTrigger value="pitchers" className="gap-1.5">
-            <TrendingUp className="h-3.5 w-3.5" />
-            Pitchers
-          </TabsTrigger>
-          <TabsTrigger value="accuracy" className="gap-1.5">
-            <BarChart3 className="h-3.5 w-3.5" />
-            Accuracy
-          </TabsTrigger>
+        <TabsList
+          className="w-full justify-start rounded-none bg-transparent pt-1 pb-0 gap-0 overflow-x-auto tabs-scroll"
+          style={{
+            paddingLeft: "12px",
+            paddingRight: "12px",
+            borderBottom: "1px solid var(--hm-fence)",
+          }}
+        >
+          {[
+            { value: "overview",   icon: <BarChart3 size={11} />, label: "OVERVIEW" },
+            { value: "historical", icon: <History size={11} />,   label: "HISTORY" },
+            { value: "pitchers",   icon: <TrendingUp size={11} />, label: "PITCHERS" },
+            { value: "accuracy",   icon: <BarChart3 size={11} />, label: "ACCURACY" },
+          ].map((tab) => (
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              className="whitespace-nowrap shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--hm-diamond)] data-[state=active]:text-[var(--hm-diamond)] transition-colors bg-transparent"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "9px",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "var(--hm-smoke)",
+              }}
+            >
+              {tab.icon}{tab.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="mt-0 flex-1 space-y-3 border-t border-border/30 p-4">
-          {/* Probability bar */}
-          <div>
-            <ProbabilityBar nrfi={prediction.nrfiProbability} yrfi={prediction.yrfiProbability} />
-          </div>
+        {/* Overview tab */}
+        <TabsContent value="overview" className="mt-0 flex-1 p-3 sm:p-4 space-y-3">
+          <ProbabilityBar nrfi={prediction.nrfiProbability} />
 
-          {/* Tags row */}
           <div className="flex flex-wrap items-center gap-2">
             <RecommendationBadge rec={prediction.recommendation} />
             <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
@@ -426,56 +508,54 @@ export function GamePredictionCard({
               <ModelConsensusBadge consensus={prediction.modelBreakdown.modelConsensus} />
             )}
             {va && va.recommendedBet !== "NO_BET" && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300">
-                <DollarSign className="h-3 w-3" />
+              <span
+                className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
+                style={{ fontSize: "9px", color: "#a855f7", background: "rgba(168,85,247,.08)", border: "1px solid rgba(168,85,247,.3)" }}
+              >
+                <DollarSign size={10} />
                 Value {formatOdds(va.recommendedBet === "NRFI" ? va.nrfiOdds : va.yrfiOdds)}
-                {" "}
-                <span className="text-violet-400">+{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(1)}%</span>
+                {" "}+{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(1)}%
               </span>
             )}
           </div>
 
-          {/* Per-team expected runs */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-md bg-muted/30 px-3 py-2">
-              <MetricLabel label={`${awayTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
-              <p className="text-sm font-semibold tabular-nums">{prediction.awayExpectedRuns.toFixed(3)}</p>
-              <MetricLabel label={`${pct(prediction.awayScores0Prob)} score 0`} glossaryKey="nrfiRate" />
-            </div>
-            <div className="rounded-md bg-muted/30 px-3 py-2">
-              <MetricLabel label={`${homeTeam.abbreviation} xR (1st)`} glossaryKey="xR" />
-              <p className="text-sm font-semibold tabular-nums">{prediction.homeExpectedRuns.toFixed(3)}</p>
-              <MetricLabel label={`${pct(prediction.homeScores0Prob)} score 0`} glossaryKey="nrfiRate" />
-            </div>
+            {[
+              { abbr: awayTeam.abbreviation, xR: prediction.awayExpectedRuns, p0: prediction.awayScores0Prob },
+              { abbr: homeTeam.abbreviation, xR: prediction.homeExpectedRuns, p0: prediction.homeScores0Prob },
+            ].map((t) => (
+              <div key={t.abbr} className="rounded-[8px] px-3 py-2" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--hm-fence)" }}>
+                <MetricLabel label={`${t.abbr} xR (1st)`} glossaryKey="xR" />
+                <p className="font-mono font-semibold tabular-nums my-1" style={{ fontSize: "13px", color: "var(--hm-chalk)" }}>{t.xR.toFixed(3)}</p>
+                <MetricLabel label={`${pct(t.p0)} score 0`} glossaryKey="nrfiRate" />
+              </div>
+            ))}
           </div>
 
-          {/* Recent form pills — pitchers */}
-          <div className="flex flex-col gap-1.5 border-t border-border/30 pt-3">
+          <div
+            className="flex flex-col gap-1.5 pt-3"
+            style={{ borderTop: "1px solid var(--hm-fence)" }}
+          >
             <PitcherFormRow name={awayPitcher.name} results={awayPitcher.firstInning.last5Results} />
             <PitcherFormRow name={homePitcher.name} results={homePitcher.firstInning.last5Results} />
           </div>
 
-          {/* Recent form pills — team offense */}
           {(awayTeam.firstInning.last5Results || homeTeam.firstInning.last5Results) && (
-            <div className="flex flex-col gap-1.5 border-t border-border/30 pt-3">
-              {awayTeam.firstInning.last5Results && (
-                <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />
-              )}
-              {homeTeam.firstInning.last5Results && (
-                <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />
-              )}
+            <div className="flex flex-col gap-1.5 pt-3" style={{ borderTop: "1px solid var(--hm-fence)" }}>
+              {awayTeam.firstInning.last5Results && <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />}
+              {homeTeam.firstInning.last5Results && <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />}
             </div>
           )}
 
-          {/* Key Factors section */}
           {prediction.factors.length > 0 && (
-            <div className="border-t border-border/30 pt-3">
+            <div className="pt-3" style={{ borderTop: "1px solid var(--hm-fence)" }}>
               <button
                 onClick={() => setExpanded((v) => !v)}
-                className="flex w-full items-center justify-between text-xs text-muted-foreground transition-colors"
+                className="flex w-full items-center justify-between transition-colors"
+                style={{ color: "var(--hm-smoke)", fontSize: "11px" }}
               >
-                <span className="font-medium">Key Factors ({prediction.factors.length})</span>
-                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                <span className="font-ui">Key Factors ({prediction.factors.length})</span>
+                {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
 
               {expanded && (
@@ -486,54 +566,43 @@ export function GamePredictionCard({
                         <FactorIcon impact={f.impact} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-semibold text-foreground/90">{f.name}</span>
-                            {f.value && (
-                              <span className="text-xs text-muted-foreground">{f.value}</span>
-                            )}
+                            <span className="font-ui font-semibold" style={{ fontSize: "11px", color: "var(--hm-chalk)" }}>{f.name}</span>
+                            {f.value && <span className="font-mono" style={{ fontSize: "10px", color: "var(--hm-smoke)" }}>{f.value}</span>}
                           </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed">{f.description}</p>
+                          <p className="font-ui leading-relaxed" style={{ fontSize: "10px", color: "var(--hm-smoke)" }}>{f.description}</p>
                         </div>
                       </li>
                     ))}
                   </ul>
 
-                  {/* Model ensemble breakdown */}
                   {prediction.modelBreakdown && (
-                    <ModelBreakdownPanel
-                      bd={prediction.modelBreakdown}
-                      awayAbbr={awayTeam.abbreviation}
-                      homeAbbr={homeTeam.abbreviation}
-                    />
+                    <ModelBreakdownPanel bd={prediction.modelBreakdown} awayAbbr={awayTeam.abbreviation} homeAbbr={homeTeam.abbreviation} />
                   )}
 
-                  {/* Ensemble++ panels — render only when v2 data is present */}
-                  <StackContributionBar
-                    ensembleVersion={prediction.ensembleVersion}
-                    ensembleWeights={prediction.ensembleWeights}
-                  />
+                  <StackContributionBar ensembleVersion={prediction.ensembleVersion} ensembleWeights={prediction.ensembleWeights} />
                   <DeepNrfiPanel deepNrfi={prediction.deepNrfi} />
                   <MonteCarloHistogram mc={prediction.monteCarlo} />
 
-                  {/* Value analysis detail */}
                   {va && (
-                    <div className="rounded-md border border-violet-500/20 bg-violet-500/5 p-3">
-                      <p className="text-xs font-semibold text-violet-300 mb-1.5">Value Analysis · {game.odds?.bookmaker}</p>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                        <span className="text-muted-foreground">NRFI Odds</span>
-                        <span className="font-medium tabular-nums">{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
-                        <span className="text-muted-foreground">YRFI Odds</span>
-                        <span className="font-medium tabular-nums">{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
+                    <div className="rounded-[8px] p-3" style={{ background: "rgba(168,85,247,.05)", border: "1px solid rgba(168,85,247,.2)" }}>
+                      <p className="font-mono uppercase tracking-[0.1em] mb-2" style={{ fontSize: "9px", color: "#a855f7" }}>
+                        Value Analysis · {game.odds?.bookmaker}
+                      </p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono" style={{ fontSize: "10px" }}>
+                        <span style={{ color: "var(--hm-smoke)" }}>NRFI Odds</span>
+                        <span style={{ color: "var(--hm-mist)" }}>{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
+                        <span style={{ color: "var(--hm-smoke)" }}>YRFI Odds</span>
+                        <span style={{ color: "var(--hm-mist)" }}>{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
                         {va.recommendedBet !== "NO_BET" && (
                           <>
-                            <span className="text-muted-foreground">Model Edge</span>
-                            <span className={cn("font-semibold tabular-nums", "text-violet-300")}>
-                              +{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(2)}%
-                              {" "}on {va.recommendedBet}
+                            <span style={{ color: "var(--hm-smoke)" }}>Model Edge</span>
+                            <span style={{ color: "#a855f7", fontWeight: 600 }}>
+                              +{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(2)}% on {va.recommendedBet}
                             </span>
-                            <span className="text-muted-foreground">Kelly Size</span>
-                            <span className="font-medium tabular-nums">{pct(va.kellyFraction)} of bankroll</span>
-                            <span className="text-muted-foreground">Expected Value</span>
-                            <span className={cn("font-semibold tabular-nums", va.expectedValue > 0 ? "text-emerald-400" : "text-rose-400")}>
+                            <span style={{ color: "var(--hm-smoke)" }}>Kelly Size</span>
+                            <span style={{ color: "var(--hm-mist)" }}>{pct(va.kellyFraction)} of bankroll</span>
+                            <span style={{ color: "var(--hm-smoke)" }}>Expected Value</span>
+                            <span style={{ color: va.expectedValue > 0 ? "var(--hm-grass)" : "var(--hm-blood)", fontWeight: 600 }}>
                               {va.expectedValue > 0 ? "+" : ""}{(va.expectedValue * 100).toFixed(2)}%
                             </span>
                           </>
@@ -547,148 +616,91 @@ export function GamePredictionCard({
           )}
         </TabsContent>
 
-        {/* Historical Tab */}
-        <TabsContent value="historical" className="mt-0 flex-1 border-t border-border/30 p-4 space-y-3">
-          <div className="rounded-md bg-muted/30 p-3">
-            <p className="text-xs font-semibold text-muted-foreground mb-2">Matchup History</p>
-            <p className="text-xs text-muted-foreground">
-              Head-to-head records between {awayTeam.abbreviation} and {homeTeam.abbreviation} from previous seasons coming soon.
-            </p>
-          </div>
-          <div className="rounded-md bg-muted/30 p-3">
-            <p className="text-xs font-semibold text-muted-foreground mb-2">Recent Series</p>
-            <p className="text-xs text-muted-foreground">
-              Last 10 games between these teams and NRFI/YRFI results will appear here.
-            </p>
-          </div>
+        {/* Historical tab */}
+        <TabsContent value="historical" className="mt-0 flex-1 p-3 sm:p-4 space-y-3">
+          {[
+            { title: "Matchup History", desc: `Head-to-head records between ${awayTeam.abbreviation} and ${homeTeam.abbreviation} from previous seasons coming soon.` },
+            { title: "Recent Series",   desc: "Last 10 games between these teams and NRFI/YRFI results will appear here." },
+          ].map((block) => (
+            <div key={block.title} className="rounded-[8px] p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--hm-fence)" }}>
+              <p className="font-mono uppercase tracking-[0.12em] mb-2" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>{block.title}</p>
+              <p className="font-ui" style={{ fontSize: "11px", color: "var(--hm-smoke)" }}>{block.desc}</p>
+            </div>
+          ))}
         </TabsContent>
 
-        {/* Pitchers Tab */}
-        <TabsContent value="pitchers" className="mt-0 flex-1 border-t border-border/30 p-4">
-          <div className="space-y-3">
-            {/* Away pitcher */}
-            <div className="rounded-md border border-border/40 bg-muted/10 p-3">
+        {/* Pitchers tab */}
+        <TabsContent value="pitchers" className="mt-0 flex-1 p-3 sm:p-4 space-y-3">
+          {[
+            { team: awayTeam, pitcher: awayPitcher },
+            { team: homeTeam, pitcher: homePitcher },
+          ].map(({ team, pitcher }) => (
+            <div key={team.abbreviation} className="rounded-[8px] p-3" style={{ border: "1px solid var(--hm-fence)", background: "rgba(255,255,255,0.02)" }}>
               <div className="mb-2">
-                <p className="text-sm font-bold text-foreground">{awayTeam.abbreviation}: {awayPitcher.name}</p>
-                <p className="text-xs text-muted-foreground">{awayPitcher.throws}HP · {awayPitcher.firstInning.startCount} starts</p>
+                <p className="font-ui font-bold" style={{ fontSize: "13px", color: "var(--hm-chalk)" }}>{team.abbreviation}: {pitcher.name}</p>
+                <p className="font-mono uppercase tracking-[0.08em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+                  {pitcher.throws}HP · {pitcher.firstInning.startCount} starts
+                </p>
               </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                <div>
-                  <p className="text-muted-foreground">NRFI Rate</p>
-                  <p className="font-semibold text-foreground">{pct(awayPitcher.firstInning.nrfiRate)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">K Rate</p>
-                  <p className="font-semibold text-foreground">{pct(awayPitcher.firstInning.kRate)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">BB Rate</p>
-                  <p className="font-semibold text-foreground">{pct(awayPitcher.firstInning.bbRate)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Era</p>
-                  <p className="font-semibold text-foreground">{awayPitcher.firstInning.era.toFixed(2)}</p>
-                </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                {[
+                  { label: "NRFI Rate", val: pct(pitcher.firstInning.nrfiRate) },
+                  { label: "K Rate",    val: pct(pitcher.firstInning.kRate) },
+                  { label: "BB Rate",   val: pct(pitcher.firstInning.bbRate) },
+                  { label: "ERA",       val: pitcher.firstInning.era.toFixed(2) },
+                ].map((stat) => (
+                  <div key={stat.label}>
+                    <p className="font-mono uppercase tracking-[0.1em]" style={{ fontSize: "8px", color: "var(--hm-smoke)" }}>{stat.label}</p>
+                    <p className="font-mono tabular-nums font-semibold" style={{ fontSize: "12px", color: "var(--hm-chalk)" }}>{stat.val}</p>
+                  </div>
+                ))}
               </div>
-              <div className="mt-2 pt-2 border-t border-border/30">
-                <p className="text-xs text-muted-foreground mb-1">Last 5 games (NRFI)</p>
-                <div className="flex gap-1">
-                  {awayPitcher.firstInning.last5Results.map((r, i) => (
-                    <span
-                      key={i}
-                      className={cn(
-                        "h-5 w-5 rounded-sm text-[10px] font-bold flex items-center justify-center",
-                        r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-                      )}
-                    >
-                      {r ? "N" : "Y"}
-                    </span>
-                  ))}
-                </div>
+              <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--hm-fence)" }}>
+                <p className="font-mono uppercase tracking-[0.1em] mb-1.5" style={{ fontSize: "8px", color: "var(--hm-smoke)" }}>Last 5 (NRFI)</p>
+                <div className="flex gap-1">{pitcher.firstInning.last5Results.map((r, i) => <FormPip key={i} value={r} />)}</div>
               </div>
             </div>
-
-            {/* Home pitcher */}
-            <div className="rounded-md border border-border/40 bg-muted/10 p-3">
-              <div className="mb-2">
-                <p className="text-sm font-bold text-foreground">{homeTeam.abbreviation}: {homePitcher.name}</p>
-                <p className="text-xs text-muted-foreground">{homePitcher.throws}HP · {homePitcher.firstInning.startCount} starts</p>
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                <div>
-                  <p className="text-muted-foreground">NRFI Rate</p>
-                  <p className="font-semibold text-foreground">{pct(homePitcher.firstInning.nrfiRate)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">K Rate</p>
-                  <p className="font-semibold text-foreground">{pct(homePitcher.firstInning.kRate)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">BB Rate</p>
-                  <p className="font-semibold text-foreground">{pct(homePitcher.firstInning.bbRate)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Era</p>
-                  <p className="font-semibold text-foreground">{homePitcher.firstInning.era.toFixed(2)}</p>
-                </div>
-              </div>
-              <div className="mt-2 pt-2 border-t border-border/30">
-                <p className="text-xs text-muted-foreground mb-1">Last 5 games (NRFI)</p>
-                <div className="flex gap-1">
-                  {homePitcher.firstInning.last5Results.map((r, i) => (
-                    <span
-                      key={i}
-                      className={cn(
-                        "h-5 w-5 rounded-sm text-[10px] font-bold flex items-center justify-center",
-                        r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-                      )}
-                    >
-                      {r ? "N" : "Y"}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          ))}
         </TabsContent>
 
-        {/* Accuracy Tab */}
-        <TabsContent value="accuracy" className="mt-0 flex-1 border-t border-border/30 p-4 space-y-3">
-          <div className="rounded-md border border-border/40 bg-muted/10 p-3">
-            <p className="text-xs font-semibold text-muted-foreground mb-2">Game Result</p>
+        {/* Accuracy tab */}
+        <TabsContent value="accuracy" className="mt-0 flex-1 p-3 sm:p-4 space-y-3">
+          <div className="rounded-[8px] p-3" style={{ border: "1px solid var(--hm-fence)", background: "rgba(255,255,255,0.02)" }}>
+            <p className="font-mono uppercase tracking-[0.12em] mb-2" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>Game Result</p>
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">{awayTeam.abbreviation} runs (1st inning)</span>
-                <span className="font-mono font-semibold text-foreground">—</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">{homeTeam.abbreviation} runs (1st inning)</span>
-                <span className="font-mono font-semibold text-foreground">—</span>
-              </div>
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-border/30">
-                <span className="text-muted-foreground">Prediction Accuracy</span>
-                <span className="font-semibold text-muted-foreground">Pending</span>
+              {[awayTeam.abbreviation, homeTeam.abbreviation].map((abbr) => (
+                <div key={abbr} className="flex items-center justify-between">
+                  <span className="font-ui" style={{ fontSize: "11px", color: "var(--hm-smoke)" }}>{abbr} runs (1st inning)</span>
+                  <span className="font-mono font-semibold" style={{ fontSize: "12px", color: "var(--hm-mist)" }}>—</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--hm-fence)" }}>
+                <span className="font-ui" style={{ fontSize: "11px", color: "var(--hm-smoke)" }}>Prediction Accuracy</span>
+                <span className="font-mono uppercase tracking-[0.1em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>PENDING</span>
               </div>
             </div>
           </div>
-          <div className="rounded-md bg-muted/30 p-3">
-            <p className="text-xs text-muted-foreground italic">
-              Game result will be recorded after the first inning concludes. Accuracy metrics will be calculated automatically.
+          <div className="rounded-[8px] p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--hm-fence)" }}>
+            <p className="font-ui italic" style={{ fontSize: "11px", color: "var(--hm-smoke)" }}>
+              Result recorded after first inning. Accuracy calculated automatically.
             </p>
           </div>
         </TabsContent>
       </Tabs>
 
-      {/* Ensemble deep-dive footer link */}
-      <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: "var(--ds-line)" }}>
+      {/* Footer */}
+      <div
+        className="flex items-center justify-between px-3 sm:px-4 py-2.5"
+        style={{ borderTop: "1px solid var(--hm-fence)" }}
+      >
         <div className="flex flex-wrap gap-1.5">
           {prediction.factors.slice(0, 3).map((f, i) => (
             <span
               key={i}
-              className="ds-chip text-[9px]"
+              className="hm-chip"
               style={{
-                borderColor: f.impact === "positive" ? "rgba(16,185,129,.35)" : f.impact === "negative" ? "rgba(249,115,115,.35)" : undefined,
-                color: f.impact === "positive" ? "var(--ds-gr)" : f.impact === "negative" ? "var(--ds-bad)" : undefined,
+                borderColor: f.impact === "positive" ? "rgba(0,230,118,.3)"  : f.impact === "negative" ? "rgba(255,23,68,.3)"  : undefined,
+                color:       f.impact === "positive" ? "var(--hm-grass)"     : f.impact === "negative" ? "var(--hm-blood)"     : undefined,
               }}
             >
               {f.name}
@@ -697,62 +709,14 @@ export function GamePredictionCard({
         </div>
         <Link
           href={`/ensemble/${game.id}`}
-          className="font-jet text-[10px] uppercase tracking-[0.15em] transition-colors hover:text-ds-cy"
-          style={{ color: "var(--ds-muted)" }}
+          className="font-mono uppercase tracking-[0.15em] transition-colors"
+          style={{ fontSize: "9px", color: "var(--hm-smoke)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--hm-diamond)" }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hm-smoke)" }}
         >
           Ensemble ›
         </Link>
       </div>
-    </Card>
-  )
-}
-
-function PitcherFormRow({ name, results }: { name: string; results: boolean[] }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-32 shrink-0 truncate text-xs text-muted-foreground">{name}</span>
-      <div className="flex gap-1">
-        {results.map((r, i) => (
-          <span
-            key={i}
-            className={cn(
-              "inline-flex h-5 w-5 items-center justify-center rounded-sm text-[10px] font-bold",
-              r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-            )}
-          >
-            {r ? "N" : "Y"}
-          </span>
-        ))}
-      </div>
-      <span className="text-xs text-muted-foreground">
-        {results.filter(Boolean).length}/{results.length}
-      </span>
-    </div>
-  )
-}
-
-function TeamFormRow({ abbr, results }: { abbr: string; results: boolean[] }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-32 shrink-0 text-xs text-muted-foreground">
-        {abbr} <span className="text-zinc-600">off</span>
-      </span>
-      <div className="flex gap-1">
-        {results.map((r, i) => (
-          <span
-            key={i}
-            className={cn(
-              "inline-flex h-5 w-5 items-center justify-center rounded-sm text-[10px] font-bold",
-              r ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-            )}
-          >
-            {r ? "N" : "Y"}
-          </span>
-        ))}
-      </div>
-      <span className="text-xs text-muted-foreground">
-        {results.filter(Boolean).length}/{results.length}
-      </span>
     </div>
   )
 }

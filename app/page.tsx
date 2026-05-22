@@ -497,11 +497,11 @@ export default function HomePage() {
   const todayStats = trackingAccuracy?.dailyStats?.find((d) => d.date === todayET)
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
+    <div className="min-h-screen" style={{ background: "var(--hm-abyss)" }}>
       {/* Main content */}
-      <main className="mx-auto max-w-[1480px] space-y-6 px-7 py-7">
+      <main className="mx-auto max-w-[1480px] space-y-4 sm:space-y-6 px-3 sm:px-5 lg:px-7 py-4 sm:py-6 lg:py-7">
         {/* KPI row */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <KpiCard
             metric="Season NRFI Accuracy"
             value={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? `${(trackingAccuracy.nrfiAccuracy * 100).toFixed(1)}%` : "—"}
@@ -574,9 +574,9 @@ export default function HomePage() {
             <FilterBar filters={filters} onChange={setFilters} />
 
             {loading ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="rounded-lg border border-border/30 bg-muted/20 h-64 animate-pulse" />
+                  <div key={i} className="rounded-[14px] h-64 animate-pulse" style={{ background: "var(--hm-pitch)", border: "1px solid var(--hm-fence)" }} />
                 ))}
               </div>
             ) : error ? (
@@ -607,7 +607,7 @@ export default function HomePage() {
                 </button>
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }) => (
                   <div key={game.id} id={`game-${game.id}`}>
                     <GamePredictionCard
