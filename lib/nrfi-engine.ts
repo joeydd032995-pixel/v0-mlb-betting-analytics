@@ -133,8 +133,10 @@ function computeLambda(
 // ─── Opt #8: 7-Model Blend ───────────────────────────────────────────────────
 
 // Keys whose values are game-level signals (not half-inning probabilities).
-// These should be averaged across halves, not multiplied, to produce a game signal.
-const GAME_LEVEL_KEYS = new Set<keyof typeof ENSEMBLE_WEIGHTS>(["hierarchicalBayes", "nnInteraction"])
+// These are averaged across halves rather than multiplied.
+// nnInteraction: joint environment signal → average captures overall game tone.
+// hierarchicalBayes uses the half-inning product (homeHalf × awayHalf) per spec.
+const GAME_LEVEL_KEYS = new Set<keyof typeof ENSEMBLE_WEIGHTS>(["nnInteraction"])
 
 /**
  * Combine two half-inning SevenModelResult objects into a game-level P(NRFI).

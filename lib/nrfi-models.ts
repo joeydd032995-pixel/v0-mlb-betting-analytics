@@ -55,19 +55,18 @@ export function computeBarrelDev(pitcher: Pitcher): number {
 // ─── 1. Bayesian Hierarchical Shrinkage ───────────────────────────────────────
 
 /**
- * @deprecated — live prediction path uses applyDynamicShrinkage (k=30/50/80).
- * Kept for historical backtest reproducibility only (k≈1.14, much less aggressive).
- *
  * Shrinks a pitcher's observed first-inning NRFI rate toward the league mean
  * based on sample size. Prevents a 0.00 ERA over 3 starts from being treated as elite.
  *
+ * This is the live prediction path (k = 1.14, empirical Bayes).
+ *
  * Formula (empirical Bayes):
  *   θ̂ = w·ȳ + (1−w)·μ
- *   where w = n / (n + k)  and  k = σ²/τ²
+ *   where w = n / (n + k)  and  k = σ²_within / σ²_between
  *
- * σ² ≈ 0.040  (within-pitcher variance in NRFI rate per game)
- * τ² ≈ 0.035  (between-pitcher talent variance in true NRFI rate)
- * k  ≈ 1.14   → at 5 starts, dataWeight ≈ 0.81; at 2 starts, ≈ 0.64
+ * σ²_within ≈ 0.040  (within-pitcher variance in NRFI rate per game)
+ * σ²_between ≈ 0.035  (between-pitcher talent variance in true NRFI rate)
+ * k = 1.14   → at 2 starts dataWeight ≈ 0.64; at 5 starts ≈ 0.81; at 18+ ≈ 0.94
  *
  * @param observed  The pitcher's raw season NRFI rate (0–1)
  * @param starts    Number of first-inning appearances / starts this season
@@ -602,19 +601,20 @@ export function applyDynamicShrinkage(pitcher: Pitcher, priorWeight: number): nu
  * read the same values rather than recomputing from scratch.
  */
 export interface PitcherContext {
-  shrunkRate:    number   // applyDynamicShrinkage output
-  priorWeight:   number   // k value (30 / 50 / 80)
+  shrunkRate:    number   // bayesianShrinkage output (k=1.14)
+  priorWeight:   number   // k = σ²_within / σ²_between ≈ 1.14 (fixed)
   dataWeight:    number   // n / (n + k) — how much we trust season data
   rawBaseLambda: number   // −ln(shrunkRate), used by MAPRE
 }
 
 export function precomputePitcherContext(pitcher: Pitcher): PitcherContext {
-  const priorWeight   = getDynamicPriorWeight(pitcher)
-  const shrunkRate    = applyDynamicShrinkage(pitcher, priorWeight)
-  const n             = pitcher.firstInning.startCount || 1
-  const dataWeight    = n / (n + priorWeight)
+  const { shrunkenRate: shrunkRate, dataWeight } = bayesianShrinkage(
+    pitcher.firstInning.nrfiRate,
+    pitcher.firstInning.startCount || 1
+  )
   const rawBaseLambda = -Math.log(Math.max(0.01, shrunkRate))
-  return { shrunkRate, priorWeight, dataWeight, rawBaseLambda }
+  // priorWeight is fixed at k = σ²_within / σ²_between ≈ 1.14
+  return { shrunkRate, priorWeight: 1.14, dataWeight, rawBaseLambda }
 }
 
 // ─── Opt #2: Handedness × Lineup Splits ──────────────────────────────────────
@@ -742,48 +742,30 @@ export function compute7ModelEnsemble(
   const mapre       = mapreResult.nrfiProb
 
   // ── 3 Meta-models (Opt #8) ────────────────────────────────────────────────
-  const baseAvg = (poisson + zip + markov + mapre) / 4
 
-  // Stacked logistic meta-learner: richer than a plain sigmoid of the average.
-  // Features:
-  //   baseAvg          — 4-model consensus (primary signal)
-  //   zipDevFromAvg    — ZIP deviation from mean (ZIP is best-calibrated single model)
-  //   modelSpread      — max−min spread; high disagreement → pull toward neutral
-  //   kDev             — pitcher K% above league average (direct NRFI predictor)
-  //   omegaExcess      — ZIP lockdown component above baseline (dominant ace signal)
-  // Intercept −1.40 calibrated so average inputs yield ~0.74 half-inning P(NRFI),
-  // producing game-level ~0.55 (0.74² ≈ 0.55) near the observed league NRFI rate.
-  const modelSpread   = Math.max(poisson, zip, markov, mapre) - Math.min(poisson, zip, markov, mapre)
-  const kDev          = pitcher.firstInning.kRate - LEAGUE_K_RATE
-  const zipDevFromAvg = zip - baseAvg
-  const omegaExcess   = omega - 0.20  // centered at average lockdown probability
-  const logitMeta = -1.40
-    + 3.60 * baseAvg
-    + 0.80 * zipDevFromAvg
-    - 1.40 * modelSpread
-    + 3.20 * kDev
-    + 1.20 * omegaExcess
-  const logisticMeta = 1 / (1 + Math.exp(-logitMeta))
+  // Logistic Stack: baseAvg weighted by normalised base-4 ensemble weights
+  // (Poisson 10.9%, ZIP 27.3%, Markov 43.6%, MAPRE 9.1%).
+  // σ(−2.3 + 4.1 × baseAvg): α = −2.3 captures the log-odds baseline for a
+  // zero-run half-inning; β = 4.1 stretches it across the full probability range.
+  const baseAvg      = 0.109 * poisson + 0.273 * zip + 0.436 * markov + 0.091 * mapre
+  const logisticMeta = 1 / (1 + Math.exp(-(-2.3 + 4.1 * baseAvg)))
 
-  // ZIP × Markov convergence signal: these two are the most independent models
-  // (rate-based vs state-based), so their product captures orthogonal evidence.
-  // Using zip×markov instead of poisson×markov reduces redundancy since poisson
-  // and ZIP are correlated (both driven by lambda).
-  // Calibrated so average inputs (zip≈0.73, markov≈0.78) yield ≈0.61 here,
-  // matching the expected game-level NRFI rate after averaging home/away halves.
+  // NN Interaction: Poisson × Markov product normalised by 0.67 (≈ 0.82²,
+  // the geometric mean of two league-average half-inning NRFI probabilities).
+  // When both independent models agree strongly on dominance, the product
+  // amplifies that confidence above what either model alone would show.
+  // Game level: (homeHalf + awayHalf) / 2 — averaged as a joint environment signal.
   const nnInteraction = Math.max(0.02, Math.min(0.98,
-    0.5 + 0.35 * (zip * markov - 0.25)
+    poisson * markov / 0.67
   ))
 
-  // Hierarchical Bayes: combines pitcher shrunk rate (80%) with batting team
-  // offense factor (20%) for a genuine two-level estimate. The batting team's
-  // scoring tendency provides signal the pitcher-only rate misses, especially
-  // for lineup-matchup effects not captured in the 4 base models.
-  const teamNrfiAdj = Math.max(0.35, Math.min(0.92,
-    LEAGUE_AVG_NRFI - (team.firstInning.offenseFactor - 1.0) * 0.25
-  ))
+  // Hierarchical Bayes: dynamic-prior shrinkage, w_dynamic = n / (n + 1.14).
+  // Veterans get higher data-trust; rookies stay closer to the league prior (0.516).
+  // Game level: homeHalf × awayHalf (independent half-inning product).
+  const n_hier    = pitcher.firstInning.startCount || 1
+  const w_dynamic = n_hier / (n_hier + 1.14)
   const hierarchicalBayes = Math.max(0.35, Math.min(0.92,
-    0.80 * ctx.shrunkRate + 0.20 * teamNrfiAdj
+    w_dynamic * ctx.shrunkRate + (1 - w_dynamic) * LEAGUE_AVG_NRFI
   ))
 
   return {
