@@ -43,7 +43,7 @@ Historically, **~51.6% of MLB first innings produce zero runs** (2024–2025 rec
 
 ## How the Model Works
 
-The engine runs a **seven-model ensemble** per half-inning, then combines both halves into a final game probability. Every pitcher's NRFI rate is first Bayesian-shrunk (dynamically, based on career sample size) before entering any model.
+The engine runs a **seven-model ensemble** per half-inning, then combines both halves into a final game probability. Every pitcher's NRFI rate is first Bayesian-shrunk toward the league mean before entering any model.
 
 ### 8 Optimizations Applied
 
@@ -53,9 +53,9 @@ The engine runs a **seven-model ensemble** per half-inning, then combines both h
 | 2 | Handedness × lineup splits (`vsLHP` / `vsRHP`) | `nrfi-models.ts → getLineupVsHand` |
 | 3 | Vector wind + humidity (`computeVectorWeatherMultiplier`) | `lib/weather.ts` |
 | 4 | Umpire bias factor (optional per-game field) | `nrfi-engine.ts` |
-| 5 | Dynamic Bayesian shrinkage (k=30/50/80 by career innings) | `nrfi-models.ts → getDynamicPriorWeight` |
+| 5 | Empirical Bayes shrinkage (k=1.14, σ²_within/σ²_between) | `nrfi-models.ts → bayesianShrinkage` |
 | 6 | Monotonic P-spline calibration (19 backtest knots) | `lib/calibration.ts` |
-| 7 | Widened output clamp `[0.02, 0.98]` | `nrfi-engine.ts` |
+| 7 | Effective output clamped to `[0.18, 0.86]` (natural range after anchor blend) | `nrfi-engine.ts` |
 | 8 | Three meta-models: logisticMeta, nnInteraction, hierarchicalBayes | `nrfi-models.ts → compute7ModelEnsemble` |
 
 ### Final Output Formula
@@ -63,7 +63,8 @@ The engine runs a **seven-model ensemble** per half-inning, then combines both h
 ```text
 raw      = blend7Models(homeHalf7, awayHalf7)   // pre-normalised weighted sum
 cal      = calibrateWithMonotonicSpline(raw)     // monotone P-spline (lib/calibration.ts)
-P(NRFI)  = clamp(0.76 × cal + 0.24 × 0.614, 0.02, 0.98)
+anchor   = calibrateWithMonotonicSpline(0.516)  // ≈ 0.559 — calibrated league NRFI rate
+P(NRFI)  = clamp(0.76 × cal + 0.24 × anchor, 0.18, 0.86)
 P(YRFI)  = 1 − P(NRFI)   // exact symmetry
 
 // 7-model weights (pre-normalised to sum to 1.0):
@@ -71,24 +72,23 @@ P(YRFI)  = 1 − P(NRFI)   // exact symmetry
 //   logisticMeta 4.5%, nnInteraction 2.7%, hierarchicalBayes 1.8%
 ```
 
-### Step 0 — Dynamic Bayesian Shrinkage (Opt #5, Pre-processing)
+### Step 0 — Empirical Bayes Shrinkage (Opt #5, Pre-processing)
 
-Replaces the fixed-k shrinkage with a career-aware prior:
+Shrinks every pitcher's observed NRFI rate toward the league mean using a fixed k derived from empirical variance components (σ²_within / σ²_between):
 
 ```text
-k  = 80  (bullpen games — checked first, since these pitchers also have careerIP < 100)
-k  = 30  (career IP < 100 — spot starters / openers)
-k  = 50  (full-time starters, default)
+k = σ²_within / σ²_between = 0.040 / 0.035 ≈ 1.14
 
-θ̂ = (n × NRFI_observed + k × 0.516) / (n + k)   clamped to [0.35, 0.92]
+w = n / (n + k)                               // data weight; capped at 0.97
+θ̂ = w × NRFI_observed + (1 − w) × 0.516     // clamped to [0.35, 0.92]
 ```
 
-| Starts | k=50 data weight |
+| Starts | data weight (k=1.14) |
 |---|---|
-| 2 | 4% |
-| 5 | 9% |
-| 18+ | 26% |
-| 60+ | 55% |
+| 2 | ≈ 64% |
+| 5 | ≈ 81% |
+| 18+ | ≈ 94% |
+| 60+ | 97% (cap) |
 
 ### Step 1 — Poisson (12% weight)
 
@@ -167,15 +167,20 @@ P(NRFI) = e^(−λ_total_adj)                        // standard Poisson
 Three meta-models correct systematic biases in the 4-model base:
 
 ```text
-baseAvg      = (poisson + zip + markov + mapre) / 4
+// baseAvg is the normalised-weight average of the base 4 models:
+baseAvg = 0.109×poisson + 0.273×zip + 0.436×markov + 0.091×mapre
 
-logisticMeta     = σ(−2.3 + 4.1 × baseAvg)          // logistic stack on base average
-nnInteraction    = clamp(0.5 + 0.3 × (poisson × markov − 0.5), 0.02, 0.98)   // cross-model term
-hierarchicalBayes = applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher))  // pitcher shrunk rate
+logisticMeta  = σ(−2.3 + 4.1 × baseAvg)
+                // half-inning prob: blend7Models multiplies home×away
 
-// logisticMeta is a half-inning probability: blend7Models multiplies home×away (product).
-// nnInteraction and hierarchicalBayes are game-level signals:
-// blend7Models averages those across home+away instead of multiplying.
+nnInteraction = clamp(poisson × markov / 0.67, 0.02, 0.98)
+                // 0.67 ≈ 0.82² centres the product at the league-average
+                // joint half-inning probability
+                // game-level signal: blend7Models averages (home+away)/2
+
+w_dynamic = n / (n + 1.14)                          // same k as Opt #5
+hierarchicalBayes = clamp(w_dynamic × θ̂ + (1−w_dynamic) × 0.516, 0.35, 0.92)
+                // half-inning prob: blend7Models multiplies home×away
 ```
 
 ### Step 8 — Calibration (Opt #6)
@@ -198,14 +203,19 @@ Full 19-knot table (covering raw ∈ [0.05, 0.95]) in `lib/calibration.ts → ca
 
 ```text
 score = 50
-      + |P(NRFI) − 0.50| × 70     // max +35 for extreme predictions
-      + sampleBonus                 // +12 if ≥18 starts, −14 if <3
-      − formVariance × 15           // high variance in last 5 = penalty
+      + sampleBonus                 // +12 if ≥18 starts, +6 if ≥10, −8 if ≤5, −14 if ≤3
+      − formVariance × 15           // high variance across last-5 results = penalty
       + (modelConsensus − 0.5) × 16 // all models agree = bonus
       clamped to [10, 98]
 ```
 
 `modelConsensus` is the inverse coefficient of variation across all four base-model outputs per half-inning.
+
+Confidence measures **reliability** (sample size, model agreement, form stability) — not prediction boldness. Prediction boldness is captured separately as **conviction**:
+
+```text
+conviction = |P(NRFI) − 0.50| × 2    // 0.0 = coin-flip, 1.0 = maximum certainty
+```
 
 | Score | Level |
 |---|---|
@@ -499,7 +509,7 @@ export async function fetchPitcherSplits(playerId: string) {
 }
 ```
 
-> If `SPORTSBLAZE_API_KEY` is not set, the engine falls back to API-Sports data.
+> If `SPORTSBLAZE_API_KEY` is not set, the engine falls back to mock data (`lib/mock-data.ts`).
 
 ---
 
@@ -526,6 +536,9 @@ cp .env.example .env.local
 
 | Variable | Required | Description |
 |---|---|---|
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | ✓ Yes | Clerk auth — publishable key |
+| `CLERK_SECRET_KEY` | ✓ Yes | Clerk auth — secret key |
+| `DATABASE_URL` | ✓ Yes | Neon PostgreSQL connection string (pooled) |
 | `THE_ODDS_API_KEY` | ✓ Yes | NRFI/YRFI odds from 40+ bookmakers |
 | `OPENWEATHER_API_KEY` | ✓ Yes | Stadium weather at game time |
 | `SPORTSBLAZE_API_KEY` | Optional | Enhanced batting splits and xStats |
@@ -549,8 +562,8 @@ See `.env.example` for the complete list with descriptions.
          │           lib/nrfi-engine.ts                            │
          │         computeAllPredictions()                         │
          │                                                         │
-         │  Step 0: Dynamic Bayesian shrinkage (Opt #5)            │
-         │    k=30/50/80  θ̂ = (n·NRFI + k·0.516)/(n+k)          │
+         │  Step 0: Empirical Bayes shrinkage (Opt #5)             │
+         │    k=1.14  θ̂ = (n·NRFI + 1.14·0.516)/(n+1.14)        │
          │    Opts #2,#3,#4 also applied to λ                      │
          │                                                         │
          │  Per half-inning (×2) — lib/nrfi-models.ts             │
@@ -562,11 +575,11 @@ See `.env.example` for the complete list with descriptions.
          │  └──────────────────────────────────────────────────┘  │
          │                                                         │
          │  blend7Models():                                        │
-         │    half×half product for Poisson/ZIP/Markov/MAPRE       │
-         │    average (home+away)/2 for nnInteract/hierBayes       │
+         │    half×half product for Poisson/ZIP/Markov/MAPRE/hierBayes │
+         │    average (home+away)/2 for nnInteraction only         │
          │                                                         │
          │  calibrateWithMonotonicSpline(raw)   ← lib/calibration  │
-         │  Final: clamp(0.76×cal + 0.24×0.614, 0.02, 0.98)       │
+         │  Final: clamp(0.76×cal + 0.24×0.559, 0.18, 0.86)       │
          └───────────────────┬────────────────────────────────────┘
                              │
    ┌─────────────────────────▼───────────────────────────┐
@@ -586,18 +599,33 @@ See `.env.example` for the complete list with descriptions.
 v0-mlb-betting-analytics/
 ├── app/
 │   ├── layout.tsx               # Root layout (no Google Fonts — uses CSS vars)
-│   ├── page.tsx                 # Main dashboard — all tabs, filters, game grid
+│   ├── page.tsx                 # Landing page
 │   ├── globals.css              # Tailwind base + dark-mode CSS variables
-│   └── bankroll/
-│       └── page.tsx             # Redirects to /
+│   ├── dashboard/               # Protected — main prediction grid + filters
+│   ├── bets/                    # Protected — bet tracker
+│   ├── bankroll/                # Protected — bankroll management
+│   ├── watchlist/               # Protected — saved game watchlist
+│   ├── history/                 # Protected — prediction log + accuracy
+│   ├── accuracy/                # Protected — model accuracy dashboard
+│   ├── insights/                # Protected — model diagnostics
+│   └── api/
+│       ├── predictions/route.ts # GET — today's live predictions (force-dynamic)
+│       ├── results/route.ts     # GET — first-inning results by date
+│       ├── bets/route.ts        # GET/POST — bet records
+│       ├── bets/[id]/route.ts   # PATCH — update bet result
+│       ├── bankroll/route.ts    # GET/POST — bankroll ledger
+│       ├── watchlist/route.ts   # GET/POST — watchlist
+│       ├── watchlist/[gameId]/route.ts
+│       ├── performance/route.ts # GET — model accuracy stats
+│       ├── historical-sync/route.ts  # DB backfill (GameResult + ModelPrediction)
+│       ├── backfill/route.ts    # localStorage backfill (max 30 days)
+│       ├── export-data/route.ts # CSV export
+│       ├── db-status/route.ts   # Deployment diagnostic
+│       ├── debug/route.ts       # MLB API connectivity check
+│       └── webhooks/clerk/route.ts  # Clerk user sync (svix-verified)
 │
 ├── components/
-│   ├── ui/                      # shadcn/ui base components
-│   │   ├── badge.tsx
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   └── tabs.tsx
-│   │
+│   ├── ui/                      # shadcn/ui base components (Radix UI)
 │   ├── game-prediction-card.tsx # Per-game NRFI card with probability bar,
 │   │                            #   factor list, value analysis, form dots
 │   ├── prediction-header.tsx    # 5-stat summary (accuracy, games, conf, value, ROI)
@@ -607,17 +635,30 @@ v0-mlb-betting-analytics/
 │   └── theme-provider.tsx       # next-themes wrapper
 │
 ├── lib/
-│   ├── types.ts                 # All TypeScript interfaces (DO NOT EDIT)
-│   ├── nrfi-engine.ts           # 7-model prediction engine (8 optimizations)
-│   ├── nrfi-models.ts           # All 7 statistical models + shrinkage helpers
-│   ├── calibration.ts           # Monotonic P-spline calibration (Opt #6)
+│   ├── types.ts                 # All TypeScript interfaces — source of truth
+│   ├── nrfi-engine.ts           # Ensemble orchestration, blend, confidence, tiers
+│   ├── nrfi-models.ts           # 7 model implementations + bayesianShrinkage
+│   ├── calibration.ts           # Monotonic P-spline calibration (19 knots)
 │   ├── weather.ts               # Vector wind + humidity model (Opt #3)
-│   ├── mock-data.ts             # Realistic mock data (swap for live API calls)
-│   └── utils.ts                 # cn() utility for className merging
+│   ├── config.ts                # Central statistical constants (Kelly, wOBA, FIP…)
+│   ├── prediction-store.ts      # buildTrackedPrediction() — NRFIPrediction → DB
+│   ├── mock-data.ts             # Fallback mock data when API keys are absent
+│   ├── prisma.ts                # Prisma client singleton — always import from here
+│   ├── utils.ts                 # cn() utility for className merging
+│   ├── api/
+│   │   ├── live-data.ts         # getLiveGameSlate() — MLB + odds + weather
+│   │   └── mlb-stats.ts         # MLB Stats API wrappers
+│   └── constants/
+│       ├── mlb-teams.ts         # Static team registry with apiId (MLB numeric ID)
+│       └── mlb-stadiums.ts      # Stadium park factors + GPS coords
 │
+├── prisma/
+│   └── schema.prisma            # Neon PostgreSQL schema (User, Bet, Bankroll, …)
+│
+├── middleware.ts                # Clerk auth — protects /dashboard /bets /watchlist …
 ├── .env.example                 # All environment variables documented
-├── next.config.mjs              # Next.js config (TS errors ignored at build)
-├── tailwind.config.ts           # Tailwind v4 config
+├── next.config.mjs              # Next.js config
+├── postcss.config.mjs           # Tailwind v4 config
 ├── tsconfig.json
 └── package.json
 ```
@@ -628,18 +669,19 @@ v0-mlb-betting-analytics/
 
 ### Model Config (`lib/nrfi-models.ts`)
 
-7-model ensemble weights (rolling 30-day CV optimized, normalised at runtime):
+7-model ensemble weights (raw scores 0.12/0.30/0.48/0.10/0.05/0.03/0.02 = 1.10 total; pre-normalised by ÷1.10 at definition time):
 
 ```typescript
+// lib/nrfi-models.ts
 export const ENSEMBLE_WEIGHTS = {
-  poisson:           0.12,   // Opt #8: reduced from 0.18
-  zip:               0.30,   // Opt #8: reduced from 0.39
-  markov:            0.48,   // Opt #8: increased from 0.31 (best CV accuracy)
-  mapre:             0.10,   // Opt #8: reduced from 0.12
-  logisticMeta:      0.05,   // NEW: logistic stack on base-4 average
-  nnInteraction:     0.03,   // NEW: Poisson × Markov cross-model interaction
-  hierarchicalBayes: 0.02,   // NEW: dynamic-prior shrunk pitcher rate
-}
+  poisson:           0.10909,  // Poisson base model
+  zip:               0.27273,  // Zero-Inflated Poisson (lockdown + active split)
+  markov:            0.43636,  // 24-state Markov chain (highest CV accuracy)
+  mapre:             0.09091,  // Multi-Factor Adjusted Poisson Run Expectancy
+  logisticMeta:      0.04545,  // logistic stack on normalised base-4 weighted avg
+  nnInteraction:     0.02727,  // Poisson × Markov / 0.67 cross-model interaction
+  hierarchicalBayes: 0.01818,  // empirical Bayes (k=1.14) shrunk pitcher rate
+} as const
 
 export const LEAGUE_AVG_NRFI = 0.516   // 2024–2025 recalibrated
 ```
@@ -649,10 +691,10 @@ Legacy `MODEL_CONFIG` (scale/bias per model) is still present and drives the UI 
 ### Ensemble Blend (`lib/nrfi-engine.ts`)
 
 ```typescript
-const ENSEMBLE_BLEND  = 0.76   // Opt #1: was 0.68
-const LEAGUE_ANCHOR   = 0.614  // Opt #1: was 0.618
-const CLAMP_MIN       = 0.02   // Opt #7: was 0.05
-const CLAMP_MAX       = 0.98   // Opt #7: was 0.95
+const ENSEMBLE_BLEND      = 0.76
+const LEAGUE_ANCHOR       = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)  // ≈ 0.559, auto-updates with knots
+const CLAMP_MIN           = 0.18   // natural lower bound: 0.76×0.060 + 0.24×0.559
+const CLAMP_MAX           = 0.86   // natural upper bound: 0.76×0.930 + 0.24×0.559
 const NRFI_CALL_THRESHOLD = 0.52
 ```
 
@@ -692,84 +734,37 @@ score < 45   → "Low"    confidence
 
 ---
 
-## Connecting Live Data
+## Live Data Architecture
 
-### Step 1 — Replace mock-data with API calls
+The live data pipeline is already fully implemented. Here is how the pieces connect:
 
-Create a new file `lib/api/live-data.ts`:
+### Data Flow
 
-```typescript
-import { fetchTodayGames } from "./mlb"
-import { fetchNrfiOdds } from "./odds"
-import { fetchGameWeather } from "./weather"
-import type { Game, Pitcher, Team } from "../types"
-
-export async function getLiveGameSlate(date: string): Promise<{
-  games: Game[]
-  pitchers: Map<string, Pitcher>
-  teams: Map<string, Team>
-}> {
-  const mlbGames = await fetchTodayGames(date)
-  
-  const games: Game[] = await Promise.all(
-    mlbGames.map(async (g: any) => {
-      const weather = await fetchGameWeather(g.venue.name, g.gameDate)
-      const odds = await fetchNrfiOdds(g.gamePk.toString())
-      
-      return {
-        id: g.gamePk.toString(),
-        date,
-        time: formatGameTime(g.gameDate),
-        timeZone: "ET",
-        homeTeamId: g.teams.home.team.id.toString(),
-        awayTeamId: g.teams.away.team.id.toString(),
-        homePitcherId: g.teams.home.probablePitcher?.id?.toString() ?? "tbd",
-        awayPitcherId: g.teams.away.probablePitcher?.id?.toString() ?? "tbd",
-        venue: g.venue.name,
-        parkFactor: PARK_FACTORS[g.venue.id] ?? 1.0,
-        weather,
-        odds: odds[0] ? parseNrfiOdds(odds[0]) : undefined,
-      }
-    })
-  )
-
-  // Fetch pitcher and team stats...
-  const pitchers = await buildPitcherMap(games)
-  const teams = await buildTeamMap(games)
-
-  return { games, pitchers, teams }
-}
+```
+app/api/predictions/route.ts   (GET, force-dynamic, maxDuration=300)
+  └── getLiveGameSlate(date)   lib/api/live-data.ts
+        ├── fetchGamesByDate()       → MLB Stats API (schedule + probable starters)
+        ├── fetchPitcherStats()      → MLB Stats API (ERA, WHIP, K%, BB%)
+        ├── fetchTeamStats()         → MLB Stats API (OPS, OBP, SLG)
+        ├── fetchAllNrfiOdds()       → The Odds API  (falls back to undefined)
+        └── fetchVenueWeather()      → OpenWeatherMap (falls back to mock)
+  └── computeAllPredictions(games, pitchers, teams)   lib/nrfi-engine.ts
 ```
 
-### Step 2 — Add a Next.js API Route
+All dates resolved in ET timezone:
 
 ```typescript
-// app/api/predictions/route.ts
-import { getLiveGameSlate } from "@/lib/api/live-data"
-import { computeAllPredictions } from "@/lib/nrfi-engine"
-import { format } from "date-fns"
-
-export async function GET() {
-  const today = format(new Date(), "yyyy-MM-dd")
-  const { games, pitchers, teams } = await getLiveGameSlate(today)
-  const predictions = computeAllPredictions(games, pitchers, teams)
-  
-  return Response.json({ predictions, games, date: today })
-}
-
-export const revalidate = 300  // Re-fetch every 5 minutes
+new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+// → "YYYY-MM-DD" in Eastern time — never use new Date().toISOString().split("T")[0]
 ```
 
-### Step 3 — Update the Client
+### Fallback Behaviour
 
-```typescript
-// app/page.tsx — replace useMemo with useSWR
-import useSWR from "swr"
-
-const { data } = useSWR("/api/predictions", (url) => fetch(url).then(r => r.json()), {
-  refreshInterval: 300_000  // auto-refresh every 5 min
-})
-```
+When API keys are absent the engine degrades gracefully — it never crashes:
+- **No Odds API key** → odds field is `undefined`; value-bet section hidden in UI
+- **No OpenWeatherMap key** → weather defaults to neutral multiplier (1.0)
+- **No probable pitcher** → placeholder ID `tbd-home-{gamePk}`; default stats used (ERA 4.0, WHIP 1.28, K% 22.5%)
+- **No SportsBlaze key** → mock data from `lib/mock-data.ts`
 
 ---
 
