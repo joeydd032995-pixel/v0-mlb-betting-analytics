@@ -35,7 +35,8 @@ export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
     const data = await res.json()
     return Array.isArray(data) ? data : []
   } catch (err) {
-    console.error("[odds] fetch error:", err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[odds] fetch error:", msg)
     return []
   }
 }

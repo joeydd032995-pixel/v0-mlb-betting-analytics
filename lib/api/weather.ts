@@ -80,7 +80,8 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
       pressureHPa: data.main.pressure,
     }
   } catch (err) {
-    console.error(`[weather] fetch error for ${venue}:`, err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[weather] fetch error for ${venue}:`, msg)
     return DOME_WEATHER
   }
 }
@@ -156,7 +157,8 @@ export async function fetchHistoricalWeather(venue: string, date: string): Promi
       pressureHPa:    Math.round(pressure),
     }
   } catch (err) {
-    console.error(`[weather-archive] fetch error for ${venue} ${date}:`, err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[weather-archive] fetch error for ${venue} ${date}:`, msg)
     return DOME_WEATHER
   }
 }
