@@ -700,15 +700,6 @@ export function getLineupVsHandFromCard(
   return Math.max(0.5, Math.min(1.5, base * tilt))
 }
 
-// ─── Internal helpers for compute7ModelEnsemble ───────────────────────────────
-
-/** Derive lockdown probability (omega) from a pitcher's K-rate. */
-function omegaFromKRate(kRate: number): number {
-  const kDev    = kRate - LEAGUE_K_RATE
-  const logit   = -1.38 + 4.0 * kDev
-  return 1 / (1 + Math.exp(-logit))
-}
-
 // ─── 7-Model Ensemble Computation ────────────────────────────────────────────
 
 /** Return type for compute7ModelEnsemble */
