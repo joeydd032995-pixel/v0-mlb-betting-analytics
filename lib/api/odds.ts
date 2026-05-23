@@ -25,7 +25,7 @@ export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
     `${BASE_URL}/sports/baseball_mlb/odds` +
     `?regions=us&markets=batter_first_inning_scored&oddsFormat=american&apiKey=${encodeURIComponent(API_KEY)}`
   try {
-    const res = await fetch(url, { next: { revalidate: 60 } })
+    const res = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(8000) })
     if (!res.ok) {
       // Log status and remaining quota header only — never log the full URL.
       const remaining = res.headers.get("x-requests-remaining") ?? "unknown"
@@ -35,7 +35,8 @@ export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
     const data = await res.json()
     return Array.isArray(data) ? data : []
   } catch (err) {
-    console.error("[odds] fetch error:", err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[odds] fetch error:", msg)
     return []
   }
 }

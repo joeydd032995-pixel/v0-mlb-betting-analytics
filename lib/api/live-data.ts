@@ -9,6 +9,7 @@ import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats, FirstInningRe
 import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
+import { fetchTeamSplits } from "./sportsblaze"
 import type { Game, Pitcher, Team, Weather, GameOdds } from "../types"
 import { MLB_TEAMS } from "../constants/mlb-teams"
 import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
@@ -333,7 +334,22 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
   // 2. Fetch all NRFI odds (one request covers all games)
   const oddsEvents = await fetchAllNrfiOdds()
 
-  // 3. For each game, fetch stats and weather in parallel
+  // 3. Pre-fetch weather deduplicated by venue name.
+  // A doubleheader means 2 games at the same ballpark; deduplication avoids
+  // duplicate concurrent upstream calls to OpenWeatherMap.
+  const DOME_WEATHER_FALLBACK: Weather = { temperature: 72, windSpeed: 0, windDirection: "calm", conditions: "dome", humidity: 50 }
+  const uniqueVenues = [
+    ...new Set(
+      apiGames.map((g) => g.venue?.name ?? "Unknown Stadium")
+    ),
+  ]
+  const weatherByVenue = new Map(
+    await Promise.all(
+      uniqueVenues.map(async (venue) => [venue, await fetchVenueWeather(venue)] as const)
+    )
+  )
+
+  // 4. For each game, fetch stats and weather in parallel
   const perGameData = await Promise.all(
     apiGames.map(async (apiGame) => {
       const homeTeamApiId = apiGame.teams.home.team.id
@@ -360,7 +376,7 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         fetchTeamStats(awayTeamApiId),
         homePitcherApiId ? fetchPitcherStats(homePitcherApiId) : Promise.resolve(null),
         awayPitcherApiId ? fetchPitcherStats(awayPitcherApiId) : Promise.resolve(null),
-        fetchVenueWeather(venue),
+        Promise.resolve(weatherByVenue.get(venue) ?? DOME_WEATHER_FALLBACK),
         homePitcherApiId ? fetchPitcherLast5FirstInnings(homePitcherApiId) : Promise.resolve([]),
         awayPitcherApiId ? fetchPitcherLast5FirstInnings(awayPitcherApiId) : Promise.resolve([]),
         fetchTeamLast5FirstInnings(homeTeamApiId),
@@ -463,6 +479,18 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       teams.set(game.awayTeamId, mapTeam(awayTeamStats, game.awayTeamId, awayTeamLast5))
     }
   }
+
+  // Enrich teams with vsLHP/vsRHP splits from SportsBlaze (optional).
+  // Returns immediately when SPORTSBLAZE_API_KEY is unset (fetchTeamSplits → null).
+  await Promise.all(
+    [...teams.entries()].map(async ([teamId, team]) => {
+      const splits = await fetchTeamSplits(teamId)
+      if (splits) {
+        team.firstInning.vsLHP = splits.vsLHP
+        team.firstInning.vsRHP = splits.vsRHP
+      }
+    })
+  )
 
   return { games, pitchers, teams }
 }

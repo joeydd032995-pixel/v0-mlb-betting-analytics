@@ -68,6 +68,10 @@ export function computeBarrelDev(pitcher: Pitcher): number {
  * σ²_between ≈ 0.035  (between-pitcher talent variance in true NRFI rate)
  * k = 1.14   → at 2 starts dataWeight ≈ 0.64; at 5 starts ≈ 0.81; at 18+ ≈ 0.94
  *
+ * @deprecated Use applyDynamicShrinkage(pitcher, getDynamicPriorWeight(pitcher)).
+ * k=1.14 produces far too high data-trust for small-sample pitchers.
+ * Retained for backward compatibility with any external callers.
+ *
  * @param observed  The pitcher's raw season NRFI rate (0–1)
  * @param starts    Number of first-inning appearances / starts this season
  */
@@ -472,7 +476,8 @@ export interface MAPREHalfResult {
  *  • floor:      small-sample λ floor at 0.35
  *
  * Cross-half correlation (ρ) and the Negative Binomial option are handled
- * in combineHalfInnings where both lambda values are available.
+ * in combineMAPREHalves (lib/nrfi-models.ts) after both half-inning
+ * lambdaAdj values are available in computeNRFIPrediction.
  *
  * @param baseLambda  −ln(shrunkNrfiRate) — the raw Poisson λ before offense/park
  * @param inputs      MAPRE context inputs (all optional; defaults to league avg)
@@ -523,6 +528,33 @@ export function computeMAPREHalfInning(
     lambdaAdj,
     nrfiProb: Math.exp(-lambdaAdj),
   }
+}
+
+/**
+ * Combine two half-inning MAPRE lambdaAdj values into a game-level P(NRFI).
+ *
+ * Standard per-half product (exp(-λ_home) × exp(-λ_away)) is equivalent to
+ * exp(-(λ_home + λ_away)) — pure Poisson independence. MAPRE adds two
+ * corrections that the per-half product cannot express:
+ *
+ * 1. Cross-half correlation (ρ = 0.06): when both pitchers face high-run
+ *    environments (λ > 0.60), a shared latent factor (park, weather, umpire
+ *    zone) inflates both halves simultaneously.
+ * 2. Negative Binomial overdispersion: in very high-run games (λ_total_adj >
+ *    0.8), pure Poisson underestimates tail risk because run-scoring is
+ *    "clumped". NegBin with r=1.3 adds the necessary overdispersion.
+ */
+export function combineMAPREHalves(
+  homeLambdaAdj: number,
+  awayLambdaAdj: number
+): number {
+  const lambdaTotal = homeLambdaAdj + awayLambdaAdj
+  const rho         = (homeLambdaAdj > 0.60 && awayLambdaAdj > 0.60) ? 0.06 : 0
+  const lambdaAdj   = lambdaTotal * (1 + rho)
+  const pNrfi = lambdaAdj > 0.8
+    ? Math.pow(1.3 / (1.3 + lambdaAdj), 1.3)
+    : Math.exp(-lambdaAdj)
+  return Math.max(0.01, Math.min(0.99, pNrfi))
 }
 
 // ─── Ensemble ─────────────────────────────────────────────────────────────────
@@ -601,20 +633,19 @@ export function applyDynamicShrinkage(pitcher: Pitcher, priorWeight: number): nu
  * read the same values rather than recomputing from scratch.
  */
 export interface PitcherContext {
-  shrunkRate:    number   // bayesianShrinkage output (k=1.14)
-  priorWeight:   number   // k = σ²_within / σ²_between ≈ 1.14 (fixed)
+  shrunkRate:    number   // dynamic shrinkage output (k=30/50/80 by pitcher type)
+  priorWeight:   number   // k from getDynamicPriorWeight (30 | 50 | 80)
   dataWeight:    number   // n / (n + k) — how much we trust season data
   rawBaseLambda: number   // −ln(shrunkRate), used by MAPRE
 }
 
 export function precomputePitcherContext(pitcher: Pitcher): PitcherContext {
-  const { shrunkenRate: shrunkRate, dataWeight } = bayesianShrinkage(
-    pitcher.firstInning.nrfiRate,
-    pitcher.firstInning.startCount || 1
-  )
+  const priorWeight   = getDynamicPriorWeight(pitcher)
+  const shrunkRate    = applyDynamicShrinkage(pitcher, priorWeight)
+  const n             = pitcher.firstInning.startCount || 1
+  const dataWeight    = Math.min(0.97, n / (n + priorWeight))
   const rawBaseLambda = -Math.log(Math.max(0.01, shrunkRate))
-  // priorWeight is fixed at k = σ²_within / σ²_between ≈ 1.14
-  return { shrunkRate, priorWeight: 1.14, dataWeight, rawBaseLambda }
+  return { shrunkRate, priorWeight, dataWeight, rawBaseLambda }
 }
 
 // ─── Opt #2: Handedness × Lineup Splits ──────────────────────────────────────
@@ -669,15 +700,6 @@ export function getLineupVsHandFromCard(
   return Math.max(0.5, Math.min(1.5, base * tilt))
 }
 
-// ─── Internal helpers for compute7ModelEnsemble ───────────────────────────────
-
-/** Derive lockdown probability (omega) from a pitcher's K-rate. */
-function omegaFromKRate(kRate: number): number {
-  const kDev    = kRate - LEAGUE_K_RATE
-  const logit   = -1.38 + 4.0 * kDev
-  return 1 / (1 + Math.exp(-logit))
-}
-
 // ─── 7-Model Ensemble Computation ────────────────────────────────────────────
 
 /** Return type for compute7ModelEnsemble */
@@ -708,18 +730,28 @@ export interface SevenModelResult {
  * @param ctx      Precomputed pitcher context (shrunkRate, rawBaseLambda, dataWeight).
  */
 export function compute7ModelEnsemble(
-  lambda:  number,
-  pitcher: Pitcher,
-  team:    Team,
-  side:    "home" | "away",
-  ctx:     PitcherContext
+  lambda:          number,
+  pitcher:         Pitcher,
+  team:            Team,
+  side:            "home" | "away",
+  ctx:             PitcherContext,
+  temperature:     number = 72,  // Fahrenheit; 72 = dome/neutral default
+  umpireWideness:  number = 0    // [-1, 1]; 0 = neutral
 ): SevenModelResult {
   // ── Original 4 models ─────────────────────────────────────────────────────
   const poisson    = Math.exp(-lambda)
 
-  const omega      = omegaFromKRate(pitcher.firstInning.kRate)
-  const clampOmega = Math.max(0.08, Math.min(0.60, omega))
-  const zip        = clampOmega + (1 - clampOmega) * Math.exp(-lambda)
+  // ZIP: call the full implementation (temperature + umpire corrections).
+  // Park factor is already baked into lambda; pass 1.0 to avoid double-counting.
+  const zipResult  = computeZIPModel(
+    pitcher,
+    team.firstInning.offenseFactor,
+    1.0,
+    temperature,
+    umpireWideness
+  )
+  const zip        = zipResult.nrfiProb
+  const clampOmega = zipResult.omega
 
   // Markov: handedness-adjusted offense (Opt #2) + shrunk rate from ctx (Opt #5).
   // Inlined from the former computeMarkov24 so paOutcomes can be returned for UI.
@@ -759,11 +791,12 @@ export function compute7ModelEnsemble(
     poisson * markov / 0.67
   ))
 
-  // Hierarchical Bayes: dynamic-prior shrinkage, w_dynamic = n / (n + 1.14).
-  // Veterans get higher data-trust; rookies stay closer to the league prior (0.516).
+  // Hierarchical Bayes: same dynamic k as getDynamicPriorWeight (k=30/50/80),
+  // not the legacy empirical-Bayes k=1.14.
   // Game level: homeHalf × awayHalf (independent half-inning product).
   const n_hier    = pitcher.firstInning.startCount || 1
-  const w_dynamic = n_hier / (n_hier + 1.14)
+  const k_hier    = getDynamicPriorWeight(pitcher)
+  const w_dynamic = Math.min(0.97, n_hier / (n_hier + k_hier))
   const hierarchicalBayes = Math.max(0.35, Math.min(0.92,
     w_dynamic * ctx.shrunkRate + (1 - w_dynamic) * LEAGUE_AVG_NRFI
   ))
@@ -771,7 +804,7 @@ export function compute7ModelEnsemble(
   return {
     poisson, zip, markov, mapre, logisticMeta, nnInteraction, hierarchicalBayes,
     zipOmega:       clampOmega,
-    zipLambda:      lambda,
+    zipLambda:      zipResult.lambda,
     mapreLambdaAdj: mapreResult.lambdaAdj,
     shrunkNrfiRate: ctx.shrunkRate,
     dataWeight:     ctx.dataWeight,

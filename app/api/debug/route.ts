@@ -24,8 +24,15 @@ async function mlbApiGet(path: string) {
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
-export async function GET() {
-  if (process.env.NODE_ENV === "production" && !process.env.ENABLE_DEBUG_ENDPOINT) {
+export async function GET(request: Request) {
+  const debugToken  = request.headers.get("x-debug-token")
+  const isProduction = process.env.NODE_ENV === "production"
+  const tokenValid   = !!process.env.DEBUG_SECRET && debugToken === process.env.DEBUG_SECRET
+
+  if (isProduction && (!process.env.ENABLE_DEBUG_ENDPOINT || !tokenValid)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  if (!isProduction && !tokenValid) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 

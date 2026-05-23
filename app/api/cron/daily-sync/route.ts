@@ -19,16 +19,25 @@ import { NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
-  const cronSecret = process.env.CRON_SECRET
+  const cronSecret  = process.env.CRON_SECRET
+  const authHeader  = request.headers.get("authorization")
 
-  // Require CRON_SECRET in production; allow open access in dev for easy testing
   if (process.env.NODE_ENV === "production") {
     if (!cronSecret) {
       return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 })
     }
-    const authHeader = request.headers.get("authorization")
     if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+  } else {
+    // In development: require Authorization: Bearer <CRON_SECRET> or "dev".
+    // Prevents accidental production DB writes when .env.local points at prod.
+    const devToken = cronSecret ?? "dev"
+    if (authHeader !== `Bearer ${devToken}`) {
+      return NextResponse.json(
+        { error: "Dev cron requires Authorization: Bearer <CRON_SECRET or 'dev'>" },
+        { status: 401 }
+      )
     }
   }
 
