@@ -41,3 +41,8 @@ scripts/deepnrfi/__pycache__/
 # Python virtual environments
 .venv/
 venv/
+
+# AI coding session planning files
+task_plan.md
+findings.md
+progress.md
