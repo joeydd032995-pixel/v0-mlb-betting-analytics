@@ -34,6 +34,7 @@ import {
   ENSEMBLE_WEIGHTS,
   LEAGUE_AVG_NRFI,
   compute7ModelEnsemble,
+  combineMAPREHalves,
   getLineupVsHand,
   getLineupVsHandFromCard,
   precomputePitcherContext,
@@ -73,7 +74,16 @@ const COLD_TEMP_THRESHOLD_F = 50
  * (`scripts/deepnrfi/backtest_v2.py`), never heuristically.
  */
 const ENSEMBLE_BLEND      = 0.76
-const LEAGUE_ANCHOR       = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)
+function computeLeagueAnchor(): number {
+  try {
+    return calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[nrfi-engine] Calibration spline failed at module load; falling back to raw league average:", msg)
+    return LEAGUE_AVG_NRFI
+  }
+}
+const LEAGUE_ANCHOR       = computeLeagueAnchor()
 // Effective output range under the current calibration spline + league-anchor blend:
 //   min = 0.76 × 0.060 + 0.24 × 0.559 ≈ 0.180
 //   max = 0.76 × 0.930 + 0.24 × 0.559 ≈ 0.841
@@ -141,22 +151,33 @@ const GAME_LEVEL_KEYS = new Set<keyof typeof ENSEMBLE_WEIGHTS>(["nnInteraction"]
 /**
  * Combine two half-inning SevenModelResult objects into a game-level P(NRFI).
  *
- * Half-inning probability models (Poisson/ZIP/Markov/MAPRE):
+ * Half-inning probability models (Poisson/ZIP/Markov/MAPRE/hierarchicalBayes):
  *   P_game = P_home_half × P_away_half  (independence assumption)
  *
- * Game-level signal models (hierarchicalBayes/nnInteraction):
+ * MAPRE: overridden by mapreGameLevel when provided (see combineMAPREHalves).
+ *
+ * Game-level signal model (nnInteraction only):
  *   P_game = (home[k] + away[k]) / 2   (average — not a probability product)
  *
  * ENSEMBLE_WEIGHTS are pre-normalised to sum to 1.0.
  */
-function blend7Models(home: SevenModelResult, away: SevenModelResult): number {
+function blend7Models(
+  home: SevenModelResult,
+  away: SevenModelResult,
+  mapreGameLevel?: number
+): number {
   const w    = ENSEMBLE_WEIGHTS
   const keys = Object.keys(w) as Array<keyof typeof ENSEMBLE_WEIGHTS>
   let ensemble = 0
   for (const key of keys) {
-    const gameLevelProb = GAME_LEVEL_KEYS.has(key)
-      ? (home[key] + away[key]) / 2
-      : home[key] * away[key]
+    let gameLevelProb: number
+    if (key === "mapre" && mapreGameLevel !== undefined) {
+      gameLevelProb = mapreGameLevel
+    } else if (GAME_LEVEL_KEYS.has(key)) {
+      gameLevelProb = (home[key] + away[key]) / 2
+    } else {
+      gameLevelProb = home[key] * away[key]
+    }
     ensemble += w[key] * gameLevelProb
   }
   return Math.max(0, Math.min(1, ensemble))
@@ -460,14 +481,25 @@ export function computeNRFIPrediction(
     computeLambda(awayCtx.shrunkRate, homeOffVsHand, game.parkFactor, combinedMult) * umpireLambdaMult
   )
 
+  // ── Derive ZIP/MAPRE game-context inputs ────────────────────────────────────
+  const gameTemperature = game.weather.conditions === "dome"
+    ? 72
+    : (game.weather.temperature ?? 72)
+  // umpireWideness: positive nrfiFactor = tighter zone = fewer runs = wide-zone
+  // in ZIP's convention (more Ks → higher omega).
+  const umpireWideness  = game.umpire?.nrfiFactor ?? 0
+
   // ── Opt #8: 7-model ensemble per half ───────────────────────────────────────
   // "home half" = home pitcher on mound, away team batting
-  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx)
+  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx, gameTemperature, umpireWideness)
   // "away half" = away pitcher on mound, home team batting
-  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx)
+  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx, gameTemperature, umpireWideness)
+
+  // ── MAPRE game-level: cross-half ρ + NegBin overdispersion ──────────────────
+  const mapreGameLevel = combineMAPREHalves(homeHalf7.mapreLambdaAdj, awayHalf7.mapreLambdaAdj)
 
   // ── Blend + Opt #6: calibration ─────────────────────────────────────────────
-  const rawEnsemble7    = blend7Models(homeHalf7, awayHalf7)
+  const rawEnsemble7    = blend7Models(homeHalf7, awayHalf7, mapreGameLevel)
   const calibrated7     = calibrateWithMonotonicSpline(rawEnsemble7)
   const ensemble7Final  = ENSEMBLE_BLEND * calibrated7 + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
 

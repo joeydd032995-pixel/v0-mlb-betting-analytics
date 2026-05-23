@@ -6,12 +6,15 @@ import {
   computeZIPModel,
   computeMarkovNrfi,
   computeMAPREHalfInning,
+  combineMAPREHalves,
+  precomputePitcherContext,
+  compute7ModelEnsemble,
   computePAOutcomes,
   log5,
   LEAGUE_AVG_NRFI,
   ENSEMBLE_WEIGHTS,
 } from "../lib/nrfi-models"
-import type { Pitcher } from "../lib/types"
+import type { Pitcher, Team } from "../lib/types"
 
 // ─── Test fixture ─────────────────────────────────────────────────────────────
 
@@ -46,6 +49,15 @@ function makePitcher(overrides: {
       careerFirstInnings: overrides.careerFirstInnings,
     },
   } as unknown as Pitcher
+}
+
+function makeTeam(): Team {
+  return {
+    id: "team-test",
+    name: "Test Team",
+    abbreviation: "TST",
+    firstInning: { offenseFactor: 1.0, runsPerGame: 0.52, vsLHP: 1.0, vsRHP: 1.0 },
+  } as unknown as Team
 }
 
 // ─── bayesianShrinkage ────────────────────────────────────────────────────────
@@ -288,5 +300,111 @@ describe("ENSEMBLE_WEIGHTS", () => {
   it("markov has the largest weight", () => {
     const maxWeight = Math.max(...Object.values(ENSEMBLE_WEIGHTS))
     expect(ENSEMBLE_WEIGHTS.markov).toBeCloseTo(maxWeight, 6)
+  })
+})
+
+// ─── combineMAPREHalves ───────────────────────────────────────────────────────
+
+describe("combineMAPREHalves", () => {
+  it("uses standard Poisson when λ_total <= 0.8 and neither half exceeds 0.60", () => {
+    // λ=0.3+0.3=0.6: no ρ (neither > 0.60), λ_adj=0.6 < 0.8 → Poisson
+    const result = combineMAPREHalves(0.3, 0.3)
+    expect(result).toBeCloseTo(Math.exp(-0.6), 3)
+  })
+
+  it("switches to NegBin (no ρ) when λ_total > 0.8 but neither half > 0.60", () => {
+    // λ=0.5+0.5=1.0: no ρ, λ_adj=1.0 > 0.8 → NegBin
+    const lambdaAdj = 1.0
+    const expected  = Math.pow(1.3 / (1.3 + lambdaAdj), 1.3)
+    expect(combineMAPREHalves(0.5, 0.5)).toBeCloseTo(expected, 3)
+  })
+
+  it("applies ρ=0.06 AND NegBin when both λ > 0.60 (ρ always makes total > 0.8)", () => {
+    // λ=0.7+0.7=1.4, ρ fires → λ_adj=1.484 > 0.8 → NegBin with ρ
+    const lambdaAdj = 1.4 * 1.06
+    const expected  = Math.pow(1.3 / (1.3 + lambdaAdj), 1.3)
+    expect(combineMAPREHalves(0.7, 0.7)).toBeCloseTo(expected, 3)
+  })
+
+  it("returns a value in (0, 1) for all inputs", () => {
+    expect(combineMAPREHalves(0.1, 0.1)).toBeGreaterThan(0)
+    expect(combineMAPREHalves(0.1, 0.1)).toBeLessThan(1)
+    expect(combineMAPREHalves(2.0, 2.0)).toBeGreaterThan(0)
+    expect(combineMAPREHalves(2.0, 2.0)).toBeLessThan(1)
+  })
+
+  it("is symmetric — swapping home/away produces the same result", () => {
+    expect(combineMAPREHalves(0.4, 0.8)).toBeCloseTo(
+      combineMAPREHalves(0.8, 0.4), 6
+    )
+  })
+})
+
+// ─── precomputePitcherContext — dynamic shrinkage routing ─────────────────────
+
+describe("precomputePitcherContext — dynamic shrinkage routing", () => {
+  it("bullpen pitcher gets heavier shrinkage toward league avg than starter", () => {
+    const bullpen = makePitcher({ nrfiRate: 0.80, startCount: 5, isBullpenGame: true })
+    const starter = makePitcher({ nrfiRate: 0.80, startCount: 5, isBullpenGame: false })
+    const ctxBP   = precomputePitcherContext(bullpen)
+    const ctxSP   = precomputePitcherContext(starter)
+    // Bullpen k=80 → more shrinkage toward league avg → lower shrunkRate
+    expect(ctxBP.shrunkRate).toBeLessThan(ctxSP.shrunkRate)
+  })
+
+  it("rookie starter (careerFirstInnings < 100) uses k=30 — dataWeight < 0.20 at 5 starts", () => {
+    const rookie = makePitcher({ startCount: 5, careerFirstInnings: 30 })
+    const ctx    = precomputePitcherContext(rookie)
+    // k=30 at 5 starts → dataWeight = 5/35 ≈ 0.143
+    expect(ctx.dataWeight).toBeLessThan(0.20)
+    expect(ctx.dataWeight).toBeGreaterThan(0.05)
+  })
+
+  it("veteran starter (careerFirstInnings >= 100) uses k=50 — dataWeight ≈ 30/80 at 30 starts", () => {
+    const vet = makePitcher({ startCount: 30, careerFirstInnings: 200 })
+    const ctx = precomputePitcherContext(vet)
+    expect(ctx.dataWeight).toBeCloseTo(30 / 80, 2)
+  })
+
+  it("shrunkRate is always in [0.35, 0.92]", () => {
+    const extreme = makePitcher({ nrfiRate: 1.0, startCount: 3 })
+    const ctx     = precomputePitcherContext(extreme)
+    expect(ctx.shrunkRate).toBeLessThanOrEqual(0.92)
+    expect(ctx.shrunkRate).toBeGreaterThanOrEqual(0.35)
+  })
+})
+
+// ─── compute7ModelEnsemble ZIP temperature routing ───────────────────────────
+
+describe("compute7ModelEnsemble ZIP temperature routing", () => {
+  it("cold game (45°F) produces higher ZIP omega than neutral (72°F)", () => {
+    const pitcher  = makePitcher({ kRate: 0.225 })
+    const team     = makeTeam()
+    const ctx      = precomputePitcherContext(pitcher)
+    const cold     = compute7ModelEnsemble(0.5, pitcher, team, "home", ctx, 45)
+    const neutral  = compute7ModelEnsemble(0.5, pitcher, team, "home", ctx, 72)
+    expect(cold.zipOmega).toBeGreaterThan(neutral.zipOmega)
+  })
+
+  it("hot game (95°F) produces lower ZIP P(NRFI) than neutral (72°F)", () => {
+    const pitcher  = makePitcher({})
+    const team     = makeTeam()
+    const ctx      = precomputePitcherContext(pitcher)
+    const hot      = compute7ModelEnsemble(0.5, pitcher, team, "home", ctx, 95)
+    const neutral  = compute7ModelEnsemble(0.5, pitcher, team, "home", ctx, 72)
+    expect(hot.zip).toBeLessThan(neutral.zip)
+  })
+
+  it("at temperature=72 umpireWideness=0, ZIP result is close to old inline formula", () => {
+    const pitcher  = makePitcher({ kRate: 0.225 })
+    const team     = makeTeam()
+    const ctx      = precomputePitcherContext(pitcher)
+    const lambda   = 0.5
+    const result   = compute7ModelEnsemble(lambda, pitcher, team, "home", ctx, 72, 0)
+    // Old inline used only kRate — at neutral temperature/umpire the full
+    // computeZIPModel result should be within 0.05 of the simplified formula.
+    const oldOmega = Math.max(0.08, Math.min(0.60, 1 / (1 + Math.exp(-(-1.38)))))
+    const oldZip   = oldOmega + (1 - oldOmega) * Math.exp(-lambda)
+    expect(result.zip).toBeCloseTo(oldZip, 1)
   })
 })
