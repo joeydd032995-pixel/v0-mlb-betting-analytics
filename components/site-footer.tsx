@@ -145,6 +145,28 @@ export function SiteFooter() {
         {/* Divider */}
         <div style={{ height: "1px", background: "var(--hm-fence)" }} />
 
+        {/* Responsible gambling notice */}
+        <div
+          className="flex items-center justify-center gap-2 py-3 text-center"
+          style={{ borderBottom: "1px solid var(--hm-fence)" }}
+        >
+          <span
+            className="font-mono tracking-[0.06em]"
+            style={{ fontSize: "10px", color: "var(--hm-smoke)" }}
+          >
+            Homeplate Metrics is an analytics tool only — not a betting service. Gambling involves financial risk and can be addictive. 18+ only.
+          </span>
+          <Link
+            href="/disclaimer"
+            className="transition-colors"
+            style={{ fontSize: "10px", color: "var(--hm-diamond)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.7" }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "1" }}
+          >
+            Responsible Gambling ↗
+          </Link>
+        </div>
+
         {/* Bottom bar */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 py-5 hm-safe-bottom">
           <div className="flex items-center gap-2">
