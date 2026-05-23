@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run the full test suite before any push.
+# Catches failures locally before they reach GitHub CI.
+# Emergency bypass: git push --no-verify
+npm test
