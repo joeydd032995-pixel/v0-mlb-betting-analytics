@@ -57,7 +57,7 @@ export async function fetchVenueWeather(venue: string): Promise<Weather> {
 
   try {
     const url = `${BASE_URL}?lat=${coords.lat}&lon=${coords.lon}&appid=${API_KEY}&units=imperial`
-    const res = await fetch(url, { next: { revalidate: 600 } })
+    const res = await fetch(url, { next: { revalidate: 600 }, signal: AbortSignal.timeout(8000) })
     if (!res.ok) {
       console.error(`[weather] HTTP ${res.status} for ${venue}`)
       return DOME_WEATHER
@@ -131,6 +131,7 @@ export async function fetchHistoricalWeather(venue: string, date: string): Promi
     const res = await fetch(`${ARCHIVE_URL}?${params}`, {
       // Cache aggressively — archive data never changes.
       next: { revalidate: 60 * 60 * 24 * 30 },
+      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) {
       console.error(`[weather-archive] HTTP ${res.status} for ${venue} ${date}`)

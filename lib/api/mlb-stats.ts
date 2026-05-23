@@ -86,6 +86,7 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
       next: { revalidate },
+      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) {
       console.error(`[mlb-stats] HTTP ${res.status} for ${path}`)
