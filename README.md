@@ -53,7 +53,7 @@ The engine runs a **seven-model ensemble** per half-inning, then combines both h
 | 2 | Handedness × lineup splits (`vsLHP` / `vsRHP`) | `nrfi-models.ts → getLineupVsHand` |
 | 3 | Vector wind + humidity (`computeVectorWeatherMultiplier`) | `lib/weather.ts` |
 | 4 | Umpire bias factor (optional per-game field) | `nrfi-engine.ts` |
-| 5 | Empirical Bayes shrinkage (k=1.14, σ²_within/σ²_between) | `nrfi-models.ts → bayesianShrinkage` |
+| 5 | Dynamic Bayesian shrinkage (k=30/50/80 by pitcher type) | `nrfi-models.ts → getDynamicPriorWeight / applyDynamicShrinkage` |
 | 6 | Monotonic P-spline calibration (19 backtest knots) | `lib/calibration.ts` |
 | 7 | Effective output clamped to `[0.18, 0.86]` (natural range after anchor blend) | `nrfi-engine.ts` |
 | 8 | Three meta-models: logisticMeta, nnInteraction, hierarchicalBayes | `nrfi-models.ts → compute7ModelEnsemble` |
@@ -72,23 +72,29 @@ P(YRFI)  = 1 − P(NRFI)   // exact symmetry
 //   logisticMeta 4.5%, nnInteraction 2.7%, hierarchicalBayes 1.8%
 ```
 
-### Step 0 — Empirical Bayes Shrinkage (Opt #5, Pre-processing)
+### Step 0 — Dynamic Bayesian Shrinkage (Opt #5, Pre-processing)
 
-Shrinks every pitcher's observed NRFI rate toward the league mean using a fixed k derived from empirical variance components (σ²_within / σ²_between):
+Shrinks every pitcher's observed NRFI rate toward the league mean using a **pitcher-type-specific k** (prior weight) derived from sample-size uncertainty:
 
 ```text
-k = σ²_within / σ²_between = 0.040 / 0.035 ≈ 1.14
+k = 30   // spot starter / ≤5 career starts (high uncertainty)
+k = 50   // established starter (default)
+k = 80   // bullpen / opener role
 
 w = n / (n + k)                               // data weight; capped at 0.97
 θ̂ = w × NRFI_observed + (1 − w) × 0.516     // clamped to [0.35, 0.92]
 ```
 
-| Starts | data weight (k=1.14) |
-|---|---|
-| 2 | ≈ 64% |
-| 5 | ≈ 81% |
-| 18+ | ≈ 94% |
-| 60+ | 97% (cap) |
+| Starts | data weight (k=30, spot) | data weight (k=50, starter) | data weight (k=80, bullpen) |
+|---|---|---|---|
+| 2 | ≈ 6% | ≈ 4% | ≈ 2% |
+| 5 | ≈ 14% | ≈ 9% | ≈ 6% |
+| 18 | ≈ 38% | ≈ 26% | ≈ 18% |
+| 50 | ≈ 63% | ≈ 50% | ≈ 38% |
+| 100+ | ≈ 77% | ≈ 67% | ≈ 56% |
+| 250+ | 97% (cap) | 97% (cap) | 97% (cap) |
+
+The `getDynamicPriorWeight(pitcher)` helper selects k; `applyDynamicShrinkage(pitcher, k)` returns the shrunk rate. The legacy `bayesianShrinkage(n, rate, k=1.14)` function is retained but deprecated.
 
 ### Step 1 — Poisson (12% weight)
 
@@ -162,6 +168,8 @@ P(NRFI) = e^(−λ_total_adj)                        // standard Poisson
          or (1.3 / (1.3 + λ_total_adj))^1.3       // NegBin when λ_total_adj > 0.8
 ```
 
+Game-level combination is implemented in `lib/nrfi-models.ts → combineMAPREHalves(homeLambdaAdj, awayLambdaAdj)` and wired into `computeNRFIPrediction` via the `mapreGameLevel` override in `blend7Models`.
+
 ### Steps 5–7 — Meta-Models (Opt #8, combined 10%)
 
 Three meta-models correct systematic biases in the 4-model base:
@@ -178,7 +186,8 @@ nnInteraction = clamp(poisson × markov / 0.67, 0.02, 0.98)
                 // joint half-inning probability
                 // game-level signal: blend7Models averages (home+away)/2
 
-w_dynamic = n / (n + 1.14)                          // same k as Opt #5
+k_hier    = getDynamicPriorWeight(pitcher)            // 30 / 50 / 80 by type
+w_dynamic = n / (n + k_hier)                         // data weight; capped at 0.97
 hierarchicalBayes = clamp(w_dynamic × θ̂ + (1−w_dynamic) × 0.516, 0.35, 0.92)
                 // half-inning prob: blend7Models multiplies home×away
 ```
@@ -491,7 +500,7 @@ Advanced MLB batting splits, pitcher xStats, and matchup-level analytics.
 
 **Website:** [sportsblaze.com](https://sportsblaze.com)  
 **Docs:** [docs.sportsblaze.com](https://docs.sportsblaze.com)  
-**Auth:** Query parameter `?key=YOUR_KEY`  
+**Auth:** `Authorization: Bearer YOUR_KEY` header  
 **Env variable:** `SPORTSBLAZE_API_KEY`
 
 **Example:**
@@ -501,15 +510,20 @@ Advanced MLB batting splits, pitcher xStats, and matchup-level analytics.
 const BASE = process.env.SPORTSBLAZE_BASE_URL ?? "https://api.sportsblaze.com"
 
 export async function fetchPitcherSplits(playerId: string) {
+  if (!process.env.SPORTSBLAZE_API_KEY) return null
   const res = await fetch(
-    `${BASE}/mlb/v1/players/${playerId}/splits?key=${process.env.SPORTSBLAZE_API_KEY}`,
-    { next: { revalidate: 300 } }
+    `${BASE}/mlb/v1/players/${playerId}/splits`,
+    {
+      headers: { Authorization: `Bearer ${process.env.SPORTSBLAZE_API_KEY}` },
+      next: { revalidate: 300 },
+    }
   )
+  if (!res.ok) return null
   return res.json()
 }
 ```
 
-> If `SPORTSBLAZE_API_KEY` is not set, the engine falls back to mock data (`lib/mock-data.ts`).
+> If `SPORTSBLAZE_API_KEY` is not set, `fetchPitcherSplits` and `fetchTeamSplits` return `null` and lineup splits fall back to the pitcher's `offenseFactor`.
 
 ---
 
@@ -562,8 +576,9 @@ See `.env.example` for the complete list with descriptions.
          │           lib/nrfi-engine.ts                            │
          │         computeAllPredictions()                         │
          │                                                         │
-         │  Step 0: Empirical Bayes shrinkage (Opt #5)             │
-         │    k=1.14  θ̂ = (n·NRFI + 1.14·0.516)/(n+1.14)        │
+         │  Step 0: Dynamic Bayesian shrinkage (Opt #5)            │
+         │    k=30/50/80 by pitcher type                           │
+         │    θ̂ = w·NRFI_obs + (1−w)·0.516  w=n/(n+k)           │
          │    Opts #2,#3,#4 also applied to λ                      │
          │                                                         │
          │  Per half-inning (×2) — lib/nrfi-models.ts             │
@@ -609,7 +624,7 @@ v0-mlb-betting-analytics/
 │   ├── accuracy/                # Protected — model accuracy dashboard
 │   ├── insights/                # Protected — model diagnostics
 │   └── api/
-│       ├── predictions/route.ts # GET — today's live predictions (force-dynamic)
+│       ├── predictions/route.ts # GET — today's live predictions (revalidate=300)
 │       ├── results/route.ts     # GET — first-inning results by date
 │       ├── bets/route.ts        # GET/POST — bet records
 │       ├── bets/[id]/route.ts   # PATCH — update bet result
@@ -637,7 +652,7 @@ v0-mlb-betting-analytics/
 ├── lib/
 │   ├── types.ts                 # All TypeScript interfaces — source of truth
 │   ├── nrfi-engine.ts           # Ensemble orchestration, blend, confidence, tiers
-│   ├── nrfi-models.ts           # 7 model implementations + bayesianShrinkage
+│   ├── nrfi-models.ts           # 7 model implementations + dynamic Bayesian shrinkage
 │   ├── calibration.ts           # Monotonic P-spline calibration (19 knots)
 │   ├── weather.ts               # Vector wind + humidity model (Opt #3)
 │   ├── config.ts                # Central statistical constants (Kelly, wOBA, FIP…)
@@ -646,8 +661,9 @@ v0-mlb-betting-analytics/
 │   ├── prisma.ts                # Prisma client singleton — always import from here
 │   ├── utils.ts                 # cn() utility for className merging
 │   ├── api/
-│   │   ├── live-data.ts         # getLiveGameSlate() — MLB + odds + weather
-│   │   └── mlb-stats.ts         # MLB Stats API wrappers
+│   │   ├── live-data.ts         # getLiveGameSlate() — MLB + odds + weather (venue-deduped)
+│   │   ├── mlb-stats.ts         # MLB Stats API wrappers
+│   │   └── sportsblaze.ts       # SportsBlaze splits (fetchTeamSplits, fetchPitcherSplits)
 │   └── constants/
 │       ├── mlb-teams.ts         # Static team registry with apiId (MLB numeric ID)
 │       └── mlb-stadiums.ts      # Stadium park factors + GPS coords
@@ -680,7 +696,7 @@ export const ENSEMBLE_WEIGHTS = {
   mapre:             0.09091,  // Multi-Factor Adjusted Poisson Run Expectancy
   logisticMeta:      0.04545,  // logistic stack on normalised base-4 weighted avg
   nnInteraction:     0.02727,  // Poisson × Markov / 0.67 cross-model interaction
-  hierarchicalBayes: 0.01818,  // empirical Bayes (k=1.14) shrunk pitcher rate
+  hierarchicalBayes: 0.01818,  // dynamic Bayes (k=30/50/80) shrunk pitcher rate
 } as const
 
 export const LEAGUE_AVG_NRFI = 0.516   // 2024–2025 recalibrated
@@ -692,7 +708,7 @@ Legacy `MODEL_CONFIG` (scale/bias per model) is still present and drives the UI 
 
 ```typescript
 const ENSEMBLE_BLEND      = 0.76
-const LEAGUE_ANCHOR       = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)  // ≈ 0.559, auto-updates with knots
+const LEAGUE_ANCHOR       = computeLeagueAnchor()  // ≈ 0.559; try-catch falls back to LEAGUE_AVG_NRFI (0.516)
 const CLAMP_MIN           = 0.18   // natural lower bound: 0.76×0.060 + 0.24×0.559
 const CLAMP_MAX           = 0.86   // natural upper bound: 0.76×0.930 + 0.24×0.559
 const NRFI_CALL_THRESHOLD = 0.52
@@ -741,13 +757,14 @@ The live data pipeline is already fully implemented. Here is how the pieces conn
 ### Data Flow
 
 ```
-app/api/predictions/route.ts   (GET, force-dynamic, maxDuration=300)
+app/api/predictions/route.ts   (GET, revalidate=300, maxDuration=30)
   └── getLiveGameSlate(date)   lib/api/live-data.ts
         ├── fetchGamesByDate()       → MLB Stats API (schedule + probable starters)
         ├── fetchPitcherStats()      → MLB Stats API (ERA, WHIP, K%, BB%)
         ├── fetchTeamStats()         → MLB Stats API (OPS, OBP, SLG)
         ├── fetchAllNrfiOdds()       → The Odds API  (falls back to undefined)
-        └── fetchVenueWeather()      → OpenWeatherMap (falls back to mock)
+        ├── fetchVenueWeather()      → OpenWeatherMap (deduped by venue; falls back to mock)
+        └── fetchTeamSplits()        → SportsBlaze    (optional; falls back to offenseFactor)
   └── computeAllPredictions(games, pitchers, teams)   lib/nrfi-engine.ts
 ```
 
