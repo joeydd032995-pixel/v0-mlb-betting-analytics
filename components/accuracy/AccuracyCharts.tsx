@@ -80,7 +80,7 @@ export function AccuracyCharts({ accuracy }: Props) {
                     tickLine={false}
                     domain={[0.4, 1]}
                   />
-                  <ReferenceLine y={0.614} stroke="var(--ds-warn)" strokeDasharray="4 3" strokeWidth={1.5} />
+                  <ReferenceLine y={0.516} stroke="var(--ds-warn)" strokeDasharray="4 3" strokeWidth={1.5} />
                   <Tooltip
                     formatter={(v: number, name: string) => [
                       name === "accuracy" ? `${(v * 100).toFixed(1)}%` : v.toFixed(4),
@@ -98,7 +98,7 @@ export function AccuracyCharts({ accuracy }: Props) {
               </ResponsiveContainer>
             </div>
             <p className="font-jet text-[9px] text-ds-dim mt-2">
-              Dashed line = league NRFI baseline (61.4%). Models above baseline add value.
+              Dashed line = league NRFI baseline (51.6%). Models above baseline add value.
             </p>
           </>
         )}
