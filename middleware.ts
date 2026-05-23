@@ -1,18 +1,17 @@
 // middleware.ts
-// Clerk middleware — runs on every request so Clerk can read/write the auth
-// session cookie and populate auth() / useAuth() across the app.
-//
-// Current policy: everything is PUBLIC.
-// The dashboard is fully accessible without an account (free-tier preview).
-// When you add premium/paywall features, uncomment the protected-route block
-// below and add your route patterns there.
+// Runs on every request. Responsibilities:
+//   1. Clerk session — reads/writes auth cookie so auth() / useAuth() work server-side.
+//   2. Route protection — redirects unauthenticated users away from private pages.
+//   3. Rate limiting — throttles public API endpoints when Upstash is configured.
 //
 // Docs: https://clerk.com/docs/references/nextjs/clerk-middleware
 
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
+import { NextResponse } from "next/server"
+import { getRateLimiter, applyRateLimit } from "@/lib/rate-limit"
 
 // ---------------------------------------------------------------------------
-// Protected routes (paywall-ready — uncomment when adding premium features)
+// Protected routes — require a valid Clerk session; redirect to /sign-in otherwise
 // ---------------------------------------------------------------------------
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",      // user dashboard with watchlist
@@ -28,27 +27,41 @@ const isProtectedRoute = createRouteMatcher([
 ])
 
 // ---------------------------------------------------------------------------
-// Public routes — always accessible, even without an account
+// Rate-limited public API routes — throttled per IP when Upstash is configured
 // ---------------------------------------------------------------------------
-// Everything is public by default; only routes matched above would be gated.
-const _isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api/(.*)",           // all existing API routes stay open
+const isRateLimitedRoute = createRouteMatcher([
+  "/api/predictions(.*)",
+  "/api/results(.*)",
+  "/api/games(.*)",
+  "/api/historical-sync(.*)",
 ])
 
 export default clerkMiddleware(async (auth, req) => {
-  // Protect premium routes
+  // 1. Enforce auth on protected pages/routes
   if (isProtectedRoute(req)) {
     await auth.protect()
   }
+
+  // 2. Rate-limit public API endpoints (no-op when Upstash is not configured)
+  if (isRateLimitedRoute(req)) {
+    const limiter = getRateLimiter()
+    if (limiter) {
+      const ip =
+        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+        req.headers.get("x-real-ip") ??
+        "anonymous"
+
+      const limited = await applyRateLimit(ip, limiter)
+      if (limited) return limited
+    }
+  }
+
+  return NextResponse.next()
 })
 
 export const config = {
   matcher: [
     // Run on every path EXCEPT Next.js internals and static assets.
-    // The negative lookahead skips _next/*, and common static file extensions.
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     // Always run for API routes so server-side auth() works there too.
     "/(api|trpc)(.*)",
