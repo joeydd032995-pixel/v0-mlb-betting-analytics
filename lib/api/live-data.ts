@@ -9,6 +9,7 @@ import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats, FirstInningRe
 import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
+import { fetchTeamSplits } from "./sportsblaze"
 import type { Game, Pitcher, Team, Weather, GameOdds } from "../types"
 import { MLB_TEAMS } from "../constants/mlb-teams"
 import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
@@ -463,6 +464,18 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       teams.set(game.awayTeamId, mapTeam(awayTeamStats, game.awayTeamId, awayTeamLast5))
     }
   }
+
+  // Enrich teams with vsLHP/vsRHP splits from SportsBlaze (optional).
+  // Returns immediately when SPORTSBLAZE_API_KEY is unset (fetchTeamSplits → null).
+  await Promise.all(
+    [...teams.entries()].map(async ([teamId, team]) => {
+      const splits = await fetchTeamSplits(teamId)
+      if (splits) {
+        team.firstInning.vsLHP = splits.vsLHP
+        team.firstInning.vsRHP = splits.vsRHP
+      }
+    })
+  )
 
   return { games, pitchers, teams }
 }
