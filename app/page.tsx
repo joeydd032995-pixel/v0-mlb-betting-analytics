@@ -27,6 +27,7 @@ import { KpiCard } from "@/components/diamond/KpiCard"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 import { savePredictionsToDBAction } from "@/app/actions"
+import { MLB_SEASON_START } from "@/lib/config"
 
 // Lazy-load onboarding modal to avoid SSR issues
 const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((m) => ({ default: m.OnboardingModal })), {
@@ -180,6 +181,35 @@ function FilterBar({
       )}
     </div>
   )
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Splits a date range [from, to] inclusive into non-overlapping chunks of
+ * `size` days each, returning an array of { from, to } pairs ready to pass
+ * to the /api/backfill endpoint.
+ */
+function buildDateChunks(
+  from: string,
+  to: string,
+  size: number
+): { from: string; to: string }[] {
+  const chunks: { from: string; to: string }[] = []
+  const cur = new Date(from + "T12:00:00Z")
+  const end = new Date(to + "T12:00:00Z")
+  if (isNaN(cur.getTime()) || isNaN(end.getTime()) || cur > end) return chunks
+  while (cur <= end) {
+    const chunkStart = cur.toISOString().split("T")[0]
+    const chunkEnd = new Date(cur)
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + size - 1)
+    chunks.push({
+      from: chunkStart,
+      to: chunkEnd > end ? end.toISOString().split("T")[0] : chunkEnd.toISOString().split("T")[0],
+    })
+    cur.setUTCDate(cur.getUTCDate() + size)
+  }
+  return chunks
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -383,38 +413,54 @@ export default function HomePage() {
     setTrackingAccuracy(computeExtendedAccuracy(updated))
   }
 
-  // Backfill historical predictions from season start to yesterday
+  // Backfill historical predictions from season start to yesterday, in 30-day chunks
   const backfillSeason = useCallback(async () => {
     setBackfilling(true)
-    setLastSyncInfo("Importing…")
+    setLastSyncInfo("Calculating date range…")
     try {
-      // 2026 MLB season started ~March 20; go back 30 days from today to cover the full season
+      // Determine the season start date for the current year (ET)
+      const nowET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      const currentYear = parseInt(nowET.split("-")[0], 10)
+      const seasonStartStr = MLB_SEASON_START[currentYear] ?? `${currentYear}-03-27`
+
+      // to = yesterday in ET (all games are complete)
       const toDate = new Date()
-      toDate.setDate(toDate.getDate() - 1) // yesterday (games are complete)
+      toDate.setDate(toDate.getDate() - 1)
       const to = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(toDate)
-      const fromDate = new Date()
-      fromDate.setDate(fromDate.getDate() - 30)
-      const from = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(fromDate)
 
-      const res = await fetch(`/api/backfill?from=${from}&to=${to}`)
-      if (!res.ok) throw new Error(`Backfill API error ${res.status}`)
-      const data = await res.json()
+      // Split the full season range into 30-day chunks to stay within the API
+      // timeout budget and avoid hitting the per-request date cap.
+      const chunks = buildDateChunks(seasonStartStr, to, 30)
+      let allPredictions: TrackedPrediction[] = []
+      let totalDaysWithGames = 0
 
-      if (data.predictions && data.predictions.length > 0) {
-        const merged = upsertPredictions(data.predictions)
+      for (let i = 0; i < chunks.length; i++) {
+        const { from, to: chunkTo } = chunks[i]
+        setLastSyncInfo(`Importing chunk ${i + 1} of ${chunks.length} (${from} → ${chunkTo})…`)
+
+        const res = await fetch(`/api/backfill?from=${from}&to=${chunkTo}`)
+        if (!res.ok) throw new Error(`Backfill API error ${res.status}`)
+        const data = await res.json()
+
+        if (data.predictions?.length > 0) {
+          allPredictions = allPredictions.concat(data.predictions as TrackedPrediction[])
+          totalDaysWithGames += (data.datesProcessed as number) ?? 0
+        }
+      }
+
+      if (allPredictions.length > 0) {
+        const merged = upsertPredictions(allPredictions)
         setTrackedPredictions(merged)
         setTrackingAccuracy(computeExtendedAccuracy(merged))
 
         // Write-through backfilled predictions to DB when authenticated
         if (isSignedInRef.current) {
-          savePredictionsToDBAction(data.predictions as TrackedPrediction[]).catch(console.error)
+          savePredictionsToDBAction(allPredictions).catch(console.error)
         }
 
-        const completed = (data.predictions as TrackedPrediction[]).filter(
-          (p) => p.status === "complete"
-        ).length
+        const completed = allPredictions.filter((p) => p.status === "complete").length
         setLastSyncInfo(
-          `Imported ${completed} completed result${completed !== 1 ? "s" : ""} across ${data.datesProcessed} day${data.datesProcessed !== 1 ? "s" : ""}`
+          `Imported ${completed} completed result${completed !== 1 ? "s" : ""} across ${totalDaysWithGames} day${totalDaysWithGames !== 1 ? "s" : ""}`
         )
       } else {
         setLastSyncInfo("No historical data found")
