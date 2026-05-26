@@ -6,7 +6,7 @@
  * MLB Stats API. Returns completed TrackedPredictions ready to upsert into
  * localStorage so the accuracy dashboard shows full-season data.
  *
- * Max range: 30 days. Dates with no games are silently skipped.
+ * Max range: 35 days per chunk. Dates with no games are silently skipped.
  *
  * Note: pitcher/team stats are current-season stats (not historical snapshots),
  * which is acceptable for retroactive accuracy tracking purposes.
@@ -41,7 +41,7 @@ function isFinal(status: { abstractGameState: string; detailedState: string }): 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 /**
- * Returns an array of YYYY-MM-DD strings for [from, to] inclusive, capped at 30.
+ * Returns an array of YYYY-MM-DD strings for [from, to] inclusive, capped at 35.
  * Returns null if either date string is invalid, so the caller can return a 400.
  */
 function getDatesInRange(from: string, to: string): string[] | null {
@@ -50,7 +50,7 @@ function getDatesInRange(from: string, to: string): string[] | null {
   const end = new Date(to + "T12:00:00Z")
   if (isNaN(cur.getTime()) || isNaN(end.getTime())) return null
   const dates: string[] = []
-  while (cur <= end && dates.length < 30) {
+  while (cur <= end && dates.length < 35) {
     dates.push(cur.toISOString().split("T")[0])
     cur.setUTCDate(cur.getUTCDate() + 1)
   }

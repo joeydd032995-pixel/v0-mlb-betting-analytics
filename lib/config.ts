@@ -41,6 +41,17 @@ export const FLAGS = {
   USE_REAL_LINEUPS: envBool("USE_REAL_LINEUPS"),
 } as const
 
+/**
+ * MLB Opening Day dates by year.
+ * Used to determine the full backfill range for the accuracy dashboard.
+ * Update each off-season when the schedule is announced.
+ */
+export const MLB_SEASON_START: Record<number, string> = {
+  2024: "2024-03-20",
+  2025: "2025-03-27",
+  2026: "2026-03-27",
+}
+
 // Configuration for all statistical models and regression parameters
 export const CONFIG = {
   // Regression parameters (N_reg values for empirical Bayes)
