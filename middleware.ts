@@ -23,8 +23,15 @@ const isProtectedRoute = createRouteMatcher([
   "/insights(.*)",       // betting insights
   "/api/premium(.*)",    // future: gated prediction data
   "/api/admin(.*)",      // future: admin dashboard
-  "/account(.*)",        // future: subscription management
+  "/account(.*)",        // subscription management
 ])
+
+// ---------------------------------------------------------------------------
+// Stripe webhook — must bypass Clerk auth entirely.
+// Stripe sends raw POST requests with no Clerk session cookie.
+// Signature verification is handled inside the route handler itself.
+// ---------------------------------------------------------------------------
+const isStripeWebhook = createRouteMatcher(["/api/webhooks/stripe(.*)"])
 
 // ---------------------------------------------------------------------------
 // Rate-limited public API routes — throttled per IP when Upstash is configured
@@ -37,6 +44,12 @@ const isRateLimitedRoute = createRouteMatcher([
 ])
 
 export default clerkMiddleware(async (auth, req) => {
+  // 0. Stripe webhooks bypass all Clerk auth — raw body must be preserved
+  //    for signature verification inside the route handler.
+  if (isStripeWebhook(req)) {
+    return NextResponse.next()
+  }
+
   // 1. Enforce auth on protected pages/routes
   if (isProtectedRoute(req)) {
     await auth.protect()

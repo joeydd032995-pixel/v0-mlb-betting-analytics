@@ -53,6 +53,8 @@ const PRIMARY_NAV = [
   { href: "/ensemble", label: "Ensemble" },
   { href: "/history",  label: "History" },
   { href: "/insights", label: "Insights" },
+  { href: "/pricing",  label: "Pricing" },
+  { href: "/account",  label: "Account" },
 ]
 
 const TOOLS_NAV = [

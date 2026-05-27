@@ -23,6 +23,7 @@ const NAV_LINKS = [
   { href: "/odds",      label: "ODDS" },
   { href: "/weather",   label: "WEATHER" },
   { href: "/resources", label: "RESOURCES" },
+  { href: "/pricing",   label: "PRICING" },
 ]
 
 const DIAMOND_SVG = (

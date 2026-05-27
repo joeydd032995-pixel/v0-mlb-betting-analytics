@@ -9,13 +9,14 @@ import { DeepNrfiPanel } from "@/components/ensemble/DeepNrfiPanel"
 import { MonteCarloHistogram } from "@/components/ensemble/MonteCarloHistogram"
 import { StackContributionBar } from "@/components/ensemble/StackContributionBar"
 import {
-  CloudSun, Wind, Thermometer, Building2, Clock,
+  Wind, Thermometer, Building2, Clock,
   TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
   DollarSign, BrainCircuit, AlertTriangle, HelpCircle,
-  BarChart3, History,
+  BarChart3, History, Lock, Zap,
 } from "lucide-react"
 import { useState } from "react"
-import { cn } from "@/lib/utils"
+import { useRouter } from "next/navigation"
+import type { Tier } from "@/lib/subscription"
 
 interface Props {
   game: Game
@@ -24,6 +25,15 @@ interface Props {
   awayTeam: Team
   homePitcher: Pitcher
   awayPitcher: Pitcher
+  /** Current user tier — controls paywall rendering */
+  tier?: Tier
+  /**
+   * When true, the card is the single free teaser:
+   * - NRFI % is shown prominently as the "sell point"
+   * - Recommendation badge and confidence badge are blurred with a lock
+   * - Factors list, value analysis, and model tabs are hidden
+   */
+  isFreeTease?: boolean
 }
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%` }
@@ -385,17 +395,50 @@ function ModelBreakdownPanel({ bd, awayAbbr, homeAbbr }: { bd: ModelBreakdown; a
   )
 }
 
+// ─── Blurred-badge wrapper for free teaser mode ───────────────────────────────
+function LockedBadgeWrapper({
+  children,
+  onUnlock,
+}: {
+  children: React.ReactNode
+  onUnlock: () => void
+}) {
+  return (
+    <div className="relative inline-flex select-none">
+      <div style={{ filter: "blur(5px)", pointerEvents: "none" }}>
+        {children}
+      </div>
+      <button
+        onClick={onUnlock}
+        className="absolute inset-0 flex items-center justify-center gap-1 rounded"
+        style={{ background: "rgba(0,0,0,0.4)" }}
+        aria-label="Unlock signal — upgrade to Pro"
+      >
+        <Lock size={9} style={{ color: "#00e5ff" }} />
+        <span className="font-mono tracking-[0.1em] uppercase" style={{ fontSize: "8px", color: "#00e5ff" }}>
+          Pro
+        </span>
+      </button>
+    </div>
+  )
+}
+
 // ─── Main card ────────────────────────────────────────────────────────────────
 export function GamePredictionCard({
   game, prediction, homeTeam, awayTeam, homePitcher, awayPitcher,
+  tier: _tier = "FREE", isFreeTease = false,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
+  const router = useRouter()
   const isNrfiFavored = prediction.nrfiProbability >= 0.5
   const va = prediction.valueAnalysis
   const gaugeId = `gauge-${game.id}`
 
-  // Top stripe color based on recommendation
-  const stripeColor = isNrfiFavored ? "var(--hm-grass)" : prediction.recommendation === "TOSS_UP" ? "var(--hm-smoke)" : "var(--hm-blood)"
+  // Top stripe color — fall back to neutral for free teaser (recommendation may be stripped)
+  const rec = prediction.recommendation
+  const stripeColor = isFreeTease
+    ? (isNrfiFavored ? "var(--hm-grass)" : "var(--hm-blood)")
+    : (isNrfiFavored ? "var(--hm-grass)" : rec === "TOSS_UP" ? "var(--hm-smoke)" : "var(--hm-blood)")
 
   return (
     <div
@@ -499,15 +542,67 @@ export function GamePredictionCard({
 
         {/* Overview tab */}
         <TabsContent value="overview" className="mt-0 flex-1 p-3 sm:p-4 space-y-3">
+          {/* FREE TEASER: "Today's Best Pick" label above the probability bar */}
+          {isFreeTease && (
+            <div
+              className="flex items-center justify-between rounded-[8px] px-3 py-2"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,229,255,0.06), rgba(0,230,118,0.04))",
+                border: "1px solid rgba(0,229,255,0.2)",
+              }}
+            >
+              <span
+                className="font-mono uppercase tracking-[0.14em]"
+                style={{ fontSize: "9px", color: "#00e5ff" }}
+              >
+                🏆 Today&apos;s Best Pick
+              </span>
+              <span
+                className="font-mono uppercase tracking-[0.1em]"
+                style={{ fontSize: "9px", color: "rgba(255,255,255,0.3)" }}
+              >
+                Highest Confidence
+              </span>
+            </div>
+          )}
+
           <ProbabilityBar nrfi={prediction.nrfiProbability} />
 
           <div className="flex flex-wrap items-center gap-2">
-            <RecommendationBadge rec={prediction.recommendation} />
-            <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
-            {prediction.modelBreakdown && (
+            {/* Recommendation badge — blurred in free tease mode */}
+            {isFreeTease ? (
+              <LockedBadgeWrapper onUnlock={() => router.push("/pricing")}>
+                {/* Render a placeholder badge since recommendation is stripped */}
+                <span
+                  className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
+                  style={{ fontSize: "9px", color: "#00e676", background: "rgba(0,230,118,0.10)", border: "1px solid rgba(0,230,118,0.45)" }}
+                >
+                  SIGNAL
+                </span>
+              </LockedBadgeWrapper>
+            ) : (
+              prediction.recommendation && <RecommendationBadge rec={prediction.recommendation} />
+            )}
+
+            {/* Confidence badge — blurred in free tease mode */}
+            {isFreeTease ? (
+              <LockedBadgeWrapper onUnlock={() => router.push("/pricing")}>
+                <span
+                  className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
+                  style={{ fontSize: "9px", color: "#00e5ff", background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.3)" }}
+                >
+                  CONF
+                </span>
+              </LockedBadgeWrapper>
+            ) : (
+              prediction.confidence && prediction.confidenceScore != null &&
+              <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
+            )}
+
+            {!isFreeTease && prediction.modelBreakdown && (
               <ModelConsensusBadge consensus={prediction.modelBreakdown.modelConsensus} />
             )}
-            {va && va.recommendedBet !== "NO_BET" && (
+            {!isFreeTease && va && va.recommendedBet !== "NO_BET" && (
               <span
                 className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
                 style={{ fontSize: "9px", color: "#a855f7", background: "rgba(168,85,247,.08)", border: "1px solid rgba(168,85,247,.3)" }}
@@ -519,6 +614,23 @@ export function GamePredictionCard({
             )}
           </div>
 
+          {/* FREE TEASER: Upgrade nudge instead of locked content */}
+          {isFreeTease && (
+            <button
+              onClick={() => router.push("/pricing")}
+              className="flex w-full items-center justify-center gap-2 rounded-[8px] py-2.5 text-xs font-semibold transition-opacity hover:opacity-90"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,229,255,0.12), rgba(0,230,118,0.08))",
+                border: "1px solid rgba(0,229,255,0.3)",
+                color: "#00e5ff",
+              }}
+            >
+              <Zap size={12} />
+              Unlock full signal, confidence &amp; today&apos;s games
+            </button>
+          )}
+
+          {/* xR grid — shown in all tiers (non-sensitive data) */}
           <div className="grid grid-cols-2 gap-2">
             {[
               { abbr: awayTeam.abbreviation, xR: prediction.awayExpectedRuns, p0: prediction.awayScores0Prob },
@@ -532,22 +644,28 @@ export function GamePredictionCard({
             ))}
           </div>
 
-          <div
-            className="flex flex-col gap-1.5 pt-3"
-            style={{ borderTop: "1px solid var(--hm-fence)" }}
-          >
-            <PitcherFormRow name={awayPitcher.name} results={awayPitcher.firstInning.last5Results} />
-            <PitcherFormRow name={homePitcher.name} results={homePitcher.firstInning.last5Results} />
-          </div>
+          {/* Pitcher/team form rows — hidden in free tease (PRO+ only) */}
+          {!isFreeTease && (
+            <>
+              <div
+                className="flex flex-col gap-1.5 pt-3"
+                style={{ borderTop: "1px solid var(--hm-fence)" }}
+              >
+                <PitcherFormRow name={awayPitcher.name} results={awayPitcher.firstInning.last5Results} />
+                <PitcherFormRow name={homePitcher.name} results={homePitcher.firstInning.last5Results} />
+              </div>
 
-          {(awayTeam.firstInning.last5Results || homeTeam.firstInning.last5Results) && (
-            <div className="flex flex-col gap-1.5 pt-3" style={{ borderTop: "1px solid var(--hm-fence)" }}>
-              {awayTeam.firstInning.last5Results && <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />}
-              {homeTeam.firstInning.last5Results && <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />}
-            </div>
+              {(awayTeam.firstInning.last5Results || homeTeam.firstInning.last5Results) && (
+                <div className="flex flex-col gap-1.5 pt-3" style={{ borderTop: "1px solid var(--hm-fence)" }}>
+                  {awayTeam.firstInning.last5Results && <TeamFormRow abbr={awayTeam.abbreviation} results={awayTeam.firstInning.last5Results} />}
+                  {homeTeam.firstInning.last5Results && <TeamFormRow abbr={homeTeam.abbreviation} results={homeTeam.firstInning.last5Results} />}
+                </div>
+              )}
+            </>
           )}
 
-          {prediction.factors.length > 0 && (
+          {/* Key factors — hidden in free tease (PRO+ only) */}
+          {!isFreeTease && prediction.factors && prediction.factors.length > 0 && (
             <div className="pt-3" style={{ borderTop: "1px solid var(--hm-fence)" }}>
               <button
                 onClick={() => setExpanded((v) => !v)}
