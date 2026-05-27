@@ -25,8 +25,36 @@ model User {
   bankrollTransactions BankrollTransaction[]
   backtestRuns         BacktestRun[]
   modelPredictions     ModelPrediction[]
+  subscription         Subscription?
 
   @@map("users")
+}
+
+// ─── Subscription (Stripe-backed tier management) ────────────────────────────
+// One row per Clerk userId. Created when a checkout session is initiated.
+// tier: "FREE" | "PRO" | "ELITE"
+// status mirrors Stripe subscription status: "active" | "trialing" | "past_due" | "canceled" | "inactive"
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tier                 String    @default("FREE")     // "FREE" | "PRO" | "ELITE"
+  status               String    @default("inactive") // mirrors Stripe status
+
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId        String?
+
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+  @@map("subscriptions")
 }
 
 // ─── Watchlist ────────────────────────────────────────────────────────────────

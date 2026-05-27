@@ -4,10 +4,11 @@ import dynamic from "next/dynamic"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GamePredictionCard } from "@/components/game-prediction-card"
-import { PredictionHeader } from "@/components/prediction-header"
 import { PitcherStats } from "@/components/pitcher-stats"
 import { TeamStats } from "@/components/team-stats"
 import { HistoryTable } from "@/components/history-table"
+import { UpgradeBanner } from "@/components/upgrade-banner"
+import { PaywallCard } from "@/components/paywall-card"
 import {
   buildTrackedPrediction,
   upsertPredictions,
@@ -20,6 +21,7 @@ import {
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
+import type { Tier } from "@/lib/subscription"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
@@ -238,6 +240,21 @@ export default function HomePage() {
     }
   }, [authLoaded, isSignedIn])
 
+  // Handle Stripe checkout success redirect (?checkout=success)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    const checkout = url.searchParams.get("checkout")
+    if (checkout === "success") {
+      toast.success("Subscription activated! 🎉", {
+        description: "All games are now unlocked. Welcome to Pro!",
+        duration: 6000,
+      })
+      url.searchParams.delete("checkout")
+      window.history.replaceState({}, "", url.toString())
+    }
+  }, [])
+
   // ── Onboarding modal state ───────────────────────────────────────────────────
   const [showOnboarding, setShowOnboarding] = useState(false)
   useEffect(() => {
@@ -252,12 +269,14 @@ export default function HomePage() {
 
   // ── Live data state ──────────────────────────────────────────────────────────
   const [liveData, setLiveData] = useState<{
-    predictions: NRFIPrediction[]
+    predictions: (Partial<NRFIPrediction> & { gameId: string; nrfiProbability: number; _tierLocked?: boolean })[]
     games: Game[]
     pitchersById: Record<string, Pitcher>
     teamsById: Record<string, Team>
     date: string
     noGames?: boolean
+    tier?: Tier
+    lockedCount?: number
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -359,16 +378,20 @@ export default function HomePage() {
         // Auto-save today's predictions to the tracking store.
         // Use gameId lookup instead of index position so prediction → game mapping
         // is correct even if order ever diverges.
+        // Only track predictions that are NOT tier-locked (free users only see 1 real prediction).
         if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
           const fetchPitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
           const fetchTeamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
           const gameById        = new Map<string, Game>(
             (d.games as Game[]).map((g) => [g.id, g])
           )
-          const incoming = (d.predictions as NRFIPrediction[]).flatMap((pred) => {
+          // Only track predictions that have full data (not locked placeholders)
+          const fullPredictions = (d.predictions as (Partial<NRFIPrediction> & { gameId: string; _tierLocked?: boolean })[])
+            .filter((p) => !p._tierLocked && p.recommendation && p.confidence)
+          const incoming = fullPredictions.flatMap((pred) => {
             const game = gameById.get(pred.gameId)
             if (!game) return []
-            return [buildTrackedPrediction(pred, game, fetchPitcherMap, fetchTeamMap, d.date)]
+            return [buildTrackedPrediction(pred as NRFIPrediction, game, fetchPitcherMap, fetchTeamMap, d.date)]
           })
           const updated = upsertPredictions(incoming)
           setTrackedPredictions(updated)
@@ -399,6 +422,8 @@ export default function HomePage() {
   )
   const predictions = liveData?.predictions ?? []
   const todayGames = liveData?.games ?? []
+  const userTier: Tier = liveData?.tier ?? "FREE"
+  const lockedCount = liveData?.lockedCount ?? 0
 
   // ── Store callbacks ──────────────────────────────────────────────────────────
   const handleRecordResult = (id: string, homeRuns: number, awayRuns: number) => {
@@ -472,11 +497,13 @@ export default function HomePage() {
     }
   }, []) // no state captured — constructs dates inline and calls upsertPredictions directly
 
-  // Apply filters and sort
+  // Apply filters and sort — only for non-locked predictions (free teaser or full tier)
   const filtered = useMemo(() => {
     // Look up by gameId so prediction → game pairing is correct regardless of order.
     const gameById = new Map<string, Game>(todayGames.map((g) => [g.id, g]))
-    let items = predictions.flatMap((pred) => {
+    // Only process predictions that have full data (not tier-locked ghost cards)
+    const visiblePreds = predictions.filter((p) => !p._tierLocked)
+    let items = visiblePreds.flatMap((pred) => {
       const game = gameById.get(pred.gameId)
       if (!game) return []
       const homeTeam = teamMap.get(game.homeTeamId)
@@ -487,57 +514,60 @@ export default function HomePage() {
       return [{ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }]
     })
 
-    if (filters.confidenceLevel !== "all") {
-      items = items.filter((x) => x.pred.confidence === filters.confidenceLevel)
-    }
-    if (filters.recommendation !== "all") {
-      items = items.filter((x) => {
-        if (filters.recommendation === "NRFI") {
-          return x.pred.recommendation === "STRONG_NRFI" || x.pred.recommendation === "LEAN_NRFI"
-        }
-        if (filters.recommendation === "YRFI") {
-          return x.pred.recommendation === "STRONG_YRFI" || x.pred.recommendation === "LEAN_YRFI"
-        }
-        return x.pred.recommendation === "TOSS_UP"
-      })
-    }
-    if (filters.league !== "all") {
-      items = items.filter(
-        (x) => x.homeTeam.league === filters.league || x.awayTeam.league === filters.league
-      )
-    }
-    if (filters.showValueOnly) {
-      items = items.filter(
-        (x) => x.pred.valueAnalysis && x.pred.valueAnalysis.recommendedBet !== "NO_BET"
-      )
-    }
-
-    // Sort
-    switch (filters.sortBy) {
-      case "probability":
-        items.sort((a, b) => Math.abs(b.pred.nrfiProbability - 0.5) - Math.abs(a.pred.nrfiProbability - 0.5))
-        break
-      case "confidence":
-        items.sort((a, b) => b.pred.confidenceScore - a.pred.confidenceScore)
-        break
-      case "edge":
-        items.sort((a, b) => {
-          const eA = a.pred.valueAnalysis
-            ? Math.max(Math.abs(a.pred.valueAnalysis.nrfiEdge), Math.abs(a.pred.valueAnalysis.yrfiEdge))
-            : 0
-          const eB = b.pred.valueAnalysis
-            ? Math.max(Math.abs(b.pred.valueAnalysis.nrfiEdge), Math.abs(b.pred.valueAnalysis.yrfiEdge))
-            : 0
-          return eB - eA
+    // Filters only apply when the user has access to multiple games (PRO+)
+    if (userTier !== "FREE") {
+      if (filters.confidenceLevel !== "all") {
+        items = items.filter((x) => x.pred.confidence === filters.confidenceLevel)
+      }
+      if (filters.recommendation !== "all") {
+        items = items.filter((x) => {
+          if (filters.recommendation === "NRFI") {
+            return x.pred.recommendation === "STRONG_NRFI" || x.pred.recommendation === "LEAN_NRFI"
+          }
+          if (filters.recommendation === "YRFI") {
+            return x.pred.recommendation === "STRONG_YRFI" || x.pred.recommendation === "LEAN_YRFI"
+          }
+          return x.pred.recommendation === "TOSS_UP"
         })
-        break
-      default:
-        // time — already in game order
-        break
+      }
+      if (filters.league !== "all") {
+        items = items.filter(
+          (x) => x.homeTeam.league === filters.league || x.awayTeam.league === filters.league
+        )
+      }
+      if (filters.showValueOnly) {
+        items = items.filter(
+          (x) => x.pred.valueAnalysis && x.pred.valueAnalysis.recommendedBet !== "NO_BET"
+        )
+      }
+
+      // Sort
+      switch (filters.sortBy) {
+        case "probability":
+          items.sort((a, b) => Math.abs(b.pred.nrfiProbability - 0.5) - Math.abs(a.pred.nrfiProbability - 0.5))
+          break
+        case "confidence":
+          items.sort((a, b) => (b.pred.confidenceScore ?? 0) - (a.pred.confidenceScore ?? 0))
+          break
+        case "edge":
+          items.sort((a, b) => {
+            const eA = a.pred.valueAnalysis
+              ? Math.max(Math.abs(a.pred.valueAnalysis.nrfiEdge), Math.abs(a.pred.valueAnalysis.yrfiEdge))
+              : 0
+            const eB = b.pred.valueAnalysis
+              ? Math.max(Math.abs(b.pred.valueAnalysis.nrfiEdge), Math.abs(b.pred.valueAnalysis.yrfiEdge))
+              : 0
+            return eB - eA
+          })
+          break
+        default:
+          // time — already in game order
+          break
+      }
     }
 
     return items
-  }, [predictions, todayGames, teamMap, pitcherMap, filters])
+  }, [predictions, todayGames, teamMap, pitcherMap, filters, userTier])
 
   const todayET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
   const todayStats = trackingAccuracy?.dailyStats?.find((d) => d.date === todayET)
@@ -617,7 +647,8 @@ export default function HomePage() {
           {/* ── Games Tab ── */}
           <TabsContent value="games" className="mt-4 space-y-4">
             <SectionLabel index="01">Today&apos;s Slate</SectionLabel>
-            <FilterBar filters={filters} onChange={setFilters} />
+            {/* Filter bar — only shown to PRO+ users with multiple games */}
+            {userTier !== "FREE" && <FilterBar filters={filters} onChange={setFilters} />}
 
             {loading ? (
               <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -653,19 +684,46 @@ export default function HomePage() {
                 </button>
               </div>
             ) : (
-              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }) => (
-                  <div key={game.id} id={`game-${game.id}`}>
-                    <GamePredictionCard
-                      game={game}
-                      prediction={pred}
-                      homeTeam={homeTeam}
-                      awayTeam={awayTeam}
-                      homePitcher={homePitcher}
-                      awayPitcher={awayPitcher}
-                    />
-                  </div>
-                ))}
+              <div className="space-y-4">
+                {/* Upgrade banner — shown above locked cards for free tier */}
+                {userTier === "FREE" && lockedCount > 0 && (
+                  <UpgradeBanner lockedCount={lockedCount} />
+                )}
+
+                <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {/* Visible predictions — the free teaser or all PRO/ELITE games */}
+                  {filtered.map(({ pred, game, homeTeam, awayTeam, homePitcher, awayPitcher }, idx) => (
+                    <div key={game.id} id={`game-${game.id}`}>
+                      <GamePredictionCard
+                        game={game}
+                        prediction={pred as NRFIPrediction}
+                        homeTeam={homeTeam}
+                        awayTeam={awayTeam}
+                        homePitcher={homePitcher}
+                        awayPitcher={awayPitcher}
+                        tier={userTier}
+                        isFreeTease={userTier === "FREE" && idx === 0}
+                      />
+                    </div>
+                  ))}
+
+                  {/* Locked placeholder cards — shown for free users */}
+                  {userTier === "FREE" && lockedCount > 0 && (
+                    Array.from({ length: Math.min(lockedCount, 5) }).map((_, i) => (
+                      <PaywallCard key={`locked-${i}`} />
+                    ))
+                  )}
+                </div>
+
+                {/* "More games" count beyond the visible placeholders */}
+                {userTier === "FREE" && lockedCount > 5 && (
+                  <p className="text-center text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
+                    +{lockedCount - 5} more games locked —{" "}
+                    <a href="/pricing" className="underline underline-offset-2" style={{ color: "rgba(0,229,255,0.7)" }}>
+                      Upgrade to Pro
+                    </a>
+                  </p>
+                )}
               </div>
             )}
 
