@@ -21,7 +21,12 @@ export function PaywallCard() {
       onClick={() => router.push("/pricing")}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && router.push("/pricing")}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          router.push("/pricing")
+        }
+      }}
       aria-label="Unlock this game with Pro"
     >
       {/* Subtle shimmer background */}

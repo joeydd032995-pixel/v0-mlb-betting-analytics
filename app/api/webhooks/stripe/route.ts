@@ -10,6 +10,7 @@ import { priceIdToTier } from "@/lib/subscription"
 import type Stripe from "stripe"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 // Stripe requires the raw body string for signature verification —
 // do NOT use req.json() or Next.js will pre-parse and break verification.

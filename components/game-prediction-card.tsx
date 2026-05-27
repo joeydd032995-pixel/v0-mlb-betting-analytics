@@ -626,7 +626,7 @@ export function GamePredictionCard({
               }}
             >
               <Zap size={12} />
-              Unlock full signal, confidence &amp; {"{"}today&apos;s games{"}"}
+              Unlock full signal, confidence &amp; today&apos;s games
             </button>
           )}
 

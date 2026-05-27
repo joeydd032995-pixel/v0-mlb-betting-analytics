@@ -247,7 +247,7 @@ export default function HomePage() {
     const checkout = url.searchParams.get("checkout")
     if (checkout === "success") {
       toast.success("Subscription activated! 🎉", {
-        description: "All games are now unlocked. Welcome to Pro!",
+        description: "Your subscription is active — enjoy full access.",
         duration: 6000,
       })
       url.searchParams.delete("checkout")

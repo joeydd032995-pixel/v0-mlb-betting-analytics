@@ -78,9 +78,18 @@ function FeatureIcon({ value }: { value: boolean | "partial" }) {
 export function PricingClient() {
   const [billing, setBilling] = useState<"monthly" | "annual">("annual")
   const [loading, setLoading] = useState<"pro" | "elite" | null>(null)
+  const [currentTier, setCurrentTier] = useState<string | null>(null)
   const { isSignedIn } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  useEffect(() => {
+    if (!isSignedIn) return
+    fetch("/api/subscription/me")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.tier) setCurrentTier(d.tier) })
+      .catch(() => {})
+  }, [isSignedIn])
 
   // Handle checkout canceled query param
   useEffect(() => {
@@ -208,12 +217,14 @@ export function PricingClient() {
               Confidence level (locked)
             </li>
           </ul>
-          <div
-            className="rounded-lg px-4 py-2.5 text-center text-xs font-medium"
-            style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.3)" }}
-          >
-            Current plan
-          </div>
+          {currentTier === "FREE" && (
+            <div
+              className="rounded-lg px-4 py-2.5 text-center text-xs font-medium"
+              style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.3)" }}
+            >
+              Current plan
+            </div>
+          )}
         </div>
 
         {/* PRO */}
@@ -254,19 +265,28 @@ export function PricingClient() {
               </li>
             ))}
           </ul>
-          <button
-            onClick={() => handleUpgrade("pro")}
-            disabled={loading !== null}
-            className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{
-              background: "linear-gradient(135deg, rgba(0,229,255,0.2), rgba(0,230,118,0.15))",
-              border: "1px solid rgba(0,229,255,0.45)",
-              color: "#00e5ff",
-            }}
-          >
-            <Zap size={13} />
-            {loading === "pro" ? "Redirecting…" : "Get Pro"}
-          </button>
+          {currentTier === "PRO" ? (
+            <div
+              className="rounded-lg px-4 py-2.5 text-center text-xs font-medium"
+              style={{ background: "rgba(0,229,255,0.06)", color: "#00e5ff" }}
+            >
+              Current plan
+            </div>
+          ) : (
+            <button
+              onClick={() => handleUpgrade("pro")}
+              disabled={loading !== null}
+              className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,229,255,0.2), rgba(0,230,118,0.15))",
+                border: "1px solid rgba(0,229,255,0.45)",
+                color: "#00e5ff",
+              }}
+            >
+              <Zap size={13} />
+              {loading === "pro" ? "Redirecting…" : "Get Pro"}
+            </button>
+          )}
         </div>
 
         {/* ELITE */}
@@ -300,19 +320,28 @@ export function PricingClient() {
               </li>
             ))}
           </ul>
-          <button
-            onClick={() => handleUpgrade("elite")}
-            disabled={loading !== null}
-            className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{
-              background: "linear-gradient(135deg, rgba(255,193,7,0.18), rgba(255,152,0,0.12))",
-              border: "1px solid rgba(255,193,7,0.45)",
-              color: "#ffc107",
-            }}
-          >
-            <Star size={13} />
-            {loading === "elite" ? "Redirecting…" : "Get Elite"}
-          </button>
+          {currentTier === "ELITE" ? (
+            <div
+              className="rounded-lg px-4 py-2.5 text-center text-xs font-medium"
+              style={{ background: "rgba(255,193,7,0.06)", color: "#ffc107" }}
+            >
+              Current plan
+            </div>
+          ) : (
+            <button
+              onClick={() => handleUpgrade("elite")}
+              disabled={loading !== null}
+              className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{
+                background: "linear-gradient(135deg, rgba(255,193,7,0.18), rgba(255,152,0,0.12))",
+                border: "1px solid rgba(255,193,7,0.45)",
+                color: "#ffc107",
+              }}
+            >
+              <Star size={13} />
+              {loading === "elite" ? "Redirecting…" : "Get Elite"}
+            </button>
+          )}
         </div>
       </div>
 

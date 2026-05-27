@@ -7,7 +7,7 @@ import type { NRFIPrediction } from "@/lib/types"
 
 // force-dynamic: tier-gated responses vary per user — cannot be edge-cached globally.
 export const dynamic = "force-dynamic"
-export const maxDuration = 30
+export const maxDuration = 300
 
 // ── Tier-based field stripping ────────────────────────────────────────────────
 
@@ -89,18 +89,25 @@ export async function GET() {
   try {
     const { games, pitchers, teams } = await getLiveGameSlate(today)
 
+    const cacheHeaders = isAuthenticated
+      ? { "Cache-Control": "private, no-store" }
+      : { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" }
+
     if (games.length === 0) {
-      return NextResponse.json({
-        predictions: [],
-        games: [],
-        pitchersById: {},
-        teamsById: {},
-        date: today,
-        gameCount: 0,
-        noGames: true,
-        tier,
-        lockedCount: 0,
-      })
+      return NextResponse.json(
+        {
+          predictions: [],
+          games: [],
+          pitchersById: {},
+          teamsById: {},
+          date: today,
+          gameCount: 0,
+          noGames: true,
+          tier,
+          lockedCount: 0,
+        },
+        { headers: cacheHeaders }
+      )
     }
 
     const rawPredictions = computeAllPredictions(games, pitchers, teams)
@@ -112,10 +119,6 @@ export async function GET() {
       gated.filter((p) => !(p as { _tierLocked?: boolean })._tierLocked).map((p) => p.gameId)
     )
     const visibleGames = games.filter((g) => visibleGameIds.has(g.id))
-
-    const cacheHeaders = isAuthenticated
-      ? { "Cache-Control": "private, no-store" }
-      : { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" }
 
     return NextResponse.json(
       {

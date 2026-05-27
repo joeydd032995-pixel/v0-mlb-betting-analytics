@@ -13,7 +13,11 @@ interface Props {
  * Dismissible per session.
  */
 export function UpgradeBanner({ lockedCount }: Props) {
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissed, setDismissed] = useState(() =>
+    typeof window !== "undefined"
+      ? sessionStorage.getItem("hm_upgradeBannerDismissed") === "1"
+      : false
+  )
   const router = useRouter()
 
   if (dismissed || lockedCount <= 0) return null
@@ -53,7 +57,10 @@ export function UpgradeBanner({ lockedCount }: Props) {
       </div>
 
       <button
-        onClick={() => setDismissed(true)}
+        onClick={() => {
+          sessionStorage.setItem("hm_upgradeBannerDismissed", "1")
+          setDismissed(true)
+        }}
         className="shrink-0 transition-opacity hover:opacity-70"
         style={{ color: "rgba(255,255,255,0.35)" }}
         aria-label="Dismiss upgrade banner"

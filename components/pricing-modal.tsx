@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Check, X, Zap, Star, Lock } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { useAuth } from "@clerk/nextjs"
@@ -61,8 +61,17 @@ interface Props {
 export function PricingModal({ open, onClose }: Props) {
   const [billing, setBilling] = useState<"monthly" | "annual">("annual")
   const [loading, setLoading] = useState<"pro" | "elite" | null>(null)
+  const [currentTier, setCurrentTier] = useState<string | null>(null)
   const { isSignedIn } = useAuth()
   const router = useRouter()
+
+  useEffect(() => {
+    if (!isSignedIn) return
+    fetch("/api/subscription/me")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.tier) setCurrentTier(d.tier) })
+      .catch(() => {})
+  }, [isSignedIn])
 
   async function handleUpgrade(tier: "pro" | "elite") {
     if (!isSignedIn) {
@@ -158,12 +167,14 @@ export function PricingModal({ open, onClose }: Props) {
               <p className="mt-1 text-2xl font-bold text-white">$0</p>
               <p className="text-[10px] text-white/30">forever</p>
             </div>
-            <div
-              className="rounded-md px-4 py-2 text-center text-xs font-medium"
-              style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}
-            >
-              Current plan
-            </div>
+            {currentTier === "FREE" && (
+              <div
+                className="rounded-md px-4 py-2 text-center text-xs font-medium"
+                style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}
+              >
+                Current plan
+              </div>
+            )}
           </div>
 
           {/* PRO */}
@@ -185,19 +196,28 @@ export function PricingModal({ open, onClose }: Props) {
               </div>
               {billing === "annual" && <p className="text-[10px] text-white/30">$12.42 / mo billed annually</p>}
             </div>
-            <button
-              onClick={() => handleUpgrade("pro")}
-              disabled={loading !== null}
-              className="flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{
-                background: "linear-gradient(135deg, rgba(0,229,255,0.18), rgba(0,230,118,0.12))",
-                border: "1px solid rgba(0,229,255,0.4)",
-                color: "#00e5ff",
-              }}
-            >
-              <Zap size={11} />
-              {loading === "pro" ? "Redirecting…" : "Get Pro"}
-            </button>
+            {currentTier === "PRO" ? (
+              <div
+                className="rounded-md px-4 py-2 text-center text-xs font-medium"
+                style={{ background: "rgba(0,229,255,0.06)", color: "#00e5ff" }}
+              >
+                Current plan
+              </div>
+            ) : (
+              <button
+                onClick={() => handleUpgrade("pro")}
+                disabled={loading !== null}
+                className="flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg, rgba(0,229,255,0.18), rgba(0,230,118,0.12))",
+                  border: "1px solid rgba(0,229,255,0.4)",
+                  color: "#00e5ff",
+                }}
+              >
+                <Zap size={11} />
+                {loading === "pro" ? "Redirecting…" : "Get Pro"}
+              </button>
+            )}
           </div>
 
           {/* ELITE */}
@@ -213,19 +233,28 @@ export function PricingModal({ open, onClose }: Props) {
               </div>
               {billing === "annual" && <p className="text-[10px] text-white/30">$24.92 / mo billed annually</p>}
             </div>
-            <button
-              onClick={() => handleUpgrade("elite")}
-              disabled={loading !== null}
-              className="flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{
-                background: "linear-gradient(135deg, rgba(255,193,7,0.15), rgba(255,152,0,0.1))",
-                border: "1px solid rgba(255,193,7,0.4)",
-                color: "#ffc107",
-              }}
-            >
-              <Star size={11} />
-              {loading === "elite" ? "Redirecting…" : "Get Elite"}
-            </button>
+            {currentTier === "ELITE" ? (
+              <div
+                className="rounded-md px-4 py-2 text-center text-xs font-medium"
+                style={{ background: "rgba(255,193,7,0.06)", color: "#ffc107" }}
+              >
+                Current plan
+              </div>
+            ) : (
+              <button
+                onClick={() => handleUpgrade("elite")}
+                disabled={loading !== null}
+                className="flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg, rgba(255,193,7,0.15), rgba(255,152,0,0.1))",
+                  border: "1px solid rgba(255,193,7,0.4)",
+                  color: "#ffc107",
+                }}
+              >
+                <Star size={11} />
+                {loading === "elite" ? "Redirecting…" : "Get Elite"}
+              </button>
+            )}
           </div>
         </div>
 

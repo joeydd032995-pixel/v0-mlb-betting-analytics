@@ -3,11 +3,12 @@
 // Returns { url: string } — the client redirects to this Stripe-hosted URL.
 
 import { NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { auth, clerkClient } from "@clerk/nextjs/server"
 import { stripe } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function POST(req: Request) {
   const { userId } = await auth()
@@ -24,6 +25,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request body — priceId required" }, { status: 400 })
   }
 
+  // Only allow known price IDs to prevent passing arbitrary Stripe prices
+  const ALLOWED_PRICE_IDS = new Set([
+    process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID,
+    process.env.NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID,
+    process.env.NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID,
+    process.env.NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID,
+  ].filter(Boolean))
+  if (ALLOWED_PRICE_IDS.size > 0 && !ALLOWED_PRICE_IDS.has(priceId)) {
+    return NextResponse.json({ error: "Invalid price ID" }, { status: 400 })
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 
   try {
@@ -32,6 +44,18 @@ export async function POST(req: Request) {
       where: { id: userId },
       select: { email: true },
     })
+
+    // Guard: if User row doesn't exist (Clerk webhook race), create it now
+    if (!user) {
+      const clerk = await clerkClient()
+      const cu = await clerk.users.getUser(userId)
+      const email = cu.emailAddresses[0]?.emailAddress ?? `${userId}@placeholder.invalid`
+      await prisma.user.upsert({
+        where: { id: userId },
+        create: { id: userId, email },
+        update: {},
+      })
+    }
 
     // Reuse existing Stripe customer ID if one was already created
     const sub = await prisma.subscription.findUnique({
