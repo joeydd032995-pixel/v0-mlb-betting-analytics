@@ -36,6 +36,7 @@ next-env.d.ts
 .agents/
 .claude/*
 !.claude/skills/
+!.claude/agents/
 scripts/deepnrfi/__pycache__/
 
 # Python virtual environments
