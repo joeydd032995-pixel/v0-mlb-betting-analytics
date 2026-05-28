@@ -55,9 +55,9 @@ function calculateWeatherMultiplier(conditions: WeatherConditions): number {
 }
 
 function estimateNrfiChange(baseNrfi: number, weatherMult: number, parkFactor: number): number {
-  const combinedMult = weatherMult * parkFactor
-  const adjustment = (combinedMult - 1) * 0.15
-  return Math.max(0, Math.min(1, baseNrfi - adjustment))
+  const baseLambda = -0.5 * Math.log(Math.max(0.01, baseNrfi))
+  const newLambda = baseLambda * weatherMult * parkFactor
+  return Math.max(0, Math.min(1, Math.exp(-2 * newLambda)))
 }
 
 export function WeatherSimulator() {
@@ -67,7 +67,8 @@ export function WeatherSimulator() {
   const [baseNrfi] = useState<number>(0.62)
 
   const stadium = MLB_STADIUMS[selectedStadium]
-  const weatherMult = calculateWeatherMultiplier(weather)
+  const rawWeatherMult = calculateWeatherMultiplier(weather)
+  const weatherMult = stadium?.isDome ? 1.0 : rawWeatherMult
   const parkFactor = stadium?.parkFactor || 1.0
   const combinedMult = weatherMult * parkFactor
   const estimatedNrfi = estimateNrfiChange(baseNrfi, weatherMult, parkFactor)
@@ -380,14 +381,14 @@ export function WeatherSimulator() {
                       <p className="font-semibold text-foreground">{stadium.name}</p>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-muted-foreground">{stadium.isDome ? "🏟️" : "⛅"}</span>
-                        <span className={cn("text-sm font-bold px-2 py-1 rounded", stadium.parkFactor > 1 ? "bg-emerald-500/20 text-emerald-300" : stadium.parkFactor < 1 ? "bg-rose-500/20 text-rose-300" : "bg-sky-500/20 text-sky-300")}>
+                        <span className={cn("text-sm font-bold px-2 py-1 rounded", stadium.parkFactor > 1 ? "bg-rose-500/20 text-rose-300" : stadium.parkFactor < 1 ? "bg-emerald-500/20 text-emerald-300" : "bg-sky-500/20 text-sky-300")}>
                           {stadium.parkFactor > 1 ? "+" : ""}{impact}%
                         </span>
                       </div>
                     </div>
                     <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                       <div
-                        className={cn("h-full", stadium.parkFactor > 1.05 ? "bg-emerald-500" : stadium.parkFactor < 0.95 ? "bg-rose-500" : "bg-sky-500")}
+                        className={cn("h-full", stadium.parkFactor > 1.05 ? "bg-rose-500" : stadium.parkFactor < 0.95 ? "bg-emerald-500" : "bg-sky-500")}
                         style={{ width: `${Math.min(100, (stadium.parkFactor / 1.2) * 100)}%` }}
                       />
                     </div>
@@ -404,7 +405,7 @@ export function WeatherSimulator() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
-              <p className="font-semibold text-emerald-400 mb-1">Run-Friendly (&gt;1.10)</p>
+              <p className="font-semibold text-rose-400 mb-1">Run-Friendly (&gt;1.10)</p>
               <p className="text-xs text-muted-foreground">Coors Field (1.15), Great American (1.12)</p>
             </div>
             <div>
@@ -412,7 +413,7 @@ export function WeatherSimulator() {
               <p className="text-xs text-muted-foreground">Most parks cluster here</p>
             </div>
             <div>
-              <p className="font-semibold text-rose-400 mb-1">Pitcher-Friendly (&lt;0.90)</p>
+              <p className="font-semibold text-emerald-400 mb-1">Pitcher-Friendly (&lt;0.90)</p>
               <p className="text-xs text-muted-foreground">Petco Park (0.87), Oracle (0.91)</p>
             </div>
           </CardContent>
