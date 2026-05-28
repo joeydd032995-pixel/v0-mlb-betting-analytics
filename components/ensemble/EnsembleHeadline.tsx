@@ -67,12 +67,12 @@ export function EnsembleHeadline({ prediction, marketNrfiOdds = -115 }: Props) {
             <span
               className="font-semibold"
               style={{
-              color: prediction.recommendation.includes("NRFI") ? "var(--ds-gr)"
-                : prediction.recommendation.includes("YRFI") ? "var(--ds-bad)"
+              color: prediction.recommendation?.includes("NRFI") ? "var(--ds-gr)"
+                : prediction.recommendation?.includes("YRFI") ? "var(--ds-bad)"
                 : "var(--ds-warn)"
             }}
             >
-              {prediction.recommendation}
+              {prediction.recommendation ?? "—"}
             </span>
           </div>
         </div>
@@ -128,7 +128,7 @@ export function EnsembleHeadline({ prediction, marketNrfiOdds = -115 }: Props) {
             <span className="font-jet text-[9px]" style={{ color: confidenceColor }}>{cs.toFixed(0)} / 100</span>
           </div>
           <div className="font-jet text-[9px] text-ds-muted mt-2">
-            {prediction.confidence} Confidence · {prediction.factors.length} factors analyzed
+            {prediction.confidence ?? "—"} Confidence · {prediction.factors?.length ?? 0} factors analyzed
           </div>
         </div>
       </div>

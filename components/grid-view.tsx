@@ -127,7 +127,7 @@ export function GridView({ items, sortBy, onSortChange }: GridViewProps) {
                                 : "bg-rose-500/20 text-rose-300"
                       )}
                     >
-                      {pred.recommendation.replace(/_/g, " ")}
+                      {pred.recommendation?.replace(/_/g, " ") ?? "—"}
                     </span>
                   </td>
 
