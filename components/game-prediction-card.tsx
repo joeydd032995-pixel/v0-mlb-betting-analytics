@@ -812,7 +812,7 @@ export function GamePredictionCard({
         style={{ borderTop: "1px solid var(--hm-fence)" }}
       >
         <div className="flex flex-wrap gap-1.5">
-          {prediction.factors.slice(0, 3).map((f, i) => (
+          {prediction.factors?.slice(0, 3).map((f, i) => (
             <span
               key={i}
               className="hm-chip"
