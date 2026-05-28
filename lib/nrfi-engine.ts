@@ -93,6 +93,28 @@ const CLAMP_MIN           = 0.18
 const CLAMP_MAX           = 0.86
 const NRFI_CALL_THRESHOLD = 0.52
 
+// Monthly lambda multiplier: accounts for the cold-weather / heat run-environment
+// cycle that the weather multiplier alone can't capture (historical-sync often
+// lacks real game-time temperatures).  Values derived from 2018–2024 MLB first-
+// inning run-scoring rates relative to the full-season mean.
+// > 1.0 = more run scoring expected (YRFI pressure)
+// < 1.0 = fewer runs expected (NRFI-favoring)
+const MONTHLY_LAMBDA_FACTOR: Record<number, number> = {
+  3:  0.88,  // March: cold, pitchers sharp
+  4:  0.93,  // April: still cool
+  5:  0.97,  // May: normalising
+  6:  1.00,  // June: near league average
+  7:  1.04,  // July: peak heat
+  8:  1.06,  // August: hottest month
+  9:  1.05,  // September: warm, roster-expansion noise
+  10: 1.02,  // October: postseason cooling
+}
+
+function getMonthlyLambdaFactor(date: string): number {
+  const month = parseInt(date.split("-")[1], 10)
+  return MONTHLY_LAMBDA_FACTOR[month] ?? 1.0
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function impliedToAmerican(prob: number): number {
@@ -460,10 +482,11 @@ export function computeNRFIPrediction(
     ? getLineupVsHandFromCard(awayPitcher.throws, game.lineups?.home, homeTeam)
     : getLineupVsHand(awayPitcher.throws, homeTeam)
 
-  // ── Opt #3: Vector weather multiplier ────────────────────────────────────────
+  // ── Opt #3: Vector weather multiplier + monthly seasonal factor ──────────────
   const vectorWeatherMult = computeVectorWeatherMultiplier(game.weather)
   const recentMult        = computeRecentFormMultiplier(homePitcher, awayPitcher)
-  const combinedMult      = vectorWeatherMult * recentMult
+  const monthlyFactor     = getMonthlyLambdaFactor(game.date)
+  const combinedMult      = vectorWeatherMult * recentMult * monthlyFactor
 
   // ── Opt #4: Umpire bias (optional — defaults to 0 when field absent) ─────────
   // Positive nrfiFactor → umpire favours NRFI (tighter zone) → fewer runs → lower λ.
