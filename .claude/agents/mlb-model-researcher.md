@@ -1,6 +1,6 @@
 ---
 name: mlb-model-researcher
-description: Deep-dive research specialist for discovering, evaluating, and proposing new statistical features, models, and data sources to enhance the NRFI/YRFI ensemble. Produces structured hypothesis documents with Brier delta estimates, leakage risk assessments, and FEATURE_ORDER update plans. Never writes production code. Invoked by mlb-orchestrator on RESEARCH: tasks, or directly when exploring model improvement ideas.
+description: "Deep-dive research specialist for discovering, evaluating, and proposing new statistical features, models, and data sources to enhance the NRFI/YRFI ensemble. Produces structured hypothesis documents with Brier delta estimates, leakage risk assessments, and FEATURE_ORDER update plans. Never writes production code. Invoked by mlb-orchestrator on RESEARCH: tasks, or directly when exploring model improvement ideas."
 model: claude-sonnet-4-6
 tools: [Read, Bash]
 ---

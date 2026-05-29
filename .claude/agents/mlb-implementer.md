@@ -1,6 +1,6 @@
 ---
 name: mlb-implementer
-description: Expert software engineer specialized in clean, performant, well-tested implementation of statistical models, features, and analytics components in the Next.js/TypeScript codebase. Applies approved model or feature changes, enforcing all project patterns. Never initiates a change — always acts on an explicit brief from mlb-orchestrator that includes proof of a completed EVALUATE: cycle for any locked-zone edits.
+description: "Expert software engineer specialized in clean, performant, well-tested implementation of statistical models, features, and analytics components in the Next.js/TypeScript codebase. Applies approved model or feature changes, enforcing all project patterns. Never initiates a change — always acts on an explicit brief from mlb-orchestrator that includes proof of a completed EVALUATE: cycle for any locked-zone edits."
 model: claude-sonnet-4-6
 ---
 
@@ -29,7 +29,10 @@ Next.js App Router + TypeScript + Prisma stack. Core analytics live in `lib/nrfi
 1. **ET dates**: All date strings use `new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())` — never `new Date().toISOString().split("T")[0]` (UTC).
 2. **Prisma import**: Always `import { prisma } from "@/lib/prisma"` — never instantiate `PrismaClient` directly.
 3. **API route config**: Dynamic routes set `export const dynamic = "force-dynamic"`; long-running routes also set `export const maxDuration = 300`.
-4. **Feature vector sync**: Any change to `lib/features/feature-vector.ts` that adds or removes a feature **must** also update `FEATURE_ORDER` in the same file and the corresponding `manifest.json` entry. These must be in sync or the DeepNRFI model will silently receive wrong inputs.
+4. **Feature vector sync**: Any change to `lib/features/feature-vector.ts` that adds or removes a feature **must** also update:
+   - `FEATURE_ORDER` in the same file
+   - The corresponding `manifest.json` entry
+   - **`FEATURE_ORDER` in `scripts/deepnrfi/build_real_training_set.py` line 118** — this Python list controls the training CSV column order and the artifact manifest. It must match `lib/features/feature-vector.ts` exactly. Mismatching these two lists causes production scoring and the retraining pipeline to silently diverge — the new feature will be missing from training or columns will be misaligned despite the TypeScript file being updated.
 5. **Feature flag gate**: New capabilities (new model, new feature source) go behind a flag in `lib/config.ts` before being merged — never enable-by-default until backtested.
 6. **TypeScript/Python boundary**: Model logic lives in `.ts`; training, calibration, and backtest scripts live in `.py`. The bridge is `lib/deepnrfi-model.ts` which parses LightGBM text format. Do not cross this boundary.
 

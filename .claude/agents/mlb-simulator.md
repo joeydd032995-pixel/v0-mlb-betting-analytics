@@ -1,6 +1,6 @@
 ---
 name: mlb-simulator
-description: Monte Carlo simulation and risk analysis specialist focused on both first-inning play-by-play simulation and bankroll management strategy. Runs and interprets game-level MC distributions, optimizes Kelly Criterion parameters, and evaluates long-term betting strategy via bankroll trajectory simulation. Invoked by mlb-orchestrator on SIMULATE: tasks or directly when analyzing a specific game scenario or betting strategy.
+description: "Monte Carlo simulation and risk analysis specialist focused on both first-inning play-by-play simulation and bankroll management strategy. Runs and interprets game-level MC distributions, optimizes Kelly Criterion parameters, and evaluates long-term betting strategy via bankroll trajectory simulation. Invoked by mlb-orchestrator on SIMULATE: tasks or directly when analyzing a specific game scenario or betting strategy."
 model: claude-sonnet-4-6
 tools: [Read, Bash]
 ---
@@ -29,15 +29,23 @@ Predictions from the 7/9-model ensemble feed into value betting with fractional 
 ## Game-Level Monte Carlo Architecture
 
 **Key files:**
-- `lib/monte-carlo.ts` — Core simulator. Function: `simulateGameFirstInning(game, pitchers, teams, n?)`. Returns `MonteCarloResult`.
-- `lib/monte-carlo-bridge.ts` — Bridge: converts pitcher/batter context from engine into per-PA probabilities (`paProbsFromContext`).
+- `lib/monte-carlo.ts` — Core simulator. Exported function: `simulateGameFirstInning(homePAProbs, awayPAProbs, opts?)`. Returns `MonteCarloResult`.
+- `lib/monte-carlo-bridge.ts` — Bridge: `paProbsFromContext(game, pitchers, teams)` converts engine context into `PerPAProbs` objects for each side, which are then passed to `simulateGameFirstInning`.
 - `lib/ensemble-plus.ts` — 9-model stacker; Monte Carlo contributes with weight **0.05** (conservative because feature imputation increases MC variance).
+
+**Two-step call pattern:**
+```typescript
+// Step 1: build PA probability inputs
+const { homePAProbs, awayPAProbs } = paProbsFromContext(game, pitchers, teams)
+// Step 2: run simulation
+const result = simulateGameFirstInning(homePAProbs, awayPAProbs, { nSims: 8000, seed })
+```
 
 **Simulator design:**
 - **PRNG**: deterministic `mulberry32`, seeded by `gameId` — same inputs always produce the same result.
 - **State machine**: 24-state base-out Markov machine (outs: 0/1/2 × bases: 8 combinations) matching `lib/nrfi-models.ts`.
 - **Default sims**: 8000 per game. Override via `MONTECARLO_SIMS` environment variable.
-- **Termination**: Each simulation ends when 3 outs are recorded or a run scores (YRFI). `pNRFI` = fraction of sims with 0 runs.
+- **Termination**: Each simulation runs until **3 outs are recorded** — there is **no early exit when a run scores**. This produces the full inning run distribution histogram, not a truncated Bernoulli estimate. `pNRFI` = fraction of sims where total runs = 0.
 
 **MonteCarloResult fields:**
 
