@@ -22,6 +22,7 @@ interface MonthRow {
   predictions: number
   correctPredictions: number
   accuracy: number | null
+  backtestedFraction: number | null
 }
 
 interface PerformanceData {
@@ -1171,6 +1172,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                               {row.accuracy !== null ? (
                                 <span className={cn("font-semibold", row.accuracy >= 0.55 ? "text-sky-400" : "text-rose-400")}>
                                   {pct(row.accuracy)}
+                                  {row.backtestedFraction !== null && row.backtestedFraction > 0.5 && (
+                                    <span className="ml-0.5 text-amber-400" title="Majority backtested — accuracy may equal NRFI rate due to neutral-weather inputs">*</span>
+                                  )}
                                 </span>
                               ) : <span className="text-muted-foreground">—</span>}
                             </td>
@@ -1179,6 +1183,11 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                       </tbody>
                     </table>
                   </div>
+                  {perfData.monthly.some((r) => (r.backtestedFraction ?? 0) > 0.5) && (
+                    <p className="mt-2 text-[10px] text-amber-400/80">
+                      * Backtested months use neutral weather inputs — model accuracy may mirror the actual NRFI rate rather than reflecting genuine prediction skill.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             )}

@@ -45,6 +45,7 @@ export function AccuracyCharts({ accuracy }: Props) {
     accuracy: m.accuracy,
     mae: m.mae,
     n: m.totalPredictions,
+    correct: m.correct,
     fullName: m.model,
   })), [accuracy.perModelAccuracy])
 
@@ -100,6 +101,33 @@ export function AccuracyCharts({ accuracy }: Props) {
             <p className="font-jet text-[9px] text-ds-dim mt-2">
               Dashed line = league NRFI baseline (51.6%). Models above baseline add value.
             </p>
+            {/* Table mirrors the chart so tooltip and table always agree */}
+            <div className="mt-3 overflow-hidden rounded border border-ds-line">
+              <table className="w-full font-jet text-[10px]">
+                <thead>
+                  <tr className="border-b border-ds-line bg-ds-panel-2/60">
+                    <th className="px-2 py-1 text-left text-ds-muted">Model</th>
+                    <th className="px-2 py-1 text-center text-ds-muted">Correct / Total</th>
+                    <th className="px-2 py-1 text-right text-ds-muted">Accuracy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {perModelData.map((m) => (
+                    <tr key={m.fullName} className="border-b border-ds-line/40 last:border-0">
+                      <td className="px-2 py-1 font-semibold" style={{ color: MODEL_COLORS[m.fullName] ?? "var(--ds-cy)" }}>
+                        {m.name}
+                      </td>
+                      <td className="px-2 py-1 text-center text-ds-muted">
+                        {m.n > 0 ? `${m.correct}/${m.n}` : "—"}
+                      </td>
+                      <td className="px-2 py-1 text-right font-semibold text-ds-fg">
+                        {m.n > 0 ? `${(m.accuracy * 100).toFixed(1)}%` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </Panel>

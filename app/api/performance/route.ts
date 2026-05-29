@@ -92,16 +92,23 @@ export async function GET() {
     }
 
     // ── 5. Per-model accuracy ──────────────────────────────────────────────
+    // Only include predictions where the model probability is a valid non-zero
+    // number.  Records backfilled before per-model columns existed can have
+    // probability = 0, which would be silently classified as "YRFI" and corrupt
+    // accuracy for all models sharing the same withResult denominator.
     function modelStats(getProb: (p: typeof withResult[0]) => number) {
+      const validPreds = withResult.filter((p) => {
+        const prob = getProb(p)
+        return typeof prob === "number" && isFinite(prob) && prob > 0
+      })
+      if (validPreds.length === 0) return null
       let correct = 0; let maeSum = 0
-      for (const p of withResult) {
+      for (const p of validPreds) {
         const prob = getProb(p)
         if ((prob >= 0.5 ? "NRFI" : "YRFI") === p.actualResult) correct++
         maeSum += Math.abs(prob - (p.actualResult === "NRFI" ? 1 : 0))
       }
-      return withResult.length > 0
-        ? { accuracy: correct / withResult.length, mae: maeSum / withResult.length, total: withResult.length, correct }
-        : null
+      return { accuracy: correct / validPreds.length, mae: maeSum / validPreds.length, total: validPreds.length, correct }
     }
     const perModel = withResult.length > 0 ? {
       Poisson:  modelStats((p) => p.poissonNrfi),
@@ -126,12 +133,13 @@ export async function GET() {
       monthResultMap.set(key, m)
     }
 
-    const monthPredMap = new Map<string, { total: number; correct: number }>()
+    const monthPredMap = new Map<string, { total: number; correct: number; backtested: number }>()
     for (const p of withResult) {
       const key = p.date.substring(0, 7)
-      const m   = monthPredMap.get(key) ?? { total: 0, correct: 0 }
+      const m   = monthPredMap.get(key) ?? { total: 0, correct: 0, backtested: 0 }
       m.total++
       if (p.correct) m.correct++
+      if (p.backtested) m.backtested++
       monthPredMap.set(key, m)
     }
 
@@ -145,6 +153,9 @@ export async function GET() {
       ).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 
       const yrfiGamesMonth = data.total - data.nrfi
+      // backtestedFraction: fraction of this month's predictions that were backfilled
+      // from historical-sync (which uses neutral weather, making accuracy ≈ nrfiRate).
+      const backtestedFraction = pred && pred.total > 0 ? pred.backtested / pred.total : null
       return {
         key,
         label,
@@ -156,6 +167,7 @@ export async function GET() {
         predictions:        pred?.total       ?? 0,
         correctPredictions: pred?.correct     ?? 0,
         accuracy:           pred && pred.total > 0 ? pred.correct / pred.total : null,
+        backtestedFraction,
       }
     })
 
