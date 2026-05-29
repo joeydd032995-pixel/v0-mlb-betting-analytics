@@ -260,8 +260,8 @@ function mapPitcher(
       kPer9: kRate * 27,
       bbPer9: bbRate * 27,
       innings,
-      wins: 0,
-      losses: 0,
+      wins: apiStats.wins ?? 0,
+      losses: apiStats.losses ?? 0,
     },
   }
 }

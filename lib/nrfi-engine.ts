@@ -85,12 +85,12 @@ function computeLeagueAnchor(): number {
 }
 const LEAGUE_ANCHOR       = computeLeagueAnchor()
 // Effective output range under the current calibration spline + league-anchor blend:
-//   min = 0.76 × 0.060 + 0.24 × 0.559 ≈ 0.180
-//   max = 0.76 × 0.930 + 0.24 × 0.559 ≈ 0.841
+//   min = 0.76 × 0.060 + 0.24 × 0.559 ≈ 0.180  → CLAMP_MIN activates here
+//   max = 0.76 × 0.930 + 0.24 × 0.559 ≈ 0.841  → CLAMP_MAX is a guard above this ceiling
 // These clamps guard against pathological calibration outputs, not the engine's
 // expressive range. Revise only via walk-forward CV (scripts/deepnrfi/backtest_v2.py).
 const CLAMP_MIN           = 0.18
-const CLAMP_MAX           = 0.86
+const CLAMP_MAX           = 0.85
 const NRFI_CALL_THRESHOLD = 0.52
 
 // Monthly lambda multiplier: accounts for the cold-weather / heat run-environment

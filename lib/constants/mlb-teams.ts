@@ -28,7 +28,7 @@ export const MLB_TEAMS: Record<string, MLBTeamInfo> = {
   // American League West
   hou: { id: "hou", abbreviation: "HOU", name: "Astros",    city: "Houston",     league: "AL", division: "West",    primaryColor: "#002D62", apiId: 117 },
   laa: { id: "laa", abbreviation: "LAA", name: "Angels",    city: "Los Angeles", league: "AL", division: "West",    primaryColor: "#BA0021", apiId: 108 },
-  oak: { id: "oak", abbreviation: "OAK", name: "Athletics", city: "Oakland",     league: "AL", division: "West",    primaryColor: "#003831", apiId: 133 },
+  oak: { id: "oak", abbreviation: "OAK", name: "Athletics", city: "Sacramento",  league: "AL", division: "West",    primaryColor: "#003831", apiId: 133 },
   sea: { id: "sea", abbreviation: "SEA", name: "Mariners",  city: "Seattle",     league: "AL", division: "West",    primaryColor: "#0C2C56", apiId: 136 },
   tex: { id: "tex", abbreviation: "TEX", name: "Rangers",   city: "Texas",       league: "AL", division: "West",    primaryColor: "#003278", apiId: 140 },
   // National League East
