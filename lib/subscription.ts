@@ -55,36 +55,31 @@ export async function getUserTier(userId: string | null | undefined): Promise<Ti
 
 // Full subscription info for the account management page.
 export async function getUserTierInfo(userId: string): Promise<UserTierInfo> {
-  if (getAdminUserIds().has(userId)) {
-    return {
-      tier: "ELITE",
-      isActive: true,
-      cancelAtPeriodEnd: false,
-      currentPeriodEnd: null,
-      stripeCustomerId: null,
-      stripeSubscriptionId: null,
-    }
-  }
+  const isAdmin = getAdminUserIds().has(userId)
   try {
     const sub = await prisma.subscription.findUnique({ where: { userId } })
-    if (!sub) return EMPTY_TIER_INFO
+    if (!sub) {
+      return isAdmin
+        ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
+        : EMPTY_TIER_INFO
+    }
 
     const isActive = sub.status === "active" || sub.status === "trialing"
     const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    const effectiveTier = isActive && notExpired
-      ? (sub.tier.toUpperCase() as Tier)
-      : "FREE"
+    const effectiveTier = isAdmin ? "ELITE" : (isActive && notExpired ? (sub.tier.toUpperCase() as Tier) : "FREE")
 
     return {
       tier: effectiveTier,
-      isActive,
+      isActive: isAdmin ? true : isActive,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       currentPeriodEnd: sub.currentPeriodEnd,
       stripeCustomerId: sub.stripeCustomerId ?? null,
       stripeSubscriptionId: sub.stripeSubscriptionId ?? null,
     }
   } catch {
-    return EMPTY_TIER_INFO
+    return isAdmin
+      ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
+      : EMPTY_TIER_INFO
   }
 }
 
