@@ -36,12 +36,26 @@ export const maxDuration = 300
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const NEUTRAL_WEATHER: Weather = {
-  temperature: 72,
-  windSpeed: 0,
-  windDirection: "calm",
-  conditions: "clear",
-  humidity: 50,
+// Neutral fallback used only as the buildLightGame default parameter.
+const NEUTRAL_WEATHER: Weather = { temperature: 72, windSpeed: 0, windDirection: "calm", conditions: "clear", humidity: 50 }
+
+// Month-based average MLB game-time temperatures (°F).  Used instead of a flat
+// 72°F so that backtested predictions in cold months (March) lean NRFI and
+// hot months (July/August) produce some YRFI predictions, preventing the
+// "model accuracy = league NRFI rate" artifact caused by always predicting NRFI.
+const MONTHLY_AVG_TEMP_F: Record<number, number> = {
+  3: 48, 4: 57, 5: 66, 6: 75, 7: 83, 8: 84, 9: 76, 10: 63,
+}
+
+function buildSeasonalWeather(date: string): Weather {
+  const month = parseInt(date.split("-")[1], 10)
+  return {
+    temperature: MONTHLY_AVG_TEMP_F[month] ?? 72,
+    windSpeed: 0,
+    windDirection: "calm",
+    conditions: "clear",
+    humidity: 50,
+  }
 }
 
 function buildLightPitcher(
@@ -297,7 +311,7 @@ export async function GET(request: Request) {
 
       for (const apiGame of finalGames) {
         const venue = apiGame.venue?.name ?? "Unknown Stadium"
-        const wx = recompute ? (venueWeather.get(venue) ?? NEUTRAL_WEATHER) : NEUTRAL_WEATHER
+        const wx = recompute ? (venueWeather.get(venue) ?? buildSeasonalWeather(date)) : buildSeasonalWeather(date)
         const g = buildLightGame(apiGame, date, wx)
         gameObjs.push(g)
         if (!g.homePitcherId.startsWith("tbd-")) pitcherIds.add(g.homePitcherId)
@@ -372,7 +386,7 @@ export async function GET(request: Request) {
             ? (result.homeRuns === 0 && result.awayRuns === 0 ? "NRFI" : "YRFI")
             : undefined
 
-        // Historical sync always passes NEUTRAL_WEATHER and no odds (see
+        // Historical sync always passes seasonal weather (month-avg temp) and no odds (see
         // buildLightGame above), so the stored ensembleNrfi reflects degraded
         // inputs.  Record that lineage explicitly; downstream training can
         // filter or downweight these rows.  recomputedAt timestamps when this

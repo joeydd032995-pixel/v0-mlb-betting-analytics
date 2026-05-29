@@ -54,9 +54,10 @@ function calculateWeatherMultiplier(conditions: WeatherConditions): number {
   return windMult * tempMult * humidMult
 }
 
-function estimateNrfiChange(baseNrfi: number, weatherMult: number): number {
-  const adjustment = (weatherMult - 1) * 0.15
-  return Math.max(0, Math.min(1, baseNrfi - adjustment))
+function estimateNrfiChange(baseNrfi: number, weatherMult: number, parkFactor: number): number {
+  const baseLambda = -0.5 * Math.log(Math.max(0.01, baseNrfi))
+  const newLambda = baseLambda * weatherMult * parkFactor
+  return Math.max(0, Math.min(1, Math.exp(-2 * newLambda)))
 }
 
 export function WeatherSimulator() {
@@ -66,9 +67,11 @@ export function WeatherSimulator() {
   const [baseNrfi] = useState<number>(0.62)
 
   const stadium = MLB_STADIUMS[selectedStadium]
-  const weatherMult = calculateWeatherMultiplier(weather)
+  const rawWeatherMult = calculateWeatherMultiplier(weather)
+  const weatherMult = stadium?.isDome ? 1.0 : rawWeatherMult
   const parkFactor = stadium?.parkFactor || 1.0
-  const estimatedNrfi = estimateNrfiChange(baseNrfi, weatherMult)
+  const combinedMult = weatherMult * parkFactor
+  const estimatedNrfi = estimateNrfiChange(baseNrfi, weatherMult, parkFactor)
 
   const windLabel = {
     headwind: "Headwind (out)",
@@ -248,14 +251,14 @@ export function WeatherSimulator() {
                         <div className="flex-1">
                           <div className="flex justify-between mb-1">
                             <p className="text-xs font-semibold text-foreground">{factor.label}</p>
-                            <p className={cn("text-xs font-bold", factor.multiplier > 1 ? "text-emerald-400" : factor.multiplier < 1 ? "text-rose-400" : "text-muted-foreground")}>
+                            <p className={cn("text-xs font-bold", factor.multiplier > 1 ? "text-rose-400" : factor.multiplier < 1 ? "text-emerald-400" : "text-muted-foreground")}>
                               {factor.multiplier > 1 ? "+" : ""}{impact}%
                             </p>
                           </div>
                           <p className="text-xs text-muted-foreground">{factor.value}</p>
                           <div className="h-1 w-full rounded-full bg-border/30 mt-1 overflow-hidden">
                             <div
-                              className={cn("h-full", factor.multiplier > 1 ? "bg-emerald-500" : factor.multiplier < 1 ? "bg-rose-500" : "bg-sky-500")}
+                              className={cn("h-full", factor.multiplier > 1 ? "bg-rose-500" : factor.multiplier < 1 ? "bg-emerald-500" : "bg-sky-500")}
                               style={{ width: `${Math.min(100, Math.max(0, (factor.multiplier - 0.85) / 0.3 * 100))}%` }}
                             />
                           </div>
@@ -268,7 +271,7 @@ export function WeatherSimulator() {
             </Card>
 
             {/* Combined Impact */}
-            <Card className={cn("border", weatherMult > 1 ? "border-emerald-500/30 bg-emerald-500/5" : weatherMult < 1 ? "border-rose-500/30 bg-rose-500/5" : "border-sky-500/30 bg-sky-500/5")}>
+            <Card className={cn("border", combinedMult > 1 ? "border-rose-500/30 bg-rose-500/5" : combinedMult < 1 ? "border-emerald-500/30 bg-emerald-500/5" : "border-sky-500/30 bg-sky-500/5")}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
@@ -279,13 +282,13 @@ export function WeatherSimulator() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground mb-1">Weather Multiplier</p>
-                    <p className={cn("text-3xl font-bold", weatherMult > 1 ? "text-emerald-400" : weatherMult < 1 ? "text-rose-400" : "text-foreground")}>
+                    <p className={cn("text-3xl font-bold", weatherMult > 1 ? "text-rose-400" : weatherMult < 1 ? "text-emerald-400" : "text-foreground")}>
                       {weatherMult > 1 ? "+" : ""}{((weatherMult - 1) * 100).toFixed(1)}%
                     </p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground mb-1">Park Factor</p>
-                    <p className={cn("text-3xl font-bold", parkFactor > 1 ? "text-emerald-400" : parkFactor < 1 ? "text-rose-400" : "text-foreground")}>
+                    <p className={cn("text-3xl font-bold", parkFactor > 1 ? "text-rose-400" : parkFactor < 1 ? "text-emerald-400" : "text-foreground")}>
                       {parkFactor > 1 ? "+" : ""}{((parkFactor - 1) * 100).toFixed(1)}%
                     </p>
                   </div>
@@ -302,7 +305,7 @@ export function WeatherSimulator() {
                       {selectedStadium} ({stadium?.isDome ? "Dome" : "Open"})
                     </p>
                     <p className="text-sm font-bold text-foreground">Estimated NRFI: {(estimatedNrfi * 100).toFixed(1)}%</p>
-                    <p className={cn("text-xs font-semibold mt-1", estimatedNrfi < baseNrfi ? "text-emerald-400" : "text-rose-400")}>
+                    <p className={cn("text-xs font-semibold mt-1", estimatedNrfi < baseNrfi ? "text-rose-400" : "text-emerald-400")}>
                       {estimatedNrfi < baseNrfi ? "↓" : "↑"} {Math.abs((estimatedNrfi - baseNrfi) * 100).toFixed(1)}% from base
                     </p>
                   </div>
@@ -333,7 +336,7 @@ export function WeatherSimulator() {
                   </div>
                   <div className="rounded border border-border/30 bg-card/50 p-2">
                     <p className="text-muted-foreground mb-1">Probability Change</p>
-                    <p className={cn("font-semibold", estimatedNrfi < baseNrfi ? "text-emerald-400" : "text-rose-400")}>
+                    <p className={cn("font-semibold", estimatedNrfi < baseNrfi ? "text-rose-400" : "text-emerald-400")}>
                       {estimatedNrfi < baseNrfi ? "↓" : "↑"} {Math.abs((estimatedNrfi - baseNrfi) * 100).toFixed(1)}%
                     </p>
                   </div>
@@ -378,14 +381,14 @@ export function WeatherSimulator() {
                       <p className="font-semibold text-foreground">{stadium.name}</p>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-muted-foreground">{stadium.isDome ? "🏟️" : "⛅"}</span>
-                        <span className={cn("text-sm font-bold px-2 py-1 rounded", stadium.parkFactor > 1 ? "bg-emerald-500/20 text-emerald-300" : stadium.parkFactor < 1 ? "bg-rose-500/20 text-rose-300" : "bg-sky-500/20 text-sky-300")}>
+                        <span className={cn("text-sm font-bold px-2 py-1 rounded", stadium.parkFactor > 1 ? "bg-rose-500/20 text-rose-300" : stadium.parkFactor < 1 ? "bg-emerald-500/20 text-emerald-300" : "bg-sky-500/20 text-sky-300")}>
                           {stadium.parkFactor > 1 ? "+" : ""}{impact}%
                         </span>
                       </div>
                     </div>
                     <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                       <div
-                        className={cn("h-full", stadium.parkFactor > 1.05 ? "bg-emerald-500" : stadium.parkFactor < 0.95 ? "bg-rose-500" : "bg-sky-500")}
+                        className={cn("h-full", stadium.parkFactor > 1.05 ? "bg-rose-500" : stadium.parkFactor < 0.95 ? "bg-emerald-500" : "bg-sky-500")}
                         style={{ width: `${Math.min(100, (stadium.parkFactor / 1.2) * 100)}%` }}
                       />
                     </div>
@@ -402,7 +405,7 @@ export function WeatherSimulator() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
-              <p className="font-semibold text-emerald-400 mb-1">Run-Friendly (&gt;1.10)</p>
+              <p className="font-semibold text-rose-400 mb-1">Run-Friendly (&gt;1.10)</p>
               <p className="text-xs text-muted-foreground">Coors Field (1.15), Great American (1.12)</p>
             </div>
             <div>
@@ -410,7 +413,7 @@ export function WeatherSimulator() {
               <p className="text-xs text-muted-foreground">Most parks cluster here</p>
             </div>
             <div>
-              <p className="font-semibold text-rose-400 mb-1">Pitcher-Friendly (&lt;0.90)</p>
+              <p className="font-semibold text-emerald-400 mb-1">Pitcher-Friendly (&lt;0.90)</p>
               <p className="text-xs text-muted-foreground">Petco Park (0.87), Oracle (0.91)</p>
             </div>
           </CardContent>
