@@ -25,7 +25,9 @@ export const MLB_STADIUMS: Record<string, StadiumInfo> = {
   // AL West
   "Minute Maid Park":             { lat: 29.7572, lon: -95.3556,  isDome: true,  parkFactor: 1.02, cfBearing:   0 },
   "Angel Stadium":                { lat: 33.8003, lon: -117.8827, isDome: false, parkFactor: 0.96, cfBearing: 220 },
-  // Athletics relocated to Sacramento for 2025 season; Oakland Coliseum decommissioned.
+  // Athletics relocated to Sacramento for 2025 season. Keep Oakland Coliseum so that
+  // historical backfill (2024 and earlier) resolves correct weather/parkFactor.
+  "Oakland Coliseum":             { lat: 37.7516, lon: -122.2005, isDome: false, parkFactor: 0.94, cfBearing: 300 },
   "Sutter Health Park":           { lat: 38.5802, lon: -121.5023, isDome: false, parkFactor: 0.97, cfBearing: 200 },
   "T-Mobile Park":                { lat: 47.5914, lon: -122.3325, isDome: false, parkFactor: 0.93, cfBearing: 185 },
   "Globe Life Field":             { lat: 32.7473, lon: -97.0845,  isDome: true,  parkFactor: 1.01, cfBearing:   0 },
@@ -90,6 +92,7 @@ export const STADIUM_ORIENTATION: Record<string, "out-to-lf" | "out-to-cf" | "ou
   "Target Field": "unknown",
   "Minute Maid Park": "unknown",
   "Angel Stadium": "unknown",
+  "Oakland Coliseum": "unknown",
   "Sutter Health Park": "unknown",
   "T-Mobile Park": "unknown",
   "Globe Life Field": "unknown",

@@ -50,6 +50,8 @@ export const EXTENDED_PARK_FACTORS: Record<string, ExtendedParkFactor> = {
   "Minute Maid Park":             { runFactor: 1.02, firstInningRunsFactor: 1.01, hrFactor: 1.06, singleFactor: 1.00, elevationFt:  45, roofType: "retractable" },
   "Angel Stadium":                { runFactor: 0.96, firstInningRunsFactor: 0.97, hrFactor: 0.99, singleFactor: 0.98, elevationFt:  160, roofType: "open" },
   "Oakland Coliseum":             { runFactor: 0.94, firstInningRunsFactor: 0.95, hrFactor: 0.93, singleFactor: 0.97, elevationFt:  43, roofType: "open" },
+  // Athletics relocated to Sacramento (2025+); keep Oakland Coliseum for historical backfill.
+  "Sutter Health Park":           { runFactor: 0.97, firstInningRunsFactor: 0.97, hrFactor: 0.96, singleFactor: 0.99, elevationFt:  25, roofType: "open" },
   "T-Mobile Park":                { runFactor: 0.93, firstInningRunsFactor: 0.94, hrFactor: 0.91, singleFactor: 0.97, elevationFt:  10, roofType: "retractable" },
   "Globe Life Field":             { runFactor: 1.01, firstInningRunsFactor: 1.00, hrFactor: 1.02, singleFactor: 1.00, elevationFt:  551, roofType: "retractable" },
   "Truist Park":                  { runFactor: 1.02, firstInningRunsFactor: 1.01, hrFactor: 1.04, singleFactor: 1.01, elevationFt: 1050, roofType: "open" },
