@@ -38,6 +38,7 @@ You have internalized the full structure, architecture, and nuances of this Next
 - `lib/ensemble-plus.ts` — 9-model stacker (ensemble7 × 0.75, DeepNRFI × 0.20, Monte Carlo × 0.05)
 
 ### Model Weights (approximate, verify in `lib/nrfi-models.ts → ENSEMBLE_WEIGHTS`)
+
 | Model | Weight |
 |-------|--------|
 | Poisson | ~10.9% |
@@ -57,7 +58,7 @@ You have internalized the full structure, architecture, and nuances of this Next
 8. Meta-model corrections — logistic stacking + neural interaction + hierarchical Bayes sub-models
 
 ### Data Flow
-```
+```text
 MLB Stats API → lib/api/mlb-stats.ts
 The Odds API  → lib/api/odds.ts        ┐
 OpenWeatherMap → lib/api/weather.ts    ├→ lib/api/live-data.ts → getLiveGameSlate()

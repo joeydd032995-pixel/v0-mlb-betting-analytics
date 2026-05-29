@@ -69,7 +69,7 @@ You have full knowledge of:
 
 Every audit must use this structured format:
 
-```
+```md
 ## Audit Report
 
 **Scope**: <what was reviewed>
