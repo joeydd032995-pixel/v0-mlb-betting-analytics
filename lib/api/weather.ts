@@ -1,4 +1,4 @@
-import { STADIUM_COORDS, STADIUM_IS_DOME, STADIUM_ORIENTATION } from "@/lib/constants/mlb-stadiums"
+import { STADIUM_COORDS, STADIUM_IS_DOME, STADIUM_CF_BEARING } from "@/lib/constants/mlb-stadiums"
 import type { Weather, WindDirection, WeatherCondition } from "@/lib/types"
 
 const API_KEY = process.env.OPENWEATHER_API_KEY ?? ""
@@ -22,15 +22,15 @@ const DOME_WEATHER = {
 function mapWindDirection(degrees: number, speedMph: number, venue: string): WindDirection {
   if (speedMph < 3) return "calm"
 
-  const orientation = STADIUM_ORIENTATION[venue] ?? "unknown"
+  const cfBearing = STADIUM_CF_BEARING[venue]
+  if (cfBearing === undefined) return "crosswind"
 
-  if (orientation === "out-to-cf") {
-    // Wind from behind home plate blows toward CF = "out"
-    if (degrees >= 315 || degrees <= 45) return "out"
-    if (degrees >= 135 && degrees <= 225) return "in"
-    return "crosswind"
-  }
-
+  // Compute park-relative angle: 0° = wind blowing straight out toward CF.
+  // fromDeg is the compass direction wind must blow FROM to travel "out" to CF.
+  const fromDeg = (cfBearing + 180) % 360
+  const relDeg  = (degrees - fromDeg + 360) % 360
+  if (relDeg <= 45 || relDeg >= 315) return "out"
+  if (relDeg >= 135 && relDeg <= 225) return "in"
   return "crosswind"
 }
 

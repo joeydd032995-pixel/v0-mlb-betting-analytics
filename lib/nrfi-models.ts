@@ -775,11 +775,12 @@ export function compute7ModelEnsemble(
 
   // ── 3 Meta-models (Opt #8) ────────────────────────────────────────────────
 
-  // Logistic Stack: baseAvg weighted by normalised base-4 ensemble weights
-  // (Poisson 10.9%, ZIP 27.3%, Markov 43.6%, MAPRE 9.1%).
+  // Logistic Stack: baseAvg weighted by the renormalised base-4 weights
+  // (Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%) — these sum to 1.0, making
+  // baseAvg a proper weighted average of the four base-model probabilities.
   // σ(−2.3 + 4.1 × baseAvg): α = −2.3 captures the log-odds baseline for a
   // zero-run half-inning; β = 4.1 stretches it across the full probability range.
-  const baseAvg      = 0.109 * poisson + 0.273 * zip + 0.436 * markov + 0.091 * mapre
+  const baseAvg      = 0.120 * poisson + 0.300 * zip + 0.480 * markov + 0.100 * mapre
   const logisticMeta = 1 / (1 + Math.exp(-(-2.3 + 4.1 * baseAvg)))
 
   // NN Interaction: Poisson × Markov product normalised by 0.67 (≈ 0.82²,
