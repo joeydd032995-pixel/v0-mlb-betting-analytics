@@ -20,7 +20,10 @@ export const LEAGUE_AVG_NRFI = 0.516
 
 // ─── Default Model Configuration ─────────────────────────────────────────────
 
-/** Per-model calibration: weight in ensemble, multiplicative scale, additive bias. */
+/**
+ * Per-model calibration: weight in ensemble, multiplicative scale, additive bias.
+ * @deprecated These are 4-model legacy weights. Use ENSEMBLE_WEIGHTS for the 7-model ensemble.
+ */
 export const MODEL_CONFIG = {
   poisson: { weight: 0.18, scale: 1.05, bias:  0.03 },
   zip:     { weight: 0.39, scale: 1.12, bias:  0.02 },
@@ -783,13 +786,15 @@ export function compute7ModelEnsemble(
   const baseAvg      = 0.120 * poisson + 0.300 * zip + 0.480 * markov + 0.100 * mapre
   const logisticMeta = 1 / (1 + Math.exp(-(-2.3 + 4.1 * baseAvg)))
 
-  // NN Interaction: Poisson × Markov product normalised by 0.67 (≈ 0.82²,
-  // the geometric mean of two league-average half-inning NRFI probabilities).
-  // When both independent models agree strongly on dominance, the product
-  // amplifies that confidence above what either model alone would show.
+  // NN Interaction: Poisson × Markov product normalised by LEAGUE_AVG_NRFI (0.516).
+  // Derivation: full-game P(NRFI) = P(top_half = 0) × P(bottom_half = 0) under independence.
+  // At league average, each half ≈ sqrt(0.516) ≈ 0.718, so 0.718² ≈ 0.516 is the product
+  // of two league-average halves — the correct normaliser so that an average-pitcher matchup
+  // gives nnInteraction ≈ 1.0 instead of ≈ 1.46 (which the old 0.67 divisor caused).
+  // When both models agree on strong dominance, the product amplifies that confidence.
   // Game level: (homeHalf + awayHalf) / 2 — averaged as a joint environment signal.
   const nnInteraction = Math.max(0.02, Math.min(0.98,
-    poisson * markov / 0.67
+    poisson * markov / LEAGUE_AVG_NRFI
   ))
 
   // Hierarchical Bayes: same dynamic k as getDynamicPriorWeight (k=30/50/80),

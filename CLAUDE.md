@@ -41,7 +41,8 @@ Data flow:
 2. `lib/nrfi-engine.ts` — orchestrates per-game prediction; applies Bayesian shrinkage, weather/umpire multipliers; calls `lib/nrfi-models.ts`
 3. `lib/nrfi-models.ts` — implements the 7 models: Poisson, ZIP, Markov Chain (24-state), MAPRE, logisticMeta, nnInteraction, hierarchicalBayes; weights defined in `ENSEMBLE_WEIGHTS`
 4. `lib/calibration.ts` — monotonic P-spline calibration applied to raw ensemble output
-5. Final formula: `clamp(0.76 × calibrated + 0.24 × 0.614, 0.02, 0.98)`
+5. Final formula: `clamp(0.76 × calibrated + 0.24 × LEAGUE_ANCHOR, 0.18, 0.85)`
+   where `LEAGUE_ANCHOR = calibrateWithMonotonicSpline(0.516) ≈ 0.559` (computed at module load, not a magic constant)
 
 API route `app/api/predictions/route.ts` calls `getLiveGameSlate()` → `computeAllPredictions()` and returns JSON. All date resolution uses ET timezone: `new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())`.
 

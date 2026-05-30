@@ -55,25 +55,56 @@ def metrics(df: pd.DataFrame) -> dict:
 
 
 def kelly_roi(df: pd.DataFrame, fraction: float = 0.25, min_edge: float = 0.03) -> dict:
-    # Use stored implied edge if present; otherwise assume −110 odds.
+    """
+    ROI simulation using proper fractional Kelly criterion, matching the TypeScript
+    production formula in lib/nrfi-engine.ts:kellyFraction():
+
+        decimalOdds = 100 / |american_odds|          # profit per unit at -110 = 0.9091
+        q           = 1 - model_prob
+        rawKelly    = (decimalOdds * model_prob - q) / decimalOdds
+        bet_size    = clip(rawKelly * fraction, 0, 0.25)
+
+    The prior implementation used `edge * fraction` (linear approximation) which
+    ignores the odds term and diverges from the TypeScript formula — making ROI
+    figures not directly comparable to production betting behaviour.
+    """
     df = df.copy()
+    # Derive edge from model probability vs -110 implied probability.
+    # Use stored edge column if present (future: could store actual odds per game).
+    implied = 110 / 210  # -110 American → implied probability ≈ 0.5238
     if "edge" not in df.columns:
-        implied = 110 / 210
         df["edge"] = df["p"] - implied
+
     bets = df[df["edge"].abs() >= min_edge].copy()
     if bets.empty:
         return {"n_bets": 0, "roi": 0.0}
-    odds_decimal = 100 / 110  # −110 american → 0.909 profit per unit
-    bets["bet_size"] = (bets["edge"].abs() * fraction).clip(0, 0.05)
+
+    # Proper Kelly: decimalOdds = profit per unit staked at -110 odds
+    odds_decimal = 100 / 110  # ≈ 0.9091
+
+    # Model probability in the bet direction:
+    #   edge > 0 → bet on NRFI (y=1), model_prob = p
+    #   edge < 0 → bet on YRFI (y=0), model_prob = 1 - p
+    bets["model_prob"] = np.where(bets["edge"] > 0, bets["p"], 1 - bets["p"])
+    bets["model_prob"] = bets["model_prob"].clip(0.01, 0.99)
+    bets["q"] = 1 - bets["model_prob"]
+
+    # rawKelly = (b * p - q) / b  where b = decimalOdds
+    bets["raw_kelly"] = (odds_decimal * bets["model_prob"] - bets["q"]) / odds_decimal
+    # Fractional Kelly, capped at 25% max bankroll (matches KELLY_FRACTION = 0.25 cap)
+    bets["bet_size"] = (bets["raw_kelly"] * fraction).clip(0, 0.25)
+
     bets["pl"] = np.where(
         ((bets["edge"] > 0) & (bets["y"] == 1)) | ((bets["edge"] < 0) & (bets["y"] == 0)),
         bets["bet_size"] * odds_decimal,
         -bets["bet_size"],
     )
+    total_wagered = bets["bet_size"].sum()
     return {
         "n_bets": int(len(bets)),
-        "roi": float(bets["pl"].sum() / bets["bet_size"].sum()),
+        "roi": float(bets["pl"].sum() / total_wagered) if total_wagered > 0 else 0.0,
         "edge_pct_avg": float(bets["edge"].abs().mean()),
+        "avg_bet_size": float(bets["bet_size"].mean()),
     }
 
 
