@@ -57,16 +57,12 @@ function kellyBetSize(modelProb: number, americanOdds: number): number {
   return Math.max(0, Math.min(0.25, rawKelly * KELLY_FRACTION))
 }
 
-export function computeBacktestMetrics(
+function computeSliceMetrics(
   rows: BacktestRow[],
-  /** Pass true when rows are already sorted chronologically (enables drawdown). */
-  ordered = false,
-): BacktestMetrics {
+  ordered: boolean,
+): Omit<BacktestMetrics, "byConfidence"> {
   if (rows.length === 0) {
-    return {
-      n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0,
-      sharpe: 0, maxDrawdown: 0, calibration: [], byConfidence: {},
-    }
+    return { n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0, sharpe: 0, maxDrawdown: 0, calibration: [] }
   }
 
   let brierSum = 0
@@ -147,15 +143,6 @@ export function computeBacktestMetrics(
     .sort((a, b) => a[0] - b[0])
     .map(([bin, d]) => ({ bin, actual: d.total > 0 ? d.nrfi / d.total : 0, count: d.total }))
 
-  // Per-confidence breakdown
-  const confKeys = [...new Set(rows.map((r) => r.confidence))]
-  const byConfidence: BacktestMetrics["byConfidence"] = {}
-  for (const conf of confKeys) {
-    const slice = rows.filter((r) => r.confidence === conf)
-    const sub = computeBacktestMetrics(slice, false)
-    byConfidence[conf] = { n: sub.n, brier: sub.brierScore, accuracy: sub.accuracy, roiKelly: sub.roiKelly }
-  }
-
   return {
     n: rows.length,
     brierScore: brierSum / rows.length,
@@ -165,6 +152,30 @@ export function computeBacktestMetrics(
     sharpe,
     maxDrawdown,
     calibration,
-    byConfidence,
   }
+}
+
+export function computeBacktestMetrics(
+  rows: BacktestRow[],
+  /** Pass true when rows are already sorted chronologically (enables drawdown). */
+  ordered = false,
+): BacktestMetrics {
+  if (rows.length === 0) {
+    return {
+      n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0,
+      sharpe: 0, maxDrawdown: 0, calibration: [], byConfidence: {},
+    }
+  }
+
+  const base = computeSliceMetrics(rows, ordered)
+
+  const confKeys = [...new Set(rows.map((r) => r.confidence))]
+  const byConfidence: BacktestMetrics["byConfidence"] = {}
+  for (const conf of confKeys) {
+    const slice = rows.filter((r) => r.confidence === conf)
+    const sub = computeSliceMetrics(slice, false)
+    byConfidence[conf] = { n: sub.n, brier: sub.brierScore, accuracy: sub.accuracy, roiKelly: sub.roiKelly }
+  }
+
+  return { ...base, byConfidence }
 }
