@@ -127,8 +127,8 @@ function runOfflineChecks(): void {
   // At edge=0.05, -110 odds:
   //   implied = 110/210 ≈ 0.5238
   //   modelProb = 0.5738, profitPerUnit = 100/110 ≈ 0.9091
-  //   rawKelly = (0.9091 × 0.5738 − 0.4262) / 0.9091 ≈ 0.0526
-  //   betSize  = 0.0526 × 0.25 ≈ 0.01315
+  //   rawKelly = (0.9091 × 0.5738 − 0.4262) / 0.9091 ≈ 0.105
+  //   betSize  = 0.105 × 0.25 ≈ 0.02625
   //   (old linear formula: 0.05 × 0.25 = 0.0125)
   const implied = 110 / 210
   const modelProb = implied + 0.05
@@ -139,7 +139,7 @@ function runOfflineChecks(): void {
   const linearApprox = 0.05 * 0.25
 
   assert(betSize > linearApprox, "proper Kelly > linear approximation at edge=0.05", `${betSize.toFixed(5)} vs ${linearApprox}`)
-  assert(Math.abs(betSize - 0.01315) < 0.0005, `betSize ≈ 0.01315 at edge=0.05 on -110`, `got ${betSize.toFixed(5)}`)
+  assert(Math.abs(betSize - 0.02625) < 0.0005, `betSize ≈ 0.02625 at edge=0.05 on -110`, `got ${betSize.toFixed(5)}`)
 
   // ── 7. BacktestMetrics smoke test ─────────────────────────────────────────────
   section("computeBacktestMetrics smoke test")
