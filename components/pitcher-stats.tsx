@@ -4,7 +4,7 @@ import type { Pitcher, Team } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { bayesianShrinkage } from "@/lib/nrfi-models"
+import { LEAGUE_AVG_NRFI } from "@/lib/nrfi-models"
 import { METRIC_GLOSSARY } from "@/lib/types"
 import { HelpCircle } from "lucide-react"
 
@@ -55,7 +55,14 @@ function BayesianTrustMeter({
   nrfiRate: number
   starts: number
 }) {
-  const { shrunkenRate, dataWeight } = bayesianShrinkage(nrfiRate, starts)
+  // Inline the dynamic-shrinkage formula (k=50, full-time starter default) rather than
+  // calling the deprecated bayesianShrinkage (k=1.14, too-high data trust for small samples).
+  const k = 50
+  const n = Math.max(1, starts)
+  const dataWeight = Math.min(0.97, n / (n + k))
+  const shrunkenRate = Math.max(0.35, Math.min(0.92,
+    (nrfiRate * n + LEAGUE_AVG_NRFI * k) / (n + k)
+  ))
   const seasonPct = Math.round(dataWeight * 100)
   const leaguePct = 100 - seasonPct
   const rawPct = Math.round(nrfiRate * 100)

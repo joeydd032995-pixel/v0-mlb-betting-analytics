@@ -71,9 +71,12 @@ export async function GET() {
     const accuracy = withResult.length > 0 ? totalCorrect / withResult.length : 0
 
     // ── 3b. Baseline NRFI/YRFI rate for the same predicted-game population ──
-    // Using withResult (not the broader GameResult table) so that NRFI Rate,
-    // YRFI Rate, and Model Accuracy all share the same denominator and are
-    // directly comparable on the stat cards.
+    // Denominator: withResult (ModelPrediction rows that have actualResult set), NOT the
+    // broader GameResult table. This keeps the top-level stat cards (NRFI Rate, YRFI Rate,
+    // Model Accuracy) on the same denominator so they are directly comparable.
+    // Note: the monthly breakdown (section 6) uses GameResult as its total-games denominator
+    // so its nrfiRate includes all synced games, not just those with a prediction — two
+    // intentionally different views: "what the model saw" vs "what actually happened".
     const nrfiInPredicted = withResult.filter((p) => p.actualResult === "NRFI").length
     const yrfiInPredicted = withResult.length - nrfiInPredicted
 
