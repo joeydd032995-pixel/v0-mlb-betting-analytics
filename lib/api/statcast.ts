@@ -12,6 +12,7 @@
 
 import type { StatcastPitcherSummary } from "@/lib/types"
 import { prisma } from "@/lib/prisma"
+import { normalizeStatcastPitcher } from "./statcast-normalize"
 
 export interface StatcastBatterSummary {
   /** xwOBA over the rolling window. */
@@ -41,7 +42,7 @@ export async function fetchStatcastPitcher(mlbamId: string): Promise<StatcastPit
       where: { mlbamId },
       orderBy: { date: "desc" },
     })
-    return row?.payload ?? null
+    return normalizeStatcastPitcher(row?.payload ?? null)
   } catch (err) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[statcast] fetchStatcastPitcher unavailable:", (err as Error).message)

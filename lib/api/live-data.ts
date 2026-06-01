@@ -10,7 +10,8 @@ import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
 import { fetchTeamSplits } from "./sportsblaze"
-import type { Game, Pitcher, Team, Weather, GameOdds } from "../types"
+import { fetchStatcastPitcher } from "./statcast"
+import type { Game, Pitcher, Team, Weather, GameOdds, StatcastPitcherSummary } from "../types"
 import { MLB_TEAMS } from "../constants/mlb-teams"
 import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
 import { PitchingStatsCalculator } from "../advanced-stats"
@@ -162,7 +163,8 @@ function mapPitcher(
   pitcherId: string,
   teamId: string,
   pitcherName: string,
-  last5: FirstInningResult[] = []
+  last5: FirstInningResult[] = [],
+  statcast: StatcastPitcherSummary | null = null
 ): Pitcher {
   const defaultEra = 4.0
   const defaultWhip = 1.28
@@ -205,6 +207,7 @@ function mapPitcher(
         wins: 0,
         losses: 0,
       },
+      ...(statcast ? { statcast } : {}),
     }
   }
 
@@ -263,6 +266,7 @@ function mapPitcher(
       wins: apiStats.wins ?? 0,
       losses: apiStats.losses ?? 0,
     },
+    ...(statcast ? { statcast } : {}),
   }
 }
 
@@ -371,6 +375,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         homeTeamLast5,
         awayTeamLast5,
         lineups,
+        homePitcherStatcast,
+        awayPitcherStatcast,
       ] = await Promise.all([
         fetchTeamStats(homeTeamApiId),
         fetchTeamStats(awayTeamApiId),
@@ -394,6 +400,11 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
               return lu
             })
           : Promise.resolve(null),
+        // Statcast summaries keyed by MLBAM id (== probablePitcher.id). Returns
+        // null when the table is empty/unmigrated, so the engine degrades
+        // gracefully to league-average defaults (presence=0 in the feature vector).
+        homePitcherApiId ? fetchStatcastPitcher(String(homePitcherApiId)) : Promise.resolve(null),
+        awayPitcherApiId ? fetchStatcastPitcher(String(awayPitcherApiId)) : Promise.resolve(null),
       ])
 
       return {
@@ -408,6 +419,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         awayPitcherLast5,
         homeTeamLast5,
         awayTeamLast5,
+        homePitcherStatcast,
+        awayPitcherStatcast,
       }
     })
   )
@@ -429,6 +442,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
     homeTeamLast5,
     awayTeamLast5,
     lineups,
+    homePitcherStatcast,
+    awayPitcherStatcast,
   } of perGameData) {
     // Resolve odds
     const oddsEvent = matchOddsEvent(
@@ -458,14 +473,16 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       game.homePitcherId,
       game.homeTeamId,
       homePitcherName,
-      homePitcherLast5
+      homePitcherLast5,
+      homePitcherStatcast
     )
     const awayPitcher = mapPitcher(
       awayPitcherStats,
       game.awayPitcherId,
       game.awayTeamId,
       awayPitcherName,
-      awayPitcherLast5
+      awayPitcherLast5,
+      awayPitcherStatcast
     )
 
     pitchers.set(homePitcher.id, homePitcher)
