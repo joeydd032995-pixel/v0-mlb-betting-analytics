@@ -35,7 +35,7 @@ export async function fetchStatcastPitcher(mlbamId: string): Promise<StatcastPit
   if (!mlbamId) return null
   try {
     const client = prisma as unknown as {
-      pitcherStatcast?: { findFirst: (args: unknown) => Promise<{ payload: StatcastPitcherSummary } | null> }
+      pitcherStatcast?: { findFirst: (args: unknown) => Promise<{ payload: unknown } | null> }
     }
     if (!client.pitcherStatcast) return null
     const row = await client.pitcherStatcast.findFirst({

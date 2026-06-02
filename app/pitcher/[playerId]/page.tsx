@@ -9,6 +9,8 @@ import { SituationalRadar } from "@/components/pitcher/SituationalRadar"
 import { RollingTrend } from "@/components/pitcher/RollingTrend"
 import { GameLogGrid } from "@/components/pitcher/GameLogGrid"
 import { fetchPitcherStats, fetchPitcherLast5FirstInnings } from "@/lib/api/mlb-stats"
+import { fetchStatcastPitcher } from "@/lib/api/statcast"
+import { toPitchEntries } from "@/lib/pitcher/pitch-mix-display"
 import type { Pitcher } from "@/lib/types"
 import Link from "next/link"
 
@@ -28,10 +30,13 @@ export default async function PitcherPage({ params }: PageProps) {
     )
   }
 
-  // Fetch data (free MLB Stats API — may return null if not found)
-  const [apiStats, last5] = await Promise.all([
+  // Fetch data (free MLB Stats API — may return null if not found).
+  // Statcast pitch-mix/zone come from the pitcher_statcast cache (pybaseball
+  // backfill); null when absent, so the panels fall back to estimates.
+  const [apiStats, last5, statcast] = await Promise.all([
     fetchPitcherStats(numericId).catch(() => null),
     fetchPitcherLast5FirstInnings(numericId).catch(() => []),
+    fetchStatcastPitcher(String(numericId)).catch(() => null),
   ])
 
   // Build a Pitcher object from API stats (or show no-data state)
@@ -101,8 +106,11 @@ export default async function PitcherPage({ params }: PageProps) {
 
             <SectionLabel index="02">Quality of Stuff</SectionLabel>
             <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-              <PitchMixDonut kRate={pitcher.firstInning.kRate} />
-              <StrikeZoneHeatmap kRate={pitcher.firstInning.kRate} />
+              <PitchMixDonut
+                kRate={pitcher.firstInning.kRate}
+                pitches={statcast?.pitchMix?.length ? toPitchEntries(statcast.pitchMix) : undefined}
+              />
+              <StrikeZoneHeatmap kRate={pitcher.firstInning.kRate} values={statcast?.zoneWhiff} />
               <SituationalRadar pitcher={pitcher} />
             </div>
 

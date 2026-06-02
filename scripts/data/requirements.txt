@@ -1,3 +1,4 @@
 pybaseball>=2.2.7
 pandas>=2.0.0
+numpy>=1.24
 psycopg[binary]>=3.1
