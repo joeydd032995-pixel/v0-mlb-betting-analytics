@@ -107,6 +107,26 @@ export interface StatcastPitcherSummary {
   releaseHeight?: number
   /** Average release-point side (ft, signed; positive = arm side). */
   releaseSide?: number
+  /**
+   * Full arsenal usage/velocity, descending by usage. Present (and non-empty)
+   * only when the season-to-date sample clears MIN_PITCHES. Source: pybaseball.
+   */
+  pitchMix?: StatcastPitchType[]
+  /**
+   * Exactly 25 finite whiff% values (swinging strikes / swings), row-major
+   * top-left→bottom-right over an expanded 5×5 strike-zone grid (outer ring is
+   * out-of-zone; middle 3×3 is the rulebook zone). Present only when gated.
+   */
+  zoneWhiff?: number[]
+}
+
+export interface StatcastPitchType {
+  /** Raw Statcast pitch_type code, e.g. "FF", "SL", "CH", "CU". */
+  code: string
+  /** Share of this pitcher's pitches (0-1). */
+  usage: number
+  /** Mean release speed for this pitch type (mph). */
+  velocityMph: number
 }
 
 export interface PitcherFatigue {

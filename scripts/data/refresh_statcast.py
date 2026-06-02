@@ -29,6 +29,7 @@ import sys
 from datetime import datetime, date
 
 try:
+    import numpy as np
     import pandas as pd
     import psycopg
     from psycopg import sql
@@ -46,6 +47,19 @@ LEAGUE_FB_SPIN_STD = 220
 STUFFPLUS_VELO_WEIGHT = 8
 STUFFPLUS_SPIN_WEIGHT = 5
 
+# ── Pitch-mix / zone-whiff aggregation (season-to-date) ───────────────────────
+# MIN_PITCHES kept in sync with lib/config.ts (no cross-runtime import).
+MIN_PITCHES = 200
+# Statcast pitch_type codes that aren't real pitches; excluded from the arsenal.
+NON_PITCH_CODES = {"PO", "FO", "IN", "AB", "UN", "NA", "", None}
+# Whiff% = swinging strikes / swings. "swings" includes contact + misses.
+SWING_DESC = {"swinging_strike", "swinging_strike_blocked", "foul", "foul_tip", "hit_into_play"}
+WHIFF_DESC = {"swinging_strike", "swinging_strike_blocked"}
+# Expanded 5×5 zone grid (matches the HfZone component): the MIDDLE 3 of 5
+# columns/rows cover the rulebook zone, the outer ring is out-of-zone.
+ZONE_X_MIN, ZONE_X_MAX = -1.383, 1.383      # inner 3 cols ⇒ plate_x ∈ [-0.83, 0.83]
+SZ_BOT_DEFAULT, SZ_TOP_DEFAULT = 1.5, 3.5    # fallback rulebook zone (ft)
+
 
 def _iso_date(value: str) -> date:
     try:
@@ -54,10 +68,24 @@ def _iso_date(value: str) -> date:
         raise argparse.ArgumentTypeError(f"Invalid date '{value}', expected YYYY-MM-DD") from err
 
 
+def _default_season_start(d: date) -> date:
+    """Opening-ish day for the season containing `d` (default Mar 1 of its year)."""
+    return date(d.year, 3, 1)
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Refresh Statcast caches into Postgres")
     p.add_argument("--from", dest="date_from", type=_iso_date, required=True, help="ISO date YYYY-MM-DD")
     p.add_argument("--to", dest="date_to", type=_iso_date, required=True, help="ISO date YYYY-MM-DD")
+    p.add_argument(
+        "--season-start",
+        dest="season_start",
+        type=_iso_date,
+        default=None,
+        help="Season-to-date window start for pitch-mix/zone aggregates "
+             "(default Mar 1 of --to's year). Decoupled from --from/--to, which "
+             "drive the numeric summary.",
+    )
     p.add_argument(
         "--db-url",
         default=os.environ.get("DATABASE_URL"),
@@ -67,6 +95,10 @@ def parse_args() -> argparse.Namespace:
     args = p.parse_args()
     if args.date_from > args.date_to:
         p.error("--from must be on or before --to")
+    if args.season_start is None:
+        args.season_start = _default_season_start(args.date_to)
+    if args.season_start > args.date_to:
+        p.error("--season-start must be on or before --to")
     return args
 
 
@@ -113,6 +145,96 @@ def summarise_batters(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def summarise_pitch_mix(df: pd.DataFrame) -> dict[int, list[dict]]:
+    """Per-pitcher full arsenal: {usage, velocityMph} per pitch_type, usage desc.
+
+    Gated at MIN_PITCHES season-to-date. Non-pitch codes and pitch types whose
+    mean velocity is non-finite are dropped (the latter guards a NaN reaching the
+    jsonb payload). Returns {} when the required columns are absent.
+    """
+    if df is None or df.empty:
+        return {}
+    if not {"pitcher", "pitch_type", "release_speed"}.issubset(df.columns):
+        return {}
+    out: dict[int, list[dict]] = {}
+    for pid, g in df.groupby("pitcher"):
+        if len(g) < MIN_PITCHES:
+            continue
+        arsenal = g[g["pitch_type"].notna() & ~g["pitch_type"].isin(NON_PITCH_CODES)]
+        n = len(arsenal)
+        if n == 0:
+            continue
+        usage = arsenal.groupby("pitch_type").size() / n
+        velo = arsenal.groupby("pitch_type")["release_speed"].mean()
+        entries = []
+        for code in usage.index:
+            v = velo.get(code)
+            if v is None or not np.isfinite(v):
+                continue  # drop pitch types with no usable velocity (NaN→jsonb fails)
+            entries.append({
+                "code": str(code),
+                "usage": round(float(usage[code]), 4),
+                "velocityMph": round(float(v), 1),
+            })
+        if not entries:
+            continue
+        entries.sort(key=lambda e: e["usage"], reverse=True)
+        out[int(pid)] = entries
+    return out
+
+
+def summarise_zone_whiff(df: pd.DataFrame) -> dict[int, list[float]]:
+    """Per-pitcher 25-cell whiff% grid (swinging strikes / swings).
+
+    5×5 equal-width bins over an EXPANDED zone so the middle 3×3 covers the
+    rulebook zone and the outer ring is out-of-zone (matches the HfZone
+    component). Row 0 = top (highest plate_z); row-major top-left→bottom-right.
+    Pitches outside the extent clamp to the edge cell (none dropped). Gated at
+    MIN_PITCHES season-to-date.
+    """
+    if df is None or df.empty:
+        return {}
+    needed = {"pitcher", "plate_x", "plate_z", "description", "sz_top", "sz_bot"}
+    if not needed.issubset(df.columns):
+        return {}
+
+    n_by_pitcher = df.groupby("pitcher").size()
+    eligible = set(n_by_pitcher[n_by_pitcher >= MIN_PITCHES].index)
+    if not eligible:
+        return {}
+
+    sw = df[df["pitcher"].isin(eligible) & df["description"].isin(SWING_DESC)].copy()
+    sw = sw.dropna(subset=["plate_x", "plate_z"])
+    if sw.empty:
+        return {}
+
+    sz_top = sw["sz_top"].fillna(SZ_TOP_DEFAULT)
+    sz_bot = sw["sz_bot"].fillna(SZ_BOT_DEFAULT)
+    h = (sz_top - sz_bot) / 3.0
+    default_h = (SZ_TOP_DEFAULT - SZ_BOT_DEFAULT) / 3.0
+    h = h.where(h > 0, default_h)            # guard degenerate per-pitch zones
+    z_min = sz_bot - h
+    cell_w = (ZONE_X_MAX - ZONE_X_MIN) / 5.0
+
+    col = np.clip(((sw["plate_x"] - ZONE_X_MIN) / cell_w).astype(int), 0, 4)
+    row_from_bottom = np.clip(((sw["plate_z"] - z_min) / h).astype(int), 0, 4)
+    row = 4 - row_from_bottom               # row 0 = top
+    sw["cell"] = (np.asarray(row) * 5 + np.asarray(col)).astype(int)
+    sw["is_whiff"] = sw["description"].isin(WHIFF_DESC)
+
+    out: dict[int, list[float]] = {}
+    for pid, g in sw.groupby("pitcher"):
+        swings_per = g.groupby("cell").size()
+        whiffs_per = g[g["is_whiff"]].groupby("cell").size()
+        grid = []
+        for c in range(25):
+            s = int(swings_per.get(c, 0))
+            w = int(whiffs_per.get(c, 0))
+            grid.append(round(w / s, 4) if s > 0 else 0.0)
+        out[int(pid)] = grid
+    return out
+
+
 _ALLOWED_TABLES = {"pitcher_statcast", "batter_statcast"}
 
 
@@ -147,11 +269,28 @@ def main() -> int:
     summary_date = args.date_to
     print(f"[refresh-statcast] pitchers={len(pitchers)} batters={len(batters)} (as of {summary_date})")
 
+    # Pitch-mix / zone-whiff need a larger sample than the numeric-summary window,
+    # so aggregate them season-to-date (the cron's --from/--to is often ~14 days
+    # and rarely clears MIN_PITCHES). pybaseball's on-disk cache bounds the cost.
+    if args.season_start < args.date_from:
+        print(f"[refresh-statcast] pulling season-to-date {args.season_start} → {args.date_to} for pitch-mix/zone")
+        df_std = statcast(start_dt=args.season_start.isoformat(), end_dt=args.date_to.isoformat(), verbose=False)
+    else:
+        df_std = df  # window already covers the season-to-date span
+    pitch_mix_map = summarise_pitch_mix(df_std)
+    zone_whiff_map = summarise_zone_whiff(df_std)
+    print(f"[refresh-statcast] pitchMix pitchers={len(pitch_mix_map)} zoneWhiff pitchers={len(zone_whiff_map)} "
+          f"(season-to-date, MIN_PITCHES={MIN_PITCHES})")
+
     if args.dry_run:
         if not pitchers.empty:
             print(pitchers.head(5))
         if not batters.empty:
             print(batters.head(5))
+        for pid, mix in list(pitch_mix_map.items())[:3]:
+            print(f"  pitchMix {pid}: {mix}")
+        for pid, grid in list(zone_whiff_map.items())[:1]:
+            print(f"  zoneWhiff {pid} (len={len(grid)}): {grid}")
         return 0
 
     skipped_pitchers = 0
@@ -167,6 +306,13 @@ def main() -> int:
                     "releaseHeight": float(row.get("releaseHeight", 6.0)) if pd.notna(row.get("releaseHeight")) else None,
                     "releaseSide": float(row.get("releaseSide", 0.0)) if pd.notna(row.get("releaseSide")) else None,
                 }
+                # Merge season-to-date rich fields when the pitcher cleared the gate.
+                mix = pitch_mix_map.get(int(mlbam_id))
+                if mix:
+                    payload["pitchMix"] = mix
+                zone = zone_whiff_map.get(int(mlbam_id))
+                if zone:
+                    payload["zoneWhiff"] = zone
                 upsert(conn, "pitcher_statcast", str(int(mlbam_id)), summary_date, payload)
             except (ValueError, TypeError) as err:
                 skipped_pitchers += 1
