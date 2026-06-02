@@ -24,11 +24,18 @@ const EMPTY_TIER_INFO: UserTierInfo = {
   stripeSubscriptionId: null,
 }
 
+// Parses ADMIN_USER_IDS env var (comma-separated Clerk user IDs) into a Set.
+function getAdminUserIds(): Set<string> {
+  const raw = process.env.ADMIN_USER_IDS ?? ""
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))
+}
+
 // Returns the user's active tier. Falls back to "FREE" for missing/expired
 // subscriptions. Never throws — designed to be called in API routes without
 // try/catch at the call site.
 export async function getUserTier(userId: string | null | undefined): Promise<Tier> {
   if (!userId) return "FREE"
+  if (getAdminUserIds().has(userId)) return "ELITE"
   try {
     const sub = await prisma.subscription.findUnique({
       where: { userId },
@@ -48,26 +55,31 @@ export async function getUserTier(userId: string | null | undefined): Promise<Ti
 
 // Full subscription info for the account management page.
 export async function getUserTierInfo(userId: string): Promise<UserTierInfo> {
+  const isAdmin = getAdminUserIds().has(userId)
   try {
     const sub = await prisma.subscription.findUnique({ where: { userId } })
-    if (!sub) return EMPTY_TIER_INFO
+    if (!sub) {
+      return isAdmin
+        ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
+        : EMPTY_TIER_INFO
+    }
 
     const isActive = sub.status === "active" || sub.status === "trialing"
     const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    const effectiveTier = isActive && notExpired
-      ? (sub.tier.toUpperCase() as Tier)
-      : "FREE"
+    const effectiveTier = isAdmin ? "ELITE" : (isActive && notExpired ? (sub.tier.toUpperCase() as Tier) : "FREE")
 
     return {
       tier: effectiveTier,
-      isActive,
+      isActive: isAdmin ? true : isActive,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       currentPeriodEnd: sub.currentPeriodEnd,
       stripeCustomerId: sub.stripeCustomerId ?? null,
       stripeSubscriptionId: sub.stripeSubscriptionId ?? null,
     }
   } catch {
-    return EMPTY_TIER_INFO
+    return isAdmin
+      ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
+      : EMPTY_TIER_INFO
   }
 }
 

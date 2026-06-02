@@ -21,7 +21,7 @@ export default async function AccountPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--hm-abyss)" }}>
       <main className="mx-auto max-w-2xl px-4 sm:px-6 py-12 sm:py-16">
-        <AccountClient tierInfo={tierInfo} />
+        <AccountClient tierInfo={tierInfo} userId={userId} />
       </main>
     </div>
   )
