@@ -52,6 +52,14 @@ export const MLB_SEASON_START: Record<number, string> = {
   2026: "2026-03-27",
 }
 
+/**
+ * Minimum season-to-date pitches before Statcast pitch-mix / zone-whiff
+ * aggregates are trusted enough to store and display. Kept in sync manually with
+ * the same constant in `scripts/data/refresh_statcast.py` (no cross-runtime
+ * import); this value is the source of truth.
+ */
+export const MIN_PITCHES = 200
+
 // Configuration for all statistical models and regression parameters
 export const CONFIG = {
   // Regression parameters (N_reg values for empirical Bayes)

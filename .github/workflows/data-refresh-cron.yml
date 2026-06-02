@@ -15,6 +15,10 @@ on:
         description: "Rolling window in days (default 14)"
         required: false
         default: ""
+      season_start:
+        description: "Aggregate-window start (YYYY-MM-DD) for pitch-mix/zone; blank → Mar 1"
+        required: false
+        default: ""
       dry_run:
         description: "Print summary; skip DB writes"
         required: false
@@ -31,6 +35,7 @@ jobs:
     env:
       DATABASE_URL:           ${{ secrets.DATABASE_URL }}
       AGENT_LOOKBACK_DAYS:    ${{ inputs.lookback_days || '14' }}
+      AGENT_SEASON_START:     ${{ inputs.season_start || '' }}
       AGENT_DRY_RUN:          ${{ inputs.dry_run && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
