@@ -3,12 +3,13 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Crown, Zap, Star, CreditCard, ExternalLink } from "lucide-react"
+import { Crown, Zap, Star, CreditCard, ExternalLink, Copy, Check } from "lucide-react"
 import type { UserTierInfo } from "@/lib/subscription"
 import { cn } from "@/lib/utils"
 
 interface Props {
   tierInfo: UserTierInfo
+  userId: string
 }
 
 const TIER_CONFIG = {
@@ -32,9 +33,16 @@ const TIER_CONFIG = {
   },
 }
 
-export function AccountClient({ tierInfo }: Props) {
+export function AccountClient({ tierInfo, userId }: Props) {
   const [managingBilling, setManagingBilling] = useState(false)
+  const [copied, setCopied] = useState(false)
   const router = useRouter()
+
+  function copyUserId() {
+    navigator.clipboard.writeText(userId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
   const config = TIER_CONFIG[tierInfo.tier]
 
   async function openBillingPortal() {
@@ -173,6 +181,32 @@ export function AccountClient({ tierInfo }: Props) {
             <ExternalLink size={13} style={{ opacity: 0.5 }} />
           </button>
         )}
+      </div>
+
+      {/* User ID — for admin setup */}
+      <div
+        className="rounded-[12px] px-5 py-4 space-y-2"
+        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <p className="font-mono uppercase tracking-[0.15em] text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>
+          Your User ID
+        </p>
+        <div className="flex items-center justify-between gap-3">
+          <code className="text-xs break-all" style={{ color: "rgba(255,255,255,0.55)" }}>
+            {userId}
+          </code>
+          <button
+            onClick={copyUserId}
+            className="shrink-0 rounded-md p-1.5 transition-opacity hover:opacity-80"
+            style={{ background: "rgba(255,255,255,0.06)" }}
+            aria-label="Copy user ID"
+          >
+            {copied
+              ? <Check size={13} style={{ color: "#00e676" }} />
+              : <Copy size={13} style={{ color: "rgba(255,255,255,0.4)" }} />
+            }
+          </button>
+        </div>
       </div>
     </div>
   )
