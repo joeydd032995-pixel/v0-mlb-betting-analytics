@@ -136,7 +136,11 @@ def summarise_batters(df: pd.DataFrame) -> pd.DataFrame:
     g = bb.groupby("batter").size().rename("n_bb")
     xwoba = bb.groupby("batter")["estimated_woba_using_speedangle"].mean().rename("xwoba")
     avg_ev = bb.groupby("batter")["launch_speed"].mean().rename("avg_ev")
-    barrel = bb[bb["barrel"] == 1].groupby("batter").size().rename("n_barrel")
+    # Statcast has no direct "barrel" column; the barrel class is launch_speed_angle == 6.
+    if "launch_speed_angle" in bb.columns:
+        barrel = bb[bb["launch_speed_angle"] == 6].groupby("batter").size().rename("n_barrel")
+    else:
+        barrel = pd.Series(dtype="int64", name="n_barrel")
     hardhit = bb[bb["launch_speed"] >= 95].groupby("batter").size().rename("n_hardhit")
     out = pd.concat([g, xwoba, avg_ev, barrel, hardhit], axis=1)
     out["barrel_pct"] = (out["n_barrel"].fillna(0) / out["n_bb"]).clip(0, 1)
