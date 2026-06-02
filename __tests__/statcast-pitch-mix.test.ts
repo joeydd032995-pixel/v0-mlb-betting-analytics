@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { normalizeStatcastPitcher } from "../lib/api/statcast-normalize"
-import { toPitchEntries } from "../lib/pitcher/pitch-mix-display"
+import { toPitchEntries, foldArsenalToBuckets } from "../lib/pitcher/pitch-mix-display"
 
 // The DB `payload Json` column is untyped, so normalizeStatcastPitcher is the
 // single guard that keeps malformed pitchMix/zoneWhiff out of the pitcher UI.
@@ -96,5 +96,52 @@ describe("toPitchEntries", () => {
     const entries = toPitchEntries([{ code: "xx", usage: 1, velocityMph: 80 }])
     expect(entries[0].name).toBe("XX")
     expect(entries[0].color).toBe("var(--ds-muted)")
+  })
+})
+
+describe("foldArsenalToBuckets", () => {
+  const v = 90 // velocity is irrelevant to bucketing
+
+  it("groups pitch codes into fb/sl/cb/ch", () => {
+    expect(
+      foldArsenalToBuckets([
+        { code: "FF", usage: 0.5, velocityMph: v },
+        { code: "SL", usage: 0.3, velocityMph: v },
+        { code: "CU", usage: 0.2, velocityMph: v },
+      ])
+    ).toEqual({ fb: 50, sl: 30, cb: 20, ch: 0 })
+  })
+
+  it("folds sinkers/cutters into fb and splitters into ch", () => {
+    expect(
+      foldArsenalToBuckets([
+        { code: "FF", usage: 0.4, velocityMph: v },
+        { code: "SI", usage: 0.2, velocityMph: v },
+        { code: "FS", usage: 0.2, velocityMph: v },
+        { code: "CH", usage: 0.2, velocityMph: v },
+      ])
+    ).toEqual({ fb: 60, sl: 0, cb: 0, ch: 40 })
+  })
+
+  it("routes unknown codes into the ch (other) bucket", () => {
+    expect(foldArsenalToBuckets([{ code: "XX", usage: 1, velocityMph: v }])).toEqual({
+      fb: 0,
+      sl: 0,
+      cb: 0,
+      ch: 100,
+    })
+  })
+
+  it("always sums to exactly 100 (largest-remainder rounding)", () => {
+    const b = foldArsenalToBuckets([
+      { code: "FF", usage: 0.333, velocityMph: v },
+      { code: "SL", usage: 0.333, velocityMph: v },
+      { code: "CU", usage: 0.334, velocityMph: v },
+    ])
+    expect(b.fb + b.sl + b.cb + b.ch).toBe(100)
+  })
+
+  it("returns all zeros for an empty arsenal", () => {
+    expect(foldArsenalToBuckets([])).toEqual({ fb: 0, sl: 0, cb: 0, ch: 0 })
   })
 })

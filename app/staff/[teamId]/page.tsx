@@ -6,7 +6,9 @@ import { EraSparkline } from "@/components/staff/EraSparkline"
 import { WorkloadDonuts } from "@/components/staff/WorkloadDonuts"
 import { RosterGrid } from "@/components/staff/RosterGrid"
 import { PitchMixStack } from "@/components/staff/PitchMixStack"
+import { fetchStatcastPitcher } from "@/lib/api/statcast"
 import { mockTeams, mockPitchers } from "@/lib/mock-data"
+import type { StatcastPitchType } from "@/lib/types"
 import Link from "next/link"
 
 interface PageProps {
@@ -58,6 +60,21 @@ export default async function StaffPage({ params }: PageProps) {
     )
   }
 
+  // Real Statcast arsenals for the pitchers shown in the pitch-mix card (first 6).
+  // fetchStatcastPitcher returns null when the cache is empty, so PitchMixStack
+  // falls back to its K%-based estimate per pitcher.
+  const shownPitchers = livePitchers.slice(0, 6)
+  const arsenalEntries = await Promise.all(
+    shownPitchers.map(async p => {
+      const sc = await fetchStatcastPitcher(p.id).catch(() => null)
+      return [p.id, sc?.pitchMix] as const
+    })
+  )
+  const arsenals: Record<string, StatcastPitchType[]> = {}
+  for (const [id, mix] of arsenalEntries) {
+    if (mix && mix.length > 0) arsenals[id] = mix
+  }
+
   return (
     <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
       <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
@@ -84,7 +101,7 @@ export default async function StaffPage({ params }: PageProps) {
             <RosterGrid pitchers={livePitchers} />
 
             <SectionLabel index="04">Pitch Mix</SectionLabel>
-            <PitchMixStack pitchers={livePitchers} />
+            <PitchMixStack pitchers={livePitchers} arsenals={arsenals} />
           </>
         )}
       </main>
