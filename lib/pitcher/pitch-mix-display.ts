@@ -20,6 +20,7 @@ const FALLBACK_COLOR = "var(--ds-muted)"
 const PITCH_META: Record<string, { name: string; color: string }> = {
   FF: { name: "Four-Seam FB", color: "var(--ds-cy)" },
   SI: { name: "Sinker", color: "var(--ds-cy)" },
+  FT: { name: "Two-Seam FB", color: "var(--ds-cy)" },
   FC: { name: "Cutter", color: "var(--ds-cy)" },
   FA: { name: "Fastball", color: "var(--ds-cy)" },
   FS: { name: "Splitter", color: "var(--ds-gr)" },
@@ -37,7 +38,8 @@ const PITCH_META: Record<string, { name: string; color: string }> = {
 /** Convert stored pitch-mix rows into renderable donut entries, order preserved. */
 export function toPitchEntries(pitchMix: StatcastPitchType[]): PitchEntry[] {
   return pitchMix.map((p) => {
-    const meta = PITCH_META[p.code] ?? { name: p.code.toUpperCase(), color: FALLBACK_COLOR }
+    const code = p.code.toUpperCase()
+    const meta = PITCH_META[code] ?? { name: code, color: FALLBACK_COLOR }
     return { name: meta.name, color: meta.color, usage: p.usage, velocityMph: p.velocityMph }
   })
 }

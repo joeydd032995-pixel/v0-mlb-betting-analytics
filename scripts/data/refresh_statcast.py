@@ -272,11 +272,14 @@ def main() -> int:
     # Pitch-mix / zone-whiff need a larger sample than the numeric-summary window,
     # so aggregate them season-to-date (the cron's --from/--to is often ~14 days
     # and rarely clears MIN_PITCHES). pybaseball's on-disk cache bounds the cost.
-    if args.season_start < args.date_from:
-        print(f"[refresh-statcast] pulling season-to-date {args.season_start} → {args.date_to} for pitch-mix/zone")
+    # The aggregate window is always [season_start, date_to] — honored even when
+    # --season-start is later than --from. Reuse the already-pulled df only when
+    # it exactly matches that window; otherwise refetch (wider or narrower).
+    if args.season_start != args.date_from:
+        print(f"[refresh-statcast] pulling aggregate window {args.season_start} → {args.date_to} for pitch-mix/zone")
         df_std = statcast(start_dt=args.season_start.isoformat(), end_dt=args.date_to.isoformat(), verbose=False)
     else:
-        df_std = df  # window already covers the season-to-date span
+        df_std = df  # window already matches the requested aggregate span
     pitch_mix_map = summarise_pitch_mix(df_std)
     zone_whiff_map = summarise_zone_whiff(df_std)
     print(f"[refresh-statcast] pitchMix pitchers={len(pitch_mix_map)} zoneWhiff pitchers={len(zone_whiff_map)} "
