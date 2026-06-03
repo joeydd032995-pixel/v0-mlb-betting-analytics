@@ -11,6 +11,7 @@ import { GameLogGrid } from "@/components/pitcher/GameLogGrid"
 import { fetchPitcherStats, fetchPitcherLast5FirstInnings } from "@/lib/api/mlb-stats"
 import { fetchStatcastPitcher } from "@/lib/api/statcast"
 import { toPitchEntries } from "@/lib/pitcher/pitch-mix-display"
+import { buildPitcherFromStats } from "@/lib/pitcher/build-pitcher"
 import type { Pitcher } from "@/lib/types"
 import Link from "next/link"
 
@@ -41,50 +42,7 @@ export default async function PitcherPage({ params }: PageProps) {
 
   // Build a Pitcher object from API stats (or show no-data state)
   const pitcher: Pitcher | null = apiStats
-    ? {
-        id: String(numericId),
-        name: apiStats.fullName,
-        teamId: "unknown",
-        throws: "R",
-        age: 0,
-        firstInning: {
-          era: apiStats.era ?? 4.0,
-          whip: apiStats.whip ?? 1.25,
-          kRate: apiStats.gamesStarted > 0
-            ? (apiStats.strikeOuts / (apiStats.gamesStarted * 3.5 || 1))
-            : 0.22,
-          bbRate: apiStats.gamesStarted > 0
-            ? (apiStats.baseOnBalls / (apiStats.gamesStarted * 3.5 || 1))
-            : 0.08,
-          hrPer9: (apiStats.inningsPitched ?? 0) > 0
-            ? (apiStats.homeRuns / (apiStats.inningsPitched / 9))
-            : 1.0,
-          babip: 0.290,
-          nrfiRate: Math.exp(-(apiStats.era ?? 4.0) * 0.95 / 9),
-          avgRunsAllowed: (apiStats.era ?? 4.0) / 9,
-          firstBatterOBP: 0.300,
-          last5Results: last5.map(r => r.nrfi),
-          last5RunsAllowed: last5.map(r => r.runs ?? 0),
-          startCount: apiStats.gamesStarted,
-          homeNrfiRate: Math.exp(-(apiStats.era ?? 4.0) * 0.95 / 9) * 1.02,
-          awayNrfiRate: Math.exp(-(apiStats.era ?? 4.0) * 0.95 / 9) * 0.98,
-        },
-        overall: {
-          era: apiStats.era ?? 4.0,
-          fip: (apiStats.era ?? 4.0) - 0.2,
-          xfip: (apiStats.era ?? 4.0) + 0.1,
-          whip: apiStats.whip ?? 1.25,
-          kPer9: (apiStats.inningsPitched ?? 0) > 0
-            ? (apiStats.strikeOuts / (apiStats.inningsPitched / 9))
-            : 8.5,
-          bbPer9: (apiStats.inningsPitched ?? 0) > 0
-            ? (apiStats.baseOnBalls / (apiStats.inningsPitched / 9))
-            : 2.8,
-          innings: apiStats.inningsPitched ?? 0,
-          wins: apiStats.wins ?? 0,
-          losses: apiStats.losses ?? 0,
-        },
-      }
+    ? buildPitcherFromStats(String(numericId), apiStats, last5)
     : null
 
   return (
