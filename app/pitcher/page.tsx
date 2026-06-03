@@ -42,14 +42,18 @@ async function resolvePitchers(): Promise<ActiveStarter[]> {
   const ids = await listStatcastPitcherIds()
   if (ids.length > 0) {
     const people = await fetchPeopleByIds(ids)
-    const resolved = ids
-      .map((id) => people.get(id))
-      .filter((p): p is ActiveStarter => Boolean(p))
-    if (resolved.length > 0) {
-      resolved.sort((a, b) => a.name.localeCompare(b.name))
-      return resolved
-    }
+    // Never DROP a Statcast pitcher just because its name didn't resolve (a
+    // chunk failure / MLB omission) — that would silently shrink the list below
+    // the full set. Keep one row per id, placeholdering the rare unresolved
+    // ones; the detail page re-resolves the real name on click.
+    const list = ids.map(
+      (id): ActiveStarter =>
+        people.get(id) ?? { id, name: `MLBAM ${id}`, teamAbbr: "—", teamName: "Unknown", division: "—" }
+    )
+    list.sort((a, b) => a.name.localeCompare(b.name))
+    return list
   }
+  // No Statcast rows at all (pre-backfill / DB mismatch) → live rosters, then static.
   const live = await fetchAllActiveStarters()
   return live.length > 0 ? live : FALLBACK_PITCHERS
 }
