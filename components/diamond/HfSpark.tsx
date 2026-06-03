@@ -42,6 +42,21 @@ export function HfSpark({
   const uid = useId()
   const gradId1 = `sparkGrad1-${uid}`
   const gradId2 = `sparkGrad2-${uid}`
+
+  // Build an explicit, ascending Y-axis domain + ticks. Recharts' auto-tick
+  // generation can render ticks out of numeric order (e.g. 0,4,8,2,6) when
+  // combined with the default tick animation, so we pin them deterministically.
+  const TICK_COUNT = 5
+  const vals = data
+    .flatMap((d) => [d.value, d.value2])
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+  const maxVal = vals.length ? Math.max(...vals) : 1
+  // Round the axis top up to a "nice" value that divides evenly into the tick
+  // count, so every tick lands on a whole number.
+  const step = TICK_COUNT - 1
+  const niceMax = Math.max(step, Math.ceil(maxVal / step) * step)
+  const yTicks = Array.from({ length: TICK_COUNT }, (_, i) => (niceMax / step) * i)
+
   return (
     <div className={cn("w-full", className)}>
       <ResponsiveContainer width="100%" height={height}>
@@ -66,6 +81,9 @@ export function HfSpark({
             tickLine={false}
           />
           <YAxis
+            type="number"
+            domain={[0, niceMax]}
+            ticks={yTicks}
             tick={{ fill: "var(--ds-muted)", fontSize: 10, fontFamily: "var(--font-jet)" }}
             axisLine={false}
             tickLine={false}
@@ -90,6 +108,7 @@ export function HfSpark({
             fill={`url(#${gradId1})`}
             dot={false}
             activeDot={{ r: 3, fill: color }}
+            isAnimationActive={false}
           />
           {label2 && (
             <Area
@@ -101,6 +120,7 @@ export function HfSpark({
               fill={`url(#${gradId2})`}
               dot={false}
               activeDot={{ r: 3, fill: color2 }}
+              isAnimationActive={false}
             />
           )}
         </AreaChart>

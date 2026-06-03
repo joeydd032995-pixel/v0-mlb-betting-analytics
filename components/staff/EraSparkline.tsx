@@ -17,7 +17,8 @@ export function EraSparkline({ pitchers }: Props) {
     const spRuns = spPitchers.reduce((sum, p) => sum + (p.firstInning.last5RunsAllowed[revIdx] ?? p.firstInning.avgRunsAllowed), 0)
     const spEra  = spPitchers.length > 0 ? (spRuns / spPitchers.length) * 9 : 4.0
     return {
-      name: `GS-${5 - i}`,
+      // i=0 is the oldest start (leftmost); count up so oldest = G1, newest = G5
+      name: `G${i + 1}`,
       value: spEra,
     }
   })
