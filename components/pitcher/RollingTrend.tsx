@@ -15,7 +15,8 @@ export function RollingTrend({ pitcher }: Props) {
     .slice()
     .reverse()
     .map((runs, i) => ({
-      name: `GS-${fi.last5RunsAllowed.length - i}`,
+      // i=0 is the oldest start (leftmost); count up so oldest = G1
+      name: `G${i + 1}`,
       value: fi.era + (runs - fi.avgRunsAllowed) * 0.5,
       value2: fi.kRate * 9 + (runs === 0 ? 0.4 : -0.3),
     }))
