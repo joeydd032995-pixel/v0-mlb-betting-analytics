@@ -25,21 +25,23 @@ export function buildPitcherFromStats(
 ): Pitcher {
   const era = apiStats.era ?? 4.0
   const nrfi = Math.exp(-era * 0.95 / 9)
+  // K%/BB% per batter faced (BF ≈ 3×IP + H + BB), used as a first-inning rate
+  // proxy. The previous `K / (gamesStarted × 3.5)` divided full-season totals by
+  // a first-inning batter count, yielding impossible >100% rates for starters.
+  const estBF = (apiStats.inningsPitched ?? 0) * 3 + apiStats.hits + apiStats.baseOnBalls
+  const kRate = estBF > 0 ? Math.min(1, apiStats.strikeOuts / estBF) : 0.22
+  const bbRate = estBF > 0 ? Math.min(1, apiStats.baseOnBalls / estBF) : 0.08
   const pitcher: Pitcher = {
     id,
     name: apiStats.fullName,
     teamId,
-    throws: "R",
+    throws: apiStats.throws ?? "R",
     age: 0,
     firstInning: {
       era,
       whip: apiStats.whip ?? 1.25,
-      kRate: apiStats.gamesStarted > 0
-        ? (apiStats.strikeOuts / (apiStats.gamesStarted * 3.5 || 1))
-        : 0.22,
-      bbRate: apiStats.gamesStarted > 0
-        ? (apiStats.baseOnBalls / (apiStats.gamesStarted * 3.5 || 1))
-        : 0.08,
+      kRate,
+      bbRate,
       hrPer9: (apiStats.inningsPitched ?? 0) > 0
         ? (apiStats.homeRuns / (apiStats.inningsPitched / 9))
         : 1.0,

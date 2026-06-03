@@ -6,7 +6,7 @@ import { EraSparkline } from "@/components/staff/EraSparkline"
 import { WorkloadDonuts } from "@/components/staff/WorkloadDonuts"
 import { RosterGrid } from "@/components/staff/RosterGrid"
 import { PitchMixStack } from "@/components/staff/PitchMixStack"
-import { fetchTeamPitchers, fetchPitcherStats } from "@/lib/api/mlb-stats"
+import { fetchTeamPitchers, fetchPitcherStats, fetchPitcherLast5FirstInnings } from "@/lib/api/mlb-stats"
 import { fetchStatcastPitcher } from "@/lib/api/statcast"
 import { buildPitcherFromStats } from "@/lib/pitcher/build-pitcher"
 import { MLB_TEAMS, type MLBTeamInfo } from "@/lib/constants/mlb-teams"
@@ -90,6 +90,17 @@ async function loadStaff(teamId: string): Promise<StaffData> {
   }
   // Workhorses first — the cards slice the top 5–6.
   pitchers.sort((a, b) => b.overall.innings - a.overall.innings)
+
+  // Populate real recent first-inning trend for the pitchers the ERA sparkline
+  // and roster cards surface (top 6), so it shows a real "last 5" line rather
+  // than a flat season average. Bounded to keep the per-pitcher fetch count low.
+  await Promise.all(
+    pitchers.slice(0, 6).map(async (p) => {
+      const last5 = await fetchPitcherLast5FirstInnings(Number(p.id)).catch(() => [])
+      p.firstInning.last5Results = last5.map((r) => r.nrfi)
+      p.firstInning.last5RunsAllowed = last5.map((r) => r.runs ?? 0)
+    })
+  )
 
   return pitchers.length > 0 ? { team, pitchers, arsenals } : mockFallback()
 }
