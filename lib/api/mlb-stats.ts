@@ -599,8 +599,24 @@ const TEAM_ROSTER_IDS = [
 type RosterResponse = {
   roster: Array<{
     person: { id: number; fullName: string }
-    position: { abbreviation: string }
+    position: { abbreviation: string; type?: string }
   }>
+}
+
+/**
+ * All active pitchers (SP + RP) for one team, as MLBAM ids + names. Filters by
+ * `position.type === "Pitcher"` — robust to the active roster listing pitchers
+ * as "P" rather than "SP"/"RP". Returns [] on failure so callers can fall back.
+ */
+export async function fetchTeamPitchers(apiId: number): Promise<{ id: string; name: string }[]> {
+  const data = await mlbFetch<RosterResponse>(
+    `/teams/${apiId}/roster?rosterType=active&season=${SEASON}`,
+    3600
+  )
+  if (!data?.roster) return []
+  return data.roster
+    .filter((p) => p.position.type === "Pitcher")
+    .map((p) => ({ id: String(p.person.id), name: p.person.fullName }))
 }
 
 /**
