@@ -53,7 +53,9 @@ interface WeeklyRecapData {
 
 type ApiResponse = WeeklyRecapData | { hasData: false } | { error: string }
 
+/** Format a 0–1 fraction as a one-decimal percentage, e.g. 0.582 → "58.2%". */
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
+/** Like {@link pct} but prefixes a "+" for non-negative values, e.g. 0.04 → "+4.0%". */
 const signedPct = (v: number) => `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`
 
 const CONF_TIERS: { key: keyof WeeklyRecapData["byConfidence"]; label: string; range: string }[] = [
@@ -62,6 +64,11 @@ const CONF_TIERS: { key: keyof WeeklyRecapData["byConfidence"]; label: string; r
   { key: "Low", label: "Low Confidence", range: "<45" },
 ]
 
+/**
+ * Weekly Recap panel: fetches the latest DB-backed week from /api/weekly-recap
+ * and renders loading, error, empty, and ready states. The displayed week
+ * auto-advances as new completed predictions are synced.
+ */
 export function WeeklyRecap() {
   const [data, setData] = useState<WeeklyRecapData | null>(null)
   const [state, setState] = useState<"loading" | "empty" | "error" | "ready">("loading")
@@ -74,8 +81,8 @@ export function WeeklyRecap() {
         const res = await fetch("/api/weekly-recap")
         const json: ApiResponse = await res.json()
         if (cancelled) return
-        if ("error" in json) {
-          setError(json.error)
+        if (!res.ok || "error" in json) {
+          setError("error" in json ? json.error : `Request failed (${res.status})`)
           setState("error")
         } else if (!json.hasData) {
           setState("empty")

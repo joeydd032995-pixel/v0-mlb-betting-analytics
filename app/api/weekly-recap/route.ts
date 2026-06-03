@@ -66,12 +66,19 @@ type WeekPred = {
   awayTeam: string
 }
 
+/** Adapt a stored prediction row into the BacktestRow shape computeBacktestMetrics expects. */
 const toRow = (p: WeekPred): BacktestRow => ({
   nrfiProbability: p.nrfiProbability,
   actualNrfi: p.actualResult === "NRFI",
   confidence: p.confidence,
 })
 
+/**
+ * GET /api/weekly-recap — public, system-wide weekly performance for the most
+ * recent week containing completed predictions (auto-advances over time).
+ * Returns weekly + per-day accuracy/ROI, confidence-tier stats, highlights and
+ * insights, or `{ hasData: false }` when no scored predictions exist.
+ */
 export async function GET() {
   // Public endpoint: /weekly-recap is an unauthenticated page (not in middleware's
   // protected matcher), so the recap shows system-wide shared predictions only.
