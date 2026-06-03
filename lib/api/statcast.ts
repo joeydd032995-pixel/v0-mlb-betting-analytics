@@ -51,6 +51,34 @@ export async function fetchStatcastPitcher(mlbamId: string): Promise<StatcastPit
   }
 }
 
+/**
+ * Return the distinct MLBAM ids that have a `pitcher_statcast` row (latest
+ * date per pitcher).  Used by the pitcher list page to enumerate exactly the
+ * pitchers that have real Statcast data.  Tolerates a missing table/client and
+ * returns `[]` rather than throwing, mirroring `fetchStatcastPitcher`.
+ */
+export async function listStatcastPitcherIds(): Promise<string[]> {
+  try {
+    const client = prisma as unknown as {
+      pitcherStatcast?: {
+        findMany: (args: unknown) => Promise<Array<{ mlbamId: string }>>
+      }
+    }
+    if (!client.pitcherStatcast) return []
+    const rows = await client.pitcherStatcast.findMany({
+      distinct: ["mlbamId"],
+      select: { mlbamId: true },
+      orderBy: { date: "desc" },
+    })
+    return rows.map((r) => r.mlbamId)
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[statcast] listStatcastPitcherIds unavailable:", (err as Error).message)
+    }
+    return []
+  }
+}
+
 export async function fetchStatcastBatter(mlbamId: string): Promise<StatcastBatterSummary | null> {
   if (!mlbamId) return null
   try {

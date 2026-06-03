@@ -2,10 +2,12 @@
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { Panel } from "@/components/diamond/Panel"
 import { PitcherSearch } from "@/components/pitcher/PitcherSearch"
-import { fetchAllActiveStarters } from "@/lib/api/mlb-stats"
+import { fetchAllActiveStarters, fetchPeopleByIds } from "@/lib/api/mlb-stats"
 import type { ActiveStarter } from "@/lib/api/mlb-stats"
+import { listStatcastPitcherIds } from "@/lib/api/statcast"
 
-export const revalidate = 3600
+// DB-backed (reads pitcher_statcast), so render per request rather than ISR.
+export const dynamic = "force-dynamic"
 
 // Fallback list of verified-correct MLB pitcher IDs (used when API is unavailable)
 const FALLBACK_PITCHERS: ActiveStarter[] = [
@@ -29,9 +31,31 @@ const FALLBACK_PITCHERS: ActiveStarter[] = [
   { id: "543243", name: "Sonny Gray",        teamAbbr: "STL", teamName: "St. Louis Cardinals",    division: "NL Central"},
 ]
 
-export default async function PitcherListPage() {
+/**
+ * Source the list from every pitcher that has Statcast data (the
+ * `pitcher_statcast` table), resolving names/teams via the MLB people API.
+ * This makes the list == the set of pitchers whose deep-dive panels will show
+ * real Statcast. Falls back to live rosters, then the static list, when no
+ * Statcast rows exist (e.g. before the backfill has run, or a DB mismatch).
+ */
+async function resolvePitchers(): Promise<ActiveStarter[]> {
+  const ids = await listStatcastPitcherIds()
+  if (ids.length > 0) {
+    const people = await fetchPeopleByIds(ids)
+    const resolved = ids
+      .map((id) => people.get(id))
+      .filter((p): p is ActiveStarter => Boolean(p))
+    if (resolved.length > 0) {
+      resolved.sort((a, b) => a.name.localeCompare(b.name))
+      return resolved
+    }
+  }
   const live = await fetchAllActiveStarters()
-  const pitchers = live.length > 0 ? live : FALLBACK_PITCHERS
+  return live.length > 0 ? live : FALLBACK_PITCHERS
+}
+
+export default async function PitcherListPage() {
+  const pitchers = await resolvePitchers()
 
   return (
     <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>

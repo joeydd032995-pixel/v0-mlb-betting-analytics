@@ -28,7 +28,43 @@ export async function GET() {
     // Lightweight connectivity check — doesn't touch app tables
     await prisma.$queryRaw`SELECT 1`
     const gameCount = await prisma.gameResult.count()
-    return NextResponse.json({ connected: true, gameCount, vars })
+
+    // Statcast cache counts — confirms whether the backfill's rows are visible
+    // to THIS database (the app's). 0 here while the Data Refresh Agent reported
+    // success ⇒ the app and the backfill point at different databases.
+    let pitcherStatcastCount: number | null = null
+    let batterStatcastCount: number | null = null
+    let samplePitcherIds: string[] = []
+    try {
+      const sc = prisma as unknown as {
+        pitcherStatcast?: {
+          count: () => Promise<number>
+          findMany: (args: unknown) => Promise<Array<{ mlbamId: string }>>
+        }
+        batterStatcast?: { count: () => Promise<number> }
+      }
+      if (sc.pitcherStatcast) {
+        pitcherStatcastCount = await sc.pitcherStatcast.count()
+        const sample = await sc.pitcherStatcast.findMany({
+          take: 3,
+          select: { mlbamId: true },
+          orderBy: { date: "desc" },
+        })
+        samplePitcherIds = sample.map((r) => r.mlbamId)
+      }
+      if (sc.batterStatcast) batterStatcastCount = await sc.batterStatcast.count()
+    } catch {
+      // Statcast tables may not exist yet — leave counts null.
+    }
+
+    return NextResponse.json({
+      connected: true,
+      gameCount,
+      pitcherStatcastCount,
+      batterStatcastCount,
+      samplePitcherIds,
+      vars,
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ connected: false, error: message, vars }, { status: 500 })

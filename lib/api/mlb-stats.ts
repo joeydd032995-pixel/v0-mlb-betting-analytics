@@ -642,6 +642,59 @@ export async function fetchAllActiveStarters(): Promise<ActiveStarter[]> {
   return starters
 }
 
+const TEAM_BY_NUMERIC_ID = new Map(TEAM_ROSTER_IDS.map((t) => [t.numericId, t]))
+
+/** Chunk size kept well under the MLB Stats API URL limit for personIds. */
+const PEOPLE_CHUNK = 100
+
+type PeopleResponse = {
+  people?: Array<{
+    id: number
+    fullName: string
+    currentTeam?: { id?: number; name?: string }
+  }>
+}
+
+/**
+ * Batch-resolve MLBAM person ids → name/team via `/people?personIds=`.  Chunks
+ * the ids (~100 per request) and runs the chunks in parallel with
+ * `Promise.allSettled`, so one failed/slow chunk doesn't drop the rest.  Team
+ * abbr/division come from the static `TEAM_ROSTER_IDS` registry keyed on the
+ * hydrated `currentTeam.id`.  Returns a Map keyed by id string; ids that don't
+ * resolve are simply absent.
+ */
+export async function fetchPeopleByIds(ids: string[]): Promise<Map<string, ActiveStarter>> {
+  const out = new Map<string, ActiveStarter>()
+  if (ids.length === 0) return out
+
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += PEOPLE_CHUNK) {
+    chunks.push(ids.slice(i, i + PEOPLE_CHUNK))
+  }
+
+  const results = await Promise.allSettled(
+    chunks.map((chunk) =>
+      mlbFetch<PeopleResponse>(`/people?personIds=${chunk.join(",")}&hydrate=currentTeam`, 3600)
+    )
+  )
+
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value?.people) continue
+    for (const person of result.value.people) {
+      const team = person.currentTeam?.id ? TEAM_BY_NUMERIC_ID.get(person.currentTeam.id) : undefined
+      out.set(String(person.id), {
+        id:       String(person.id),
+        name:     person.fullName,
+        teamAbbr: team?.abbr ?? "—",
+        teamName: team?.name ?? person.currentTeam?.name ?? "Free Agent",
+        division: team?.division ?? "—",
+      })
+    }
+  }
+
+  return out
+}
+
 /**
  * Fetches a team's current-season hitting stats via:
  *   /teams/{id}/stats?stats=season&group=hitting&season=YYYY
