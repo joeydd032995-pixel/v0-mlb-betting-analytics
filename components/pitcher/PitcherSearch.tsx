@@ -108,7 +108,7 @@ export function PitcherSearch({ pitchers }: Props) {
       </div>
 
       <p className="font-jet text-[11px] text-ds-dim">
-        {filtered.length} of {pitchers.length} active starters · 2026 season · Direct URL: /pitcher/[mlb-id]
+        {filtered.length} of {pitchers.length} pitchers with Statcast data · 2026 season · Direct URL: /pitcher/[mlb-id]
       </p>
     </div>
   )
