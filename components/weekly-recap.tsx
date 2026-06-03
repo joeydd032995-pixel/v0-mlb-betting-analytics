@@ -1,57 +1,162 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { TrendingUp, TrendingDown, Target, Zap, AlertCircle } from "lucide-react"
+import { TrendingUp, Target, Zap, AlertCircle, CalendarOff } from "lucide-react"
 
 interface DayPerformance {
   date: string
-  day: string
-  games: number
+  dayLabel: string
+  dateLabel: string
+  predictions: number
   accuracy: number
   roi: number
-  predictions: number
 }
 
-interface TopPerformer {
-  name: string
-  confidence: string
+interface ConfTier {
   accuracy: number
-  edge: number
-  predictions: number
+  count: number
 }
 
-const WEEK_DATA: DayPerformance[] = [
-  { date: "Mon 4/14", day: "Monday", games: 14, accuracy: 55.2, roi: -1.2, predictions: 14 },
-  { date: "Tue 4/15", day: "Tuesday", games: 14, accuracy: 58.6, roi: 4.3, predictions: 14 },
-  { date: "Wed 4/16", day: "Wednesday", games: 14, accuracy: 59.1, roi: 6.2, predictions: 14 },
-  { date: "Thu 4/17", day: "Thursday", games: 13, accuracy: 57.9, roi: 3.8, predictions: 13 },
-  { date: "Fri 4/18", day: "Friday", games: 15, accuracy: 60.2, roi: 8.1, predictions: 15 },
-]
-
-const TOP_PERFORMERS: TopPerformer[] = [
-  { name: "High Confidence", confidence: "≥68", accuracy: 64.3, edge: 5.2, predictions: 28 },
-  { name: "Medium Confidence", confidence: "45-67", accuracy: 57.1, edge: 2.8, predictions: 42 },
-  { name: "Low Confidence", confidence: "<45", accuracy: 51.9, edge: 0.4, predictions: 14 },
-]
-
-const WEEK_STATS = {
-  totalGames: 70,
-  predictions: 70,
-  accuracy: 58.2,
-  roi: 4.2,
-  winRate: 58.2,
-  topGame: "Fri NYY @ BAL: 73% NRFI",
-  topEdge: "Thu LAD @ PHI: 6.2% edge",
+interface WeeklyRecapData {
+  hasData: true
+  weekStart: string
+  weekEnd: string
+  weekLabel: string
+  totals: {
+    games: number
+    predictions: number
+    accuracy: number
+    roiFlat: number
+    winRate: number
+    highConfAccuracy: number | null
+  }
+  daily: DayPerformance[]
+  byConfidence: {
+    High: ConfTier | null
+    Medium: ConfTier | null
+    Low: ConfTier | null
+  }
+  highlights: {
+    bestDay: { dayLabel: string; accuracy: number; roi: number } | null
+    topGame: { matchup: string; nrfiProbability: number } | null
+    topConviction: { matchup: string; prediction: string; probability: number } | null
+  }
+  insights: {
+    nrfiActual: number
+    yrfiActual: number
+    nrfiRate: number
+  }
 }
+
+type ApiResponse = WeeklyRecapData | { hasData: false } | { error: string }
+
+const pct = (v: number) => `${(v * 100).toFixed(1)}%`
+const signedPct = (v: number) => `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`
+
+const CONF_TIERS: { key: keyof WeeklyRecapData["byConfidence"]; label: string; range: string }[] = [
+  { key: "High", label: "High Confidence", range: "≥68" },
+  { key: "Medium", label: "Medium Confidence", range: "45–67" },
+  { key: "Low", label: "Low Confidence", range: "<45" },
+]
 
 export function WeeklyRecap() {
-  const avgAccuracy = (WEEK_DATA.reduce((sum, d) => sum + d.accuracy, 0) / WEEK_DATA.length).toFixed(1)
-  const avgRoi = (WEEK_DATA.reduce((sum, d) => sum + d.roi, 0) / WEEK_DATA.length).toFixed(1)
+  const [data, setData] = useState<WeeklyRecapData | null>(null)
+  const [state, setState] = useState<"loading" | "empty" | "error" | "ready">("loading")
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/weekly-recap")
+        const json: ApiResponse = await res.json()
+        if (cancelled) return
+        if ("error" in json) {
+          setError(json.error)
+          setState("error")
+        } else if (!json.hasData) {
+          setState("empty")
+        } else {
+          setData(json)
+          setState("ready")
+        }
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "Failed to load weekly recap")
+        setState("error")
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (state === "loading") {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="py-8">
+                <div className="h-8 w-24 animate-pulse rounded bg-border/40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardContent className="py-12">
+            <div className="h-40 animate-pulse rounded bg-border/30" />
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (state === "error") {
+    return (
+      <Card className="border-rose-500/30 bg-rose-500/5">
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-rose-400" />
+            Couldn’t load weekly recap
+          </CardTitle>
+          <CardDescription>{error ?? "Please try again later."}</CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+
+  if (state === "empty" || !data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <CalendarOff className="h-4 w-4 text-muted-foreground" />
+            No completed predictions yet
+          </CardTitle>
+          <CardDescription>
+            Once games finish and results sync, this week’s performance breakdown will appear here.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+
+  const { totals, daily, byConfidence, highlights, insights, weekLabel } = data
+  const daysWithGames = daily.filter((d) => d.predictions > 0)
 
   return (
     <div className="space-y-6">
+      {/* Week label */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Week of {weekLabel}</span>
+        <span>·</span>
+        <span>{totals.games} games analyzed</span>
+      </div>
+
       {/* Key Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -62,8 +167,8 @@ export function WeeklyRecap() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">{WEEK_STATS.accuracy.toFixed(1)}%</p>
-            <p className="text-xs text-emerald-400 mt-1">↑ 1.4pp from season</p>
+            <p className="text-3xl font-bold text-foreground">{pct(totals.accuracy)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Correct first-inning calls</p>
           </CardContent>
         </Card>
 
@@ -75,8 +180,15 @@ export function WeeklyRecap() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-emerald-400">+{WEEK_STATS.roi.toFixed(1)}%</p>
-            <p className="text-xs text-muted-foreground mt-1">25% Kelly sizing</p>
+            <p
+              className={cn(
+                "text-3xl font-bold",
+                totals.roiFlat >= 0 ? "text-emerald-400" : "text-rose-400",
+              )}
+            >
+              {signedPct(totals.roiFlat)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Flat 1u @ -110</p>
           </CardContent>
         </Card>
 
@@ -88,8 +200,8 @@ export function WeeklyRecap() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">{WEEK_STATS.totalGames}</p>
-            <p className="text-xs text-muted-foreground mt-1">All predictions made</p>
+            <p className="text-3xl font-bold text-foreground">{totals.games}</p>
+            <p className="text-xs text-muted-foreground mt-1">Predictions with results</p>
           </CardContent>
         </Card>
 
@@ -97,12 +209,14 @@ export function WeeklyRecap() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-violet-400" />
-              Win Rate
+              High-Conf Accuracy
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">{WEEK_STATS.winRate.toFixed(1)}%</p>
-            <p className="text-xs text-muted-foreground mt-1">Correct predictions</p>
+            <p className="text-3xl font-bold text-foreground">
+              {totals.highConfAccuracy !== null ? pct(totals.highConfAccuracy) : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">≥68 confidence tier</p>
           </CardContent>
         </Card>
       </div>
@@ -114,49 +228,60 @@ export function WeeklyRecap() {
           <CardDescription>Accuracy and ROI for each day of the week</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {WEEK_DATA.map((day) => (
-              <div key={day.date} className="rounded-lg border border-border/30 bg-card/50 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-semibold text-foreground">{day.date}</p>
-                    <p className="text-xs text-muted-foreground">{day.predictions} predictions</p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Accuracy</p>
-                      <p className="text-sm font-bold text-foreground">{day.accuracy.toFixed(1)}%</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">ROI</p>
-                      <p className={cn("text-sm font-bold", day.roi > 0 ? "text-emerald-400" : "text-rose-400")}>
-                        {day.roi > 0 ? "+" : ""}{day.roi.toFixed(1)}%
+          {daysWithGames.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No completed games this week.</p>
+          ) : (
+            <div className="space-y-3">
+              {daysWithGames.map((day) => (
+                <div key={day.date} className="rounded-lg border border-border/30 bg-card/50 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="font-semibold text-foreground">
+                        {day.dayLabel} {day.dateLabel}
                       </p>
+                      <p className="text-xs text-muted-foreground">{day.predictions} predictions</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Accuracy</p>
+                        <p className="text-sm font-bold text-foreground">{pct(day.accuracy)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">ROI</p>
+                        <p
+                          className={cn(
+                            "text-sm font-bold",
+                            day.roi >= 0 ? "text-emerald-400" : "text-rose-400",
+                          )}
+                        >
+                          {signedPct(day.roi)}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Progress bars */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground w-16">Accuracy</p>
-                    <div className="flex-1 h-1.5 bg-border/30 rounded-full overflow-hidden">
-                      <div className="h-full bg-sky-500" style={{ width: `${day.accuracy}%` }} />
+                  {/* Progress bars */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground w-16">Accuracy</p>
+                      <div className="flex-1 h-1.5 bg-border/30 rounded-full overflow-hidden">
+                        <div className="h-full bg-sky-500" style={{ width: `${day.accuracy * 100}%` }} />
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground w-16">ROI</p>
-                    <div className="flex-1 h-1.5 bg-border/30 rounded-full overflow-hidden">
-                      <div
-                        className={day.roi > 0 ? "bg-emerald-500" : "bg-rose-500"}
-                        style={{ width: `${Math.min(100, Math.abs(day.roi) * 10)}%` }}
-                      />
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground w-16">ROI</p>
+                      <div className="flex-1 h-1.5 bg-border/30 rounded-full overflow-hidden">
+                        <div
+                          className={day.roi >= 0 ? "bg-emerald-500" : "bg-rose-500"}
+                          style={{ width: `${Math.min(100, Math.abs(day.roi) * 1000)}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -168,36 +293,40 @@ export function WeeklyRecap() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {TOP_PERFORMERS.map((level) => (
-              <div key={level.name} className="rounded-lg border border-border/30 bg-card/50 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-semibold text-foreground">{level.name}</p>
-                    <Badge variant="outline" className="mt-1">{level.confidence}</Badge>
+            {CONF_TIERS.map((tier) => {
+              const stats = byConfidence[tier.key]
+              return (
+                <div key={tier.key} className="rounded-lg border border-border/30 bg-card/50 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="font-semibold text-foreground">{tier.label}</p>
+                      <Badge variant="outline" className="mt-1">
+                        {tier.range}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-6 text-right">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Accuracy</p>
+                        <p className="text-sm font-bold text-foreground">
+                          {stats ? pct(stats.accuracy) : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Count</p>
+                        <p className="text-sm font-bold text-foreground">{stats?.count ?? 0}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 text-right">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Accuracy</p>
-                      <p className="text-sm font-bold text-foreground">{level.accuracy.toFixed(1)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Edge</p>
-                      <p className={cn("text-sm font-bold", level.edge > 0 ? "text-emerald-400" : "text-muted-foreground")}>
-                        {level.edge > 0 ? "+" : ""}{level.edge.toFixed(1)}%
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Count</p>
-                      <p className="text-sm font-bold text-foreground">{level.predictions}</p>
-                    </div>
-                  </div>
-                </div>
 
-                <div className="h-1.5 bg-border/30 rounded-full overflow-hidden">
-                  <div className="h-full bg-sky-500" style={{ width: `${level.accuracy}%` }} />
+                  <div className="h-1.5 bg-border/30 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-sky-500"
+                      style={{ width: `${(stats?.accuracy ?? 0) * 100}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </CardContent>
       </Card>
@@ -213,12 +342,22 @@ export function WeeklyRecap() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div>
-              <p className="text-xs font-semibold text-emerald-400 mb-1">Best Game</p>
-              <p className="text-sm text-foreground">{WEEK_STATS.topGame}</p>
+              <p className="text-xs font-semibold text-emerald-400 mb-1">Best NRFI Call</p>
+              <p className="text-sm text-foreground">
+                {highlights.topGame
+                  ? `${highlights.topGame.matchup}: ${pct(highlights.topGame.nrfiProbability)} NRFI`
+                  : "—"}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-semibold text-emerald-400 mb-1">Biggest Edge</p>
-              <p className="text-sm text-foreground">{WEEK_STATS.topEdge}</p>
+              <p className="text-xs font-semibold text-emerald-400 mb-1">Highest-Conviction Hit</p>
+              <p className="text-sm text-foreground">
+                {highlights.topConviction
+                  ? `${highlights.topConviction.matchup}: ${highlights.topConviction.prediction} (${pct(
+                      highlights.topConviction.probability,
+                    )})`
+                  : "—"}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -231,26 +370,28 @@ export function WeeklyRecap() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>• Friday showed strongest performance (60.2% accuracy, +8.1% ROI)</p>
-            <p>• High-confidence predictions (≥68) hit 64.3% — well above baseline</p>
-            <p>• Tailwind/warm weather games trended YRFI correctly 5 of 7 times</p>
+            {highlights.bestDay && (
+              <p>
+                • Strongest day was {highlights.bestDay.dayLabel} ({pct(highlights.bestDay.accuracy)}{" "}
+                accuracy, {signedPct(highlights.bestDay.roi)} ROI)
+              </p>
+            )}
+            {byConfidence.High && (
+              <p>
+                • High-confidence picks (≥68) hit {pct(byConfidence.High.accuracy)} across{" "}
+                {byConfidence.High.count} calls
+              </p>
+            )}
+            <p>
+              • Actual first-inning outcomes this week ran {pct(insights.nrfiRate)} NRFI (
+              {insights.nrfiActual} NRFI / {insights.yrfiActual} YRFI)
+            </p>
+            <p>
+              • Overall ROI of {signedPct(totals.roiFlat)} at flat 1u -110 over {totals.games} games
+            </p>
           </CardContent>
         </Card>
       </div>
-
-      {/* Next Week Preview */}
-      <Card className="border-sky-500/30 bg-sky-500/5">
-        <CardHeader>
-          <CardTitle className="text-sm">Next Week Preview</CardTitle>
-          <CardDescription>What to expect week of April 21–27</CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm space-y-2">
-          <p>📅 <strong>71 games scheduled</strong> — heavy slate with doubleheaders Mon/Wed</p>
-          <p>🌡️ <strong>Spring weather variance</strong> — expect 10-15° swings across regions</p>
-          <p>⛅ <strong>Dome games advantage</strong> — 12 games indoors (better for model predictability)</p>
-          <p>👀 <strong>Focus area:</strong> First-time starters (limited historical data)</p>
-        </CardContent>
-      </Card>
     </div>
   )
 }
