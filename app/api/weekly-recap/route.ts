@@ -13,7 +13,6 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { computeBacktestMetrics, type BacktestRow } from "@/lib/backtest-metrics"
 
@@ -74,13 +73,14 @@ const toRow = (p: WeekPred): BacktestRow => ({
 })
 
 export async function GET() {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
+  // Public endpoint: /weekly-recap is an unauthenticated page (not in middleware's
+  // protected matcher), so the recap shows system-wide shared predictions only.
+  // Scope every query to userId: null to exclude users' private saved predictions —
+  // this keeps the recap deterministic for all visitors and avoids cross-user leakage.
   try {
-    // ── 1. Anchor on the latest completed, scored prediction ────────────────
+    // ── 1. Anchor on the latest completed, scored system prediction ─────────
     const latest = await prisma.modelPrediction.findFirst({
-      where:   { status: "complete", correct: { not: null } },
+      where:   { userId: null, status: "complete", correct: { not: null } },
       orderBy: { date: "desc" },
       select:  { date: true },
     })
@@ -94,6 +94,7 @@ export async function GET() {
     // ── 3. Pull the week's completed predictions ────────────────────────────
     const preds = (await prisma.modelPrediction.findMany({
       where: {
+        userId: null,
         date:   { gte: weekStart, lte: weekEnd },
         status: "complete",
       },
@@ -191,9 +192,14 @@ export async function GET() {
           : null,
         topConviction: topConviction
           ? {
-              matchup:     matchup(topConviction),
-              prediction:  topConviction.prediction,
-              probability: topConviction.nrfiProbability,
+              matchup:    matchup(topConviction),
+              prediction: topConviction.prediction,
+              // Report the predicted-side probability: a YRFI pick at nrfiProbability
+              // 0.2 means 80% conviction on YRFI, not 20%.
+              probability:
+                topConviction.prediction === "YRFI"
+                  ? 1 - topConviction.nrfiProbability
+                  : topConviction.nrfiProbability,
             }
           : null,
       },
