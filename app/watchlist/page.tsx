@@ -20,10 +20,31 @@ export default async function WatchlistPage() {
     orderBy: { createdAt: "desc" },
   })
 
+  // Enrich each watchlist entry with the most-recent ModelPrediction for that game.
+  const gameIds = watchlist.map((w) => w.gameId)
+  const predictions = gameIds.length > 0
+    ? await prisma.modelPrediction.findMany({
+        where: { id: { in: gameIds } },
+        select: {
+          id: true,
+          homeTeam: true,
+          awayTeam: true,
+          homePitcher: true,
+          awayPitcher: true,
+          nrfiProbability: true,
+          confidence: true,
+          prediction: true,
+          date: true,
+        },
+      })
+    : []
+
+  const predMap = new Map(predictions.map((p) => [p.id, p]))
+
   const rows = watchlist.map((w) => ({
-    ...w,
-    createdAt: w.createdAt.toISOString(),
-    updatedAt: w.updatedAt.toISOString(),
+    gameId: w.gameId,
+    added: fmtDate(w.createdAt.toISOString()),
+    prediction: predMap.get(w.gameId) ?? null,
   }))
 
   return (
@@ -60,7 +81,10 @@ export default async function WatchlistPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-ds-line">
-                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Game ID</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Matchup</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted hidden sm:table-cell">Starters</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">NRFI %</th>
+                  <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted hidden md:table-cell">Signal</th>
                   <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Added</th>
                   <th className="px-4 py-3 text-left font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted"></th>
                 </tr>
@@ -68,9 +92,10 @@ export default async function WatchlistPage() {
               <tbody>
                 {rows.map((item) => (
                   <WatchlistRow
-                    key={item.id}
+                    key={item.gameId}
                     gameId={item.gameId}
-                    added={fmtDate(item.createdAt)}
+                    added={item.added}
+                    prediction={item.prediction}
                   />
                 ))}
               </tbody>

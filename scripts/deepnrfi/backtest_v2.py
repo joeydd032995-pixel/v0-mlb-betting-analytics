@@ -119,7 +119,7 @@ def main() -> int:
                mp.confidence,
                (gr.nrfi)::int AS y
         FROM model_predictions mp
-        JOIN game_results gr ON CAST(mp.id AS BIGINT) = gr."gamePk"
+        JOIN game_results gr ON mp.id ~ '^[0-9]+$' AND mp.id::bigint = gr."gamePk"
         WHERE mp.season = %s AND mp.status = 'complete'
     """
     with psycopg.connect(args.db_url) as conn:

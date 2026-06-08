@@ -438,7 +438,7 @@ export function GamePredictionCard({
   const rec = prediction.recommendation
   const stripeColor = isFreeTease
     ? (isNrfiFavored ? "var(--hm-grass)" : "var(--hm-blood)")
-    : (isNrfiFavored ? "var(--hm-grass)" : rec === "TOSS_UP" ? "var(--hm-smoke)" : "var(--hm-blood)")
+    : (isNrfiFavored ? "var(--hm-grass)" : (!rec || rec === "TOSS_UP") ? "var(--hm-smoke)" : "var(--hm-blood)")
 
   return (
     <div

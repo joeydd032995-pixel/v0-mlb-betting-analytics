@@ -109,7 +109,7 @@ model BankrollTransaction {
   id      String   @id @default(cuid())
   userId  String
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // "deposit" | "withdrawal" | "win" | "loss" | "adjustment"
+  // "deposit" | "withdrawal" | "win" | "loss" | "adjustment" | "wager" | "refund"
   type    String
   amount  Float
   balance Float    // running balance after this transaction

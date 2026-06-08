@@ -23,6 +23,7 @@ export const LEAGUE_AVG_NRFI = 0.516
 /**
  * Per-model calibration: weight in ensemble, multiplicative scale, additive bias.
  * @deprecated These are 4-model legacy weights. Use ENSEMBLE_WEIGHTS for the 7-model ensemble.
+ * Kept for reference; the 4:39:31:12 weights predate the 7-model architecture.
  */
 export const MODEL_CONFIG = {
   poisson: { weight: 0.18, scale: 1.05, bias:  0.03 },
