@@ -434,11 +434,13 @@ export function GamePredictionCard({
   const va = prediction.valueAnalysis
   const gaugeId = `gauge-${game.id}`
 
-  // Top stripe color — fall back to neutral for free teaser (recommendation may be stripped)
+  // Top stripe color — null/TOSS_UP recommendation always maps to neutral (smoke)
   const rec = prediction.recommendation
-  const stripeColor = isFreeTease
-    ? (isNrfiFavored ? "var(--hm-grass)" : "var(--hm-blood)")
-    : (isNrfiFavored ? "var(--hm-grass)" : rec === "TOSS_UP" ? "var(--hm-smoke)" : "var(--hm-blood)")
+  const stripeColor = isNrfiFavored
+    ? "var(--hm-grass)"
+    : (!rec || rec === "TOSS_UP")
+      ? "var(--hm-smoke)"
+      : "var(--hm-blood)"
 
   return (
     <div
