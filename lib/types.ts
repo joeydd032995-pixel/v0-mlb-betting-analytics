@@ -403,6 +403,17 @@ export interface HistoricalResult {
   profitLoss?: number
 }
 
+export interface WatchlistPrediction {
+  homeTeam: string
+  awayTeam: string
+  homePitcher: string
+  awayPitcher: string
+  nrfiProbability: number
+  confidence: string
+  prediction: string
+  date: string
+}
+
 export interface ModelAccuracy {
   totalPredictions: number
   correct: number

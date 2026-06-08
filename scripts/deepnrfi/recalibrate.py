@@ -44,7 +44,8 @@ def fetch(args: argparse.Namespace) -> pd.DataFrame:
                mp."ensembleVersion"     AS version,
                (gr.nrfi)::int           AS y
         FROM model_predictions mp
-        JOIN game_results gr ON mp.id ~ '^[0-9]+$' AND mp.id::bigint = gr."gamePk"
+        JOIN game_results gr
+          ON gr."gamePk" = CASE WHEN mp.id ~ '^[0-9]+$' THEN mp.id::bigint ELSE NULL END
         WHERE mp.season = %s AND mp.status = 'complete'
     """
     with psycopg.connect(args.db_url) as conn:

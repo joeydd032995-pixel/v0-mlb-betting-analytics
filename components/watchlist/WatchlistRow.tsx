@@ -2,17 +2,7 @@
 
 import { useState } from "react"
 import { RemoveWatchlistButton } from "./RemoveWatchlistButton"
-
-interface WatchlistPrediction {
-  homeTeam: string
-  awayTeam: string
-  homePitcher: string
-  awayPitcher: string
-  nrfiProbability: number
-  confidence: string
-  prediction: string
-  date: string
-}
+import type { WatchlistPrediction } from "@/lib/types"
 
 interface WatchlistRowProps {
   gameId: string

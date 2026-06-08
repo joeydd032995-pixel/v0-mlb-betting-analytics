@@ -5,10 +5,15 @@ import { prisma } from "@/lib/prisma"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { WatchlistRow } from "@/components/watchlist/WatchlistRow"
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
-  })
+const ET_DATE_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+})
+
+function fmtDate(date: Date): string {
+  return ET_DATE_FMT.format(date)
 }
 
 export default async function WatchlistPage() {
@@ -43,7 +48,7 @@ export default async function WatchlistPage() {
 
   const rows = watchlist.map((w) => ({
     gameId: w.gameId,
-    added: fmtDate(w.createdAt.toISOString()),
+    added: fmtDate(w.createdAt),
     prediction: predMap.get(w.gameId) ?? null,
   }))
 
