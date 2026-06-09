@@ -103,18 +103,37 @@ interface OpenMeteoResponse {
 }
 
 function pickHourIndex(times: string[], targetHour = 19): number {
-  // Open-Meteo returns ISO local timestamps when timezone=auto.
-  // Pick the closest hour to first pitch (~7pm local).
+  // Times are ISO timestamps (local when timezone=auto, UTC when timezone=UTC).
+  // Pick the hour matching the target (default ~7pm local first pitch).
   for (let i = 0; i < times.length; i++) {
     if (times[i].endsWith(`T${String(targetHour).padStart(2, "0")}:00`)) return i
   }
   return Math.min(targetHour, times.length - 1)
 }
 
-export async function fetchHistoricalWeather(venue: string, date: string): Promise<Weather> {
+/**
+ * Historical game-time weather from the Open-Meteo archive.
+ *
+ * @param gameTimeUtc Optional ISO-8601 UTC first-pitch timestamp (the MLB
+ *   schedule's `gameDate`).  When provided, the archive is queried in UTC and
+ *   the hour closest to first pitch is used — fixing the old hardcoded
+ *   "7 PM local" assumption that mis-sampled every day game
+ *   (AUDIT_REPORT.md P2-14).  Without it, falls back to 7 PM local.
+ */
+export async function fetchHistoricalWeather(
+  venue: string,
+  date: string,
+  gameTimeUtc?: string
+): Promise<Weather> {
   if (STADIUM_IS_DOME[venue]) return DOME_WEATHER
   const coords = STADIUM_COORDS[venue]
   if (!coords) return DOME_WEATHER
+
+  let gameUtcHour: number | null = null
+  if (gameTimeUtc) {
+    const t = new Date(gameTimeUtc)
+    if (!isNaN(t.getTime())) gameUtcHour = t.getUTCHours()
+  }
 
   const params = new URLSearchParams({
     latitude:         String(coords.lat),
@@ -122,7 +141,7 @@ export async function fetchHistoricalWeather(venue: string, date: string): Promi
     start_date:       date,
     end_date:         date,
     hourly:           "temperature_2m,wind_speed_10m,wind_direction_10m,relative_humidity_2m,pressure_msl,precipitation",
-    timezone:         "auto",
+    timezone:         gameUtcHour !== null ? "UTC" : "auto",
     temperature_unit: "fahrenheit",
     wind_speed_unit:  "mph",
   })
@@ -140,7 +159,9 @@ export async function fetchHistoricalWeather(venue: string, date: string): Promi
     const data = (await res.json()) as OpenMeteoResponse
     if (!data.hourly?.time?.length) return DOME_WEATHER
 
-    const i = pickHourIndex(data.hourly.time)
+    const i = gameUtcHour !== null
+      ? pickHourIndex(data.hourly.time, gameUtcHour)
+      : pickHourIndex(data.hourly.time)
     const temp     = Math.round(data.hourly.temperature_2m[i] ?? 72)
     const speedMph = Math.round(data.hourly.wind_speed_10m[i] ?? 0)
     const windDeg  = data.hourly.wind_direction_10m[i] ?? 0

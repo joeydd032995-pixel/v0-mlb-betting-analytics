@@ -347,15 +347,15 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
-              <p className="font-mono text-sm text-muted-foreground">w = n / (n + 1.14)   where 1.14 = σ²_within / σ²_between</p>
-              <p className="font-mono text-sm text-muted-foreground">θ̂ = w × NRFI_observed + (1 − w) × 0.516</p>
-              <p className="text-xs text-muted-foreground mt-1">0.516 = league average NRFI rate. Clamped to [0.35, 0.92].</p>
+              <p className="font-mono text-sm text-muted-foreground">w = n / (n + k)   where k = 30 (spot starter) / 50 (established) / 80 (bullpen game)</p>
+              <p className="font-mono text-sm text-muted-foreground">θ̂ = w × cleanFirstRate_observed + (1 − w) × 0.718</p>
+              <p className="text-xs text-muted-foreground mt-1">0.718 = league-average scoreless-HALF rate (√0.516 — the per-pitcher rate is a half-inning quantity). Clamped to [0.35, 0.92].</p>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs text-center">
               {[
-                { starts: "2 starts", weight: "64%", note: "data trust" },
-                { starts: "5 starts", weight: "81%", note: "data trust" },
-                { starts: "18+ starts", weight: "94%", note: "data trust" },
+                { starts: "5 starts", weight: "9%", note: "data trust (k=50)" },
+                { starts: "20 starts", weight: "29%", note: "data trust (k=50)" },
+                { starts: "100 starts", weight: "67%", note: "data trust (k=50)" },
               ].map((r) => (
                 <div key={r.starts} className="rounded border border-border/30 bg-card/50 p-2">
                   <p className="font-semibold text-foreground">{r.weight}</p>
@@ -373,7 +373,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500/20 text-xs font-bold text-sky-400">1</span>
               Poisson Model
-              <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">10.9% weight</span>
+              <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">12% weight</span>
             </CardTitle>
             <CardDescription>Standard run-expectancy model. Acts as the numerical anchor.</CardDescription>
           </CardHeader>
@@ -404,20 +404,20 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20 text-xs font-bold text-violet-400">2</span>
               Zero-Inflated Poisson (ZIP)
-              <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">27.3% weight</span>
+              <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">30% weight</span>
             </CardTitle>
             <CardDescription>Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-4 space-y-2">
               <p className="font-mono text-xs text-violet-300">logit(ω) = −1.38 + 4.0 × (kRate − 0.225) + (72 − temp) × 0.008 + umpire × 0.18</p>
-              <p className="font-mono text-xs text-violet-300">log(λ) = ln(0.42) + 0.90 × ln(offenseFactor) + 0.60 × ln(parkFactor) + (temp − 72) × 0.004</p>
+              <p className="font-mono text-xs text-violet-300">log(λ) = ln(0.435) + 0.90 × ln(offenseFactor) + 0.60 × ln(parkFactor) + (temp − 72) × 0.004</p>
               <p className="font-mono text-sm text-violet-300 mt-2">P(NRFI) = ω + (1 − ω) × e^(−λ)</p>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
               <p><span className="text-foreground font-medium">ω (omega)</span> — probability of a certain-zero "lockdown" inning. Driven by pitcher K-rate, temperature, and umpire zone width. Clamped [8%, 60%].</p>
-              <p><span className="text-foreground font-medium">λ (lambda)</span> — Poisson scoring rate for the "active inning" regime. Driven by offense factor and park. Calibrated so average inputs → λ ≈ 0.42.</p>
-              <p><span className="text-foreground font-medium">Calibration target:</span> at league-average inputs (kRate=0.225, offFactor=1.0, park=1.0, 72°F) → ω≈0.20, λ≈0.42 → P(NRFI_half)≈0.73.</p>
+              <p><span className="text-foreground font-medium">λ (lambda)</span> — Poisson scoring rate for the "active inning" regime. Driven by offense factor and park. Calibrated so average inputs → λ ≈ 0.435.</p>
+              <p><span className="text-foreground font-medium">Calibration target:</span> at league-average inputs (kRate=0.225, offFactor=1.0, park=1.0, 72°F) → ω≈0.20, λ≈0.435 → P(NRFI_half) = 0.718 (the league scoreless-half rate, exactly).</p>
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Example:</span> Elite strikeout pitcher (K% = 0.33) on a cold 45°F night → ω ≈ 0.38 (38% chance of a pure lockdown inning regardless of offense). Even if runs are possible (62% chance), Poisson still needs to produce 0 → combined P(NRFI) much higher than base Poisson.
@@ -435,7 +435,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-xs font-bold text-amber-400">3</span>
               Markov Chain (24-state)
-              <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">43.6% weight</span>
+              <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">48% weight</span>
             </CardTitle>
             <CardDescription>Simulates the inning plate-by-plate across all 24 base-out states using Bill James Log-5 matchup probabilities.</CardDescription>
           </CardHeader>
@@ -468,7 +468,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20 text-xs font-bold text-rose-400">4</span>
               MAPRE — Multi-Factor Adjusted Poisson Run Expectancy
-              <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">9.1% weight</span>
+              <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">10% weight</span>
             </CardTitle>
             <CardDescription>Injects seven hidden 1st-inning factors on top of the Bayesian lambda. Applied at game level with cross-half correlation.</CardDescription>
           </CardHeader>
@@ -479,18 +479,18 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
                 <p><span className="text-rose-300">M_sOPS</span> = 1 + 0.0015 × (sOPS+ − 100)</p>
                 <p><span className="text-rose-300">M_BABIP</span> = 1 + 1.8 × (BABIP − 0.295)</p>
-                <p><span className="text-rose-300">M_HR</span> = 1 + 9 × (HR/PA − 0.034)</p>
+                <p><span className="text-rose-300">M_HR</span> = 1 + 9 × (HR/PA − 0.030)</p>
                 <p><span className="text-rose-300">M_pitchMix</span> = 1 + 0.12 × barrelDev</p>
                 <p><span className="text-rose-300">Δ_HFA</span> = −0.030 if home pitcher</p>
                 <p><span className="text-rose-300">Δ_rest</span> = +0.032 if away team fatigued</p>
               </div>
               <p className="text-xs font-semibold text-rose-400 mt-3 mb-1">Game-level combination (with ρ correlation)</p>
-              <p className="font-mono text-xs text-rose-300">λ_total = λ_home + λ_away × (1 + ρ)</p>
-              <p className="font-mono text-xs text-rose-300">ρ = 0.06 when both λ &gt; 0.60 (high-run environment)</p>
-              <p className="font-mono text-xs text-rose-300">P(NRFI) = e^(−λ_total)  or  NegBin(r=1.3) when λ_total &gt; 0.8</p>
+              <p className="font-mono text-xs text-rose-300">P(NRFI) = p_home × p_away + ρ × √(p_home(1−p_home) × p_away(1−p_away))</p>
+              <p className="font-mono text-xs text-rose-300">ρ ramps 0 → 0.06 as each half's λ rises through [0.35, 0.60]</p>
+              <p className="font-mono text-xs text-rose-300">Positive shared-environment correlation RAISES P(both scoreless) vs independence</p>
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
-              <span className="text-foreground font-medium">Negative Binomial:</span> When total λ exceeds 0.8, run counts have overdispersion (variance &gt; mean). NegBin with r=1.3 handles this better than Poisson, producing P(NRFI) = (r / (r + λ))^r.
+              <span className="text-foreground font-medium">Overdispersion:</span> run-scoring "clumping" is absorbed upstream in the rate calibration (the ERA/runs → P(0) transforms anchor to the empirical league rate, not the pure-Poisson one), so no separate Negative-Binomial branch is needed — the old hard switch at λ=0.8 created a discontinuity.
             </div>
             <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold text-rose-400 uppercase tracking-wide">Sample Output</p>
@@ -505,24 +505,22 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-fuchsia-500/20 text-xs font-bold text-fuchsia-400">5</span>
               Logistic Stack (Meta-Model)
-              <span className="ml-auto text-xs font-semibold text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded px-2 py-0.5">4.5% weight</span>
+              <span className="ml-auto text-xs font-semibold text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded px-2 py-0.5">0% weight (display-only)</span>
             </CardTitle>
-            <CardDescription>Stacks the four base model outputs as features in a logistic regression. Corrects systematic biases without introducing new raw inputs.</CardDescription>
+            <CardDescription>Placeholder stacker: currently the weighted base-4 average itself (0% blend weight). Will become a trained logistic stacker once walk-forward CV evidence exists.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 space-y-2">
-              <p className="font-mono text-xs text-fuchsia-300">baseAvg = 0.109×poisson + 0.273×zip + 0.436×markov + 0.091×mapre</p>
-              <p className="font-mono text-sm text-fuchsia-300 mt-1">P(NRFI_half) = σ(−2.3 + 4.1 × baseAvg)</p>
-              <p className="font-mono text-xs text-fuchsia-300">where σ(x) = 1 / (1 + e^(−x))</p>
+              <p className="font-mono text-xs text-fuchsia-300">baseAvg = 0.12×poisson + 0.30×zip + 0.48×markov + 0.10×mapre</p>
+              <p className="font-mono text-sm text-fuchsia-300 mt-1">P(NRFI_half) = baseAvg</p>
               <p className="font-mono text-xs text-fuchsia-300 mt-1">Game level: homeHalf × awayHalf</p>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
-              <p><span className="text-foreground font-medium">α = −2.3</span> — captures the natural log-odds baseline for a zero-run half-inning</p>
-              <p><span className="text-foreground font-medium">β = 4.1</span> — stretches the weighted base-4 average across the full probability range</p>
-              <p><span className="text-foreground font-medium">σ (sigmoid)</span> — ensures output stays in (0, 1); smoothly penalises overconfident base-4 predictions</p>
+              <p><span className="text-foreground font-medium">Why no sigmoid?</span> — the old σ(−2.3 + 4.1·x) squash used unvalidated coefficients that only distorted the average; it was removed in the 2026-06 audit remediation</p>
+              <p><span className="text-foreground font-medium">0% blend weight</span> — a deterministic transform of the base 4 carries no independent information; shown for transparency only</p>
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
-              <span className="text-foreground font-medium">Example:</span> Base-4 avg = 0.645 → logit input = −2.3 + 4.1×0.645 = 0.34 → P(NRFI_half) = σ(0.34) ≈ 59%
+              <span className="text-foreground font-medium">Example:</span> Poisson 0.72, ZIP 0.73, Markov 0.71, MAPRE 0.72 → baseAvg ≈ 0.717 per half
             </div>
             <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold text-fuchsia-400 uppercase tracking-wide">Sample Output</p>
@@ -537,22 +535,21 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/20 text-xs font-bold text-cyan-400">6</span>
               NN Interaction (Meta-Model)
-              <span className="ml-auto text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-0.5">2.7% weight</span>
+              <span className="ml-auto text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-0.5">0% weight (display-only)</span>
             </CardTitle>
             <CardDescription>Captures the cross-model synergy between Poisson and Markov — two independent models. When both agree strongly, confidence rises.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-2">
-              <p className="font-mono text-sm text-cyan-300">P(NRFI_half) = clamp(poissonNrfi_half × markovNrfi_half / 0.67, 0.02, 0.98)</p>
-              <p className="font-mono text-xs text-cyan-300 mt-1">Game level: (homeHalf + awayHalf) / 2   ← averaged, not multiplied</p>
+              <p className="font-mono text-sm text-cyan-300">P(NRFI_half) = clamp(poissonNrfi_half × markovNrfi_half / 0.718, 0.02, 0.98)</p>
+              <p className="font-mono text-xs text-cyan-300 mt-1">Game level: homeHalf × awayHalf (independence product, like every other model)</p>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
-              <p><span className="text-foreground font-medium">0.67</span> — normalisation constant ≈ geometric mean of two league-average half-inning NRFI probabilities (0.82²)</p>
-              <p><span className="text-foreground font-medium">Division</span> — converts the multiplicative interaction into a probability-scale signal centred on league average</p>
-              <p><span className="text-foreground font-medium">Game average</span> — NN Interaction is a joint-game environment signal; averaging captures overall game tone rather than sequential independence</p>
+              <p><span className="text-foreground font-medium">0.718</span> — the league scoreless-half rate; dividing by it makes the result itself a half-inning probability (0.718 × 0.718 / 0.718 = 0.718 at league average)</p>
+              <p><span className="text-foreground font-medium">0% blend weight</span> — a product of two ensemble members carries no independent information; shown for transparency only</p>
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
-              <span className="text-foreground font-medium">Example:</span> poissonNrfi_half = 0.72, markovNrfi_half = 0.75 → 0.72×0.75 / 0.67 = 0.806 → clamped to 0.80 per half → game avg ≈ 0.80
+              <span className="text-foreground font-medium">Example:</span> poissonNrfi_half = 0.72, markovNrfi_half = 0.75 → 0.72×0.75 / 0.718 = 0.752 per half — amplified beyond either input when both agree
             </div>
             <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Sample Output</p>
@@ -567,26 +564,26 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/20 text-xs font-bold text-orange-400">7</span>
               Hierarchical Bayes (Meta-Model)
-              <span className="ml-auto text-xs font-semibold text-orange-400 bg-orange-500/10 border border-orange-500/30 rounded px-2 py-0.5">1.8% weight</span>
+              <span className="ml-auto text-xs font-semibold text-orange-400 bg-orange-500/10 border border-orange-500/30 rounded px-2 py-0.5">0% weight (display-only)</span>
             </CardTitle>
-            <CardDescription>Dynamic-prior Bayesian model with tenure-adjusted shrinkage. Veterans get higher data-trust; rookies stay closer to the league prior.</CardDescription>
+            <CardDescription>The dynamically-shrunk scoreless-half rate itself (k = 30/50/80 by pitcher type). Veterans get higher data-trust; rookies stay closer to the league prior. 0% blend weight (duplicate of the step-0 prior).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-4 space-y-2">
-              <p className="font-mono text-xs text-orange-300">w_dynamic = starts / (starts + k)   where k = 1.14 × (1 + tenurePenalty)</p>
-              <p className="font-mono text-sm text-orange-300 mt-1">P(NRFI_half) = w_dynamic × θ̂ + (1 − w_dynamic) × 0.516</p>
+              <p className="font-mono text-xs text-orange-300">w = starts / (starts + k)   where k = 30 (spot) / 50 (established) / 80 (bullpen)</p>
+              <p className="font-mono text-sm text-orange-300 mt-1">P(NRFI_half) = θ̂ = w × observed + (1 − w) × 0.718</p>
               <p className="font-mono text-xs text-orange-300">Game level: homeHalf × awayHalf</p>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
-              <p><span className="text-foreground font-medium">k</span> — shrinkage strength; expands for rookies (high tenurePenalty), shrinks for veterans (→ 1.14)</p>
-              <p><span className="text-foreground font-medium">0.516</span> — league-average NRFI rate anchor; same as step 0 prior</p>
-              <p><span className="text-foreground font-medium">More granular than step 0</span> — per-pitcher dynamic k vs fixed global k = 1.14 in the pre-processing shrinkage</p>
+              <p><span className="text-foreground font-medium">k</span> — dynamic shrinkage strength by pitcher type (career first innings + bullpen-game flag)</p>
+              <p><span className="text-foreground font-medium">0.718</span> — league-average scoreless-HALF rate anchor; same as step 0 prior</p>
+              <p><span className="text-foreground font-medium">Identical to step 0</span> — the pre-audit version re-shrunk the already-shrunk rate toward the game-level 0.516 (wrong scale, double regression); shown for transparency only</p>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs text-center mt-1">
               {[
-                { starts: "2 starts", weight: "~64%", note: "data trust" },
-                { starts: "10 starts", weight: "~90%", note: "data trust" },
-                { starts: "18+ starts", weight: "~94%", note: "data trust" },
+                { starts: "5 starts", weight: "~9%", note: "data trust (k=50)" },
+                { starts: "20 starts", weight: "~29%", note: "data trust (k=50)" },
+                { starts: "100 starts", weight: "~67%", note: "data trust (k=50)" },
               ].map((r) => (
                 <div key={r.starts} className="rounded border border-border/30 bg-card/50 p-2">
                   <p className="font-semibold text-foreground">{r.weight}</p>
@@ -595,7 +592,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               ))}
             </div>
             <div className="rounded border border-border/30 bg-card/50 p-3 text-xs text-muted-foreground">
-              <span className="text-foreground font-medium">Example:</span> 14-start pitcher, 70% observed NRFI rate → w_dynamic ≈ 0.92 → P = 0.92×0.70 + 0.08×0.516 = 68.4% per half
+              <span className="text-foreground font-medium">Example:</span> 20-start established pitcher, 80% observed scoreless-half rate → w = 20/70 ≈ 0.29 → P = 0.29×0.80 + 0.71×0.718 ≈ 74.2% per half
             </div>
             <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold text-orange-400 uppercase tracking-wide">Sample Output</p>
@@ -649,10 +646,10 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 <tbody className="divide-y divide-border/20">
                   {/* Base models */}
                   {[
-                    { model: "Poisson",        color: "text-sky-400",     weight: "10.9%", nrfi: 64, yrfi: 36, weighted: 7.0 },
-                    { model: "ZIP",            color: "text-violet-400",  weight: "27.3%", nrfi: 67, yrfi: 33, weighted: 18.3 },
-                    { model: "Markov",         color: "text-amber-400",   weight: "43.6%", nrfi: 65, yrfi: 35, weighted: 28.3 },
-                    { model: "MAPRE",          color: "text-rose-400",    weight: "9.1%",  nrfi: 62, yrfi: 38, weighted: 5.6 },
+                    { model: "Poisson",        color: "text-sky-400",     weight: "12%", nrfi: 64, yrfi: 36, weighted: 7.7 },
+                    { model: "ZIP",            color: "text-violet-400",  weight: "30%", nrfi: 67, yrfi: 33, weighted: 20.1 },
+                    { model: "Markov",         color: "text-amber-400",   weight: "48%", nrfi: 65, yrfi: 35, weighted: 31.2 },
+                    { model: "MAPRE",          color: "text-rose-400",    weight: "10%",  nrfi: 62, yrfi: 38, weighted: 6.2 },
                   ].map((row) => (
                     <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
                       <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
@@ -667,9 +664,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                     <td colSpan={5} className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meta-models</td>
                   </tr>
                   {[
-                    { model: "Logistic Stack", color: "text-fuchsia-400", weight: "4.5%",  nrfi: 63, yrfi: 37, weighted: 2.8 },
-                    { model: "NN Interaction", color: "text-cyan-400",    weight: "2.7%",  nrfi: 66, yrfi: 34, weighted: 1.8 },
-                    { model: "Hier. Bayes",    color: "text-orange-400",  weight: "1.8%",  nrfi: 64, yrfi: 36, weighted: 1.2 },
+                    { model: "Logistic Stack", color: "text-fuchsia-400", weight: "0%",  nrfi: 63, yrfi: 37, weighted: 0 },
+                    { model: "NN Interaction", color: "text-cyan-400",    weight: "0%",  nrfi: 66, yrfi: 34, weighted: 0 },
+                    { model: "Hier. Bayes",    color: "text-orange-400",  weight: "0%",  nrfi: 64, yrfi: 36, weighted: 0 },
                   ].map((row) => (
                     <tr key={row.model} className="bg-card/30 hover:bg-card/50 transition-colors">
                       <td className={cn("px-3 py-2 font-semibold", row.color)}>{row.model}</td>
@@ -691,9 +688,9 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
 
             {/* Final blend */}
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2 text-xs">
-              <p className="font-semibold text-foreground mb-2">Final blend (76% ensemble + 24% league anchor 61.4%)</p>
-              <p className="font-mono text-muted-foreground">P(NRFI) = 0.76 × 65.0% + 0.24 × 61.4% = 49.4% + 14.7% = <span className="text-emerald-400 font-bold">64.1%</span></p>
-              <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 64.1% = <span className="text-rose-400 font-bold">35.9%</span></p>
+              <p className="font-semibold text-foreground mb-2">Final blend (76% calibrated ensemble + 24% league anchor 51.6%)</p>
+              <p className="font-mono text-muted-foreground">P(NRFI) = 0.76 × 65.0% + 0.24 × 51.6% = 49.4% + 12.4% = <span className="text-emerald-400 font-bold">61.8%</span></p>
+              <p className="font-mono text-muted-foreground">P(YRFI) = 1 − 61.8% = <span className="text-rose-400 font-bold">38.2%</span></p>
             </div>
 
             {/* Final output bar */}
@@ -724,7 +721,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <div className="space-y-2">
               <p className="text-sm font-semibold text-foreground">Confidence Score (0–100)</p>
               <div className="rounded-lg border border-border/30 bg-card/50 p-4 font-mono text-xs text-muted-foreground space-y-1">
-                <p>score = 50 + |P(NRFI) − 0.50| × 70       <span className="text-foreground">(max +35 for extreme predictions)</span></p>
+                <p>score = 50                                <span className="text-foreground">(reliability only — distance from 50% is &quot;conviction&quot;, tracked separately)</span></p>
                 <p>      + sampleBonus                        <span className="text-foreground">(+12 if ≥18 starts, −14 if &lt;3)</span></p>
                 <p>      − formVariance × 15                  <span className="text-foreground">(high variance in last 5 = penalty)</span></p>
                 <p>      + (modelConsensus − 0.5) × 16        <span className="text-foreground">(all models agree = bonus)</span></p>
@@ -750,8 +747,8 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <p className="text-sm font-semibold text-foreground">Value Bet Identification</p>
               <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2 font-mono text-xs text-muted-foreground">
                 <p>edge = P(model) − impliedProbability(bookOdds)   <span className="text-foreground">≥3% required</span></p>
-                <p>kellyFraction = ((b × p − q) / b) × 0.25         <span className="text-foreground">25% fractional Kelly, max bet</span></p>
-                <p>where  b = decimal odds,  p = model prob,  q = 1−p</p>
+                <p>kellyFraction = ((b × p − q) / b) × 0.25         <span className="text-foreground">quarter Kelly, capped at 5% of bankroll</span></p>
+                <p>where  b = net profit per unit staked,  p = model prob,  q = 1−p</p>
               </div>
             </div>
           </CardContent>
@@ -770,7 +767,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </CardTitle>
             <CardDescription>
               Pulls first-inning results from the MLB Stats API into the database.
-              2024–2025 use current-season pitcher stats as proxy (backtested). 2026 is live.
+              Backfilled rows use point-in-time stats (game logs strictly before each date, blended with the prior season); prior seasons are flagged backtested.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

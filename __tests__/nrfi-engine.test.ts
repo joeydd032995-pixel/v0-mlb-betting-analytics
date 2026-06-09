@@ -56,8 +56,9 @@ describe("computeNRFIPrediction — output shape", () => {
 
 describe("computeNRFIPrediction — recommendation tiers", () => {
   // Use veteran starters to ensure dynamic shrinkage (k=50) trusts the sample.
-  // Note: the 24% league anchor (LEAGUE_ANCHOR ≈ 0.559) prevents extreme pitchers
-  // from producing STRONG_YRFI/STRONG_NRFI unless the team context also pushes the same direction.
+  // nrfiRate is the HALF-INNING scoreless rate: league average ≈ 0.718,
+  // elite ≈ 0.85, poor ≈ 0.55 (the old test used the game-level 0.516 as
+  // "average", which on the half-inning scale is a terrible pitcher).
   function predWithNrfiRate(rate: number) {
     const pitcher = makePitcher("p", { nrfiRate: rate, startCount: 100, careerFirstInnings: 300 })
     const pitchers = new Map([
@@ -66,16 +67,17 @@ describe("computeNRFIPrediction — recommendation tiers", () => {
     ])
     return computeNRFIPrediction(makeGame(), pitchers, makeTeams())
   }
+  const LEAGUE_HALF = Math.sqrt(0.516)
 
-  it("elite ace (0.85 NRFI rate) produces higher nrfiProbability than league average", () => {
+  it("elite ace (0.85 scoreless-half rate) produces higher nrfiProbability than league average", () => {
     const ace = predWithNrfiRate(0.85)!.nrfiProbability
-    const avg = predWithNrfiRate(0.516)!.nrfiProbability
+    const avg = predWithNrfiRate(LEAGUE_HALF)!.nrfiProbability
     expect(ace).toBeGreaterThan(avg)
   })
 
-  it("poor pitcher (0.25 NRFI rate) produces lower nrfiProbability than league average", () => {
-    const poor = predWithNrfiRate(0.25)!.nrfiProbability
-    const avg  = predWithNrfiRate(0.516)!.nrfiProbability
+  it("poor pitcher (0.55 scoreless-half rate) produces lower nrfiProbability than league average", () => {
+    const poor = predWithNrfiRate(0.55)!.nrfiProbability
+    const avg  = predWithNrfiRate(LEAGUE_HALF)!.nrfiProbability
     expect(poor).toBeLessThan(avg)
   })
 
@@ -85,7 +87,10 @@ describe("computeNRFIPrediction — recommendation tiers", () => {
   })
 
   it("league-average pitcher produces TOSS_UP or adjacent tier", () => {
-    const rec = predWithNrfiRate(0.516)!.recommendation
+    // Note: the shared fixture pitcher has slightly above-average peripherals
+    // (WHIP 1.15, ERA 3.80), so the exact league-baseline regression guard
+    // lives in __tests__/audit-regression.test.ts with truly average inputs.
+    const rec = predWithNrfiRate(LEAGUE_HALF)!.recommendation
     expect(["TOSS_UP", "LEAN_NRFI", "LEAN_YRFI"]).toContain(rec)
   })
 })

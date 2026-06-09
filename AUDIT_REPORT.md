@@ -1,5 +1,12 @@
 # MLB NRFI/YRFI Prediction Engine — Deep Quantitative Audit
 
+> **REMEDIATION STATUS:** every finding below has been addressed on this same
+> branch — see **[AUDIT_FIXES.md](./AUDIT_FIXES.md)** for the finding-by-finding
+> status, measured before/after numbers, and the short list of deferred items
+> that require data/infrastructure rather than code. This report is preserved
+> as the pre-fix snapshot; line numbers and measured values refer to the code
+> as it stood at commit `0ea317d`.
+
 **Date:** 2026-06-09
 **Scope:** Full prediction pipeline — data ingestion → 7/9-model ensemble → calibration → odds/edge/Kelly → backtesting → reporting.
 **Method:** Line-by-line formula extraction and cross-verification against canonical sources, plus numerical cross-validation by executing the real pipeline (`vitest`) on synthetic league-average / elite / bad-pitcher matchups. All numbers quoted below were produced by the actual code in this repo, not estimated.

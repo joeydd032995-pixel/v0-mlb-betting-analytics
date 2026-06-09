@@ -19,10 +19,16 @@
  * When the existing Weather.windDirection is already park-relative (the common
  * case for MLB data), pass parkOrientation = 0 (the default).
  *
+ * Humidity: humid air is LESS dense than dry air (H₂O molar mass ≈ 18 vs ≈ 29
+ * for dry air — see lib/features/air-density.ts), so higher humidity slightly
+ * INCREASES carry.  The physical magnitude is small: 0% → 100% RH changes air
+ * density by roughly ±1%, so the factor here is ±0.8% at the extremes.  The
+ * previous implementation had the sign inverted (AUDIT_REPORT.md P2-2).
+ *
  * Formula:
- *   windEffect    = windSpeed × cos((windDeg − parkOrientation) × π / 180)
- *   humidityEffect = 1 − (humidity / 100) × 0.08
- *   multiplier    = clamp(1 + windEffect × 0.012 × humidityEffect, 0.82, 1.22)
+ *   windEffect     = windSpeed × cos((windDeg − parkOrientation) × π / 180)
+ *   humidityEffect = 1 + ((humidity − 50) / 100) × 0.016
+ *   multiplier     = clamp(1 + windEffect × 0.012 × humidityEffect, 0.82, 1.22)
  */
 
 import type { Weather, WindDirection } from "@/lib/types"
@@ -53,7 +59,8 @@ export function computeVectorWeatherMultiplier(
   const windDeg      = WIND_DIR_DEG[weather.windDirection]
   const relAngleRad  = (windDeg - parkOrientation) * (Math.PI / 180)
   const windEffect   = weather.windSpeed * Math.cos(relAngleRad)
-  const humidityEffect = 1 - (weather.humidity / 100) * 0.08
+  // Correct sign: humid air is less dense → more carry (≈ ±0.8% at extremes).
+  const humidityEffect = 1 + ((weather.humidity - 50) / 100) * 0.016
 
   return Math.max(0.82, Math.min(1.22, 1 + windEffect * 0.012 * humidityEffect))
 }

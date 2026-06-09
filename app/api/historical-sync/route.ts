@@ -6,9 +6,11 @@
  *
  * For every completed game it:
  *   1. Upserts a GameResult row (actual 1st-inning runs — ground truth).
- *   2. For 2026 (current season) also generates and upserts a ModelPrediction row,
- *      using live pitcher/team stats so the comparison is accurate.
- *      2024/2025 rows use current-season stats as a proxy and are flagged backtested=true.
+ *   2. Generates and upserts a ModelPrediction row using POINT-IN-TIME stats:
+ *      fetchPitcherStatsAsOf / fetchTeamStatsAsOf aggregate game logs strictly
+ *      before the game date (Bayesian-blended with the prior season), so no
+ *      future data leaks into a backfilled prediction.  Rows for seasons
+ *      before the current one are flagged backtested=true.
  *
  * Typical call sequence for a full backfill:
  *   /api/historical-sync?year=2024&month=4  … month=9
@@ -296,11 +298,19 @@ export async function GET(request: Request) {
       //     existing behaviour is unchanged.
       const venueWeather = new Map<string, Weather>()
       if (recompute) {
-        const venuesToday = [
-          ...new Set(finalGames.map((g) => g.venue?.name ?? "Unknown Stadium")),
-        ]
+        // Key weather by venue; pass the first game's UTC first-pitch time so
+        // the archive samples the right hour (day games were previously
+        // sampled at a hardcoded 7 PM local — AUDIT_REPORT.md P2-14).
+        // Doubleheader caveat: both games share the first game's hour.
+        const venueFirstPitch = new Map<string, string | undefined>()
+        for (const g of finalGames) {
+          const v = g.venue?.name ?? "Unknown Stadium"
+          if (!venueFirstPitch.has(v)) venueFirstPitch.set(v, g.gameDate)
+        }
         const weatherEntries = await Promise.all(
-          venuesToday.map(async (v) => [v, await fetchHistoricalWeather(v, date)] as const)
+          [...venueFirstPitch.entries()].map(async ([v, gameTime]) =>
+            [v, await fetchHistoricalWeather(v, date, gameTime)] as const
+          )
         )
         for (const [v, w] of weatherEntries) venueWeather.set(v, w)
       }
@@ -409,6 +419,8 @@ export async function GET(request: Request) {
             zipNrfi:         tracked.zipNrfi,
             markovNrfi:      tracked.markovNrfi,
             ensembleNrfi:    tracked.ensembleNrfi,
+            nrfiOdds:        tracked.nrfiOdds ?? null,
+            yrfiOdds:        tracked.yrfiOdds ?? null,
             modelConsensus:  tracked.modelConsensus,
             inputsPresence,
             ...(actualResult !== undefined
@@ -431,6 +443,8 @@ export async function GET(request: Request) {
             zipNrfi:         tracked.zipNrfi,
             markovNrfi:      tracked.markovNrfi,
             ensembleNrfi:    tracked.ensembleNrfi,
+            nrfiOdds:        tracked.nrfiOdds ?? null,
+            yrfiOdds:        tracked.yrfiOdds ?? null,
             modelConsensus:  tracked.modelConsensus,
             inputsPresence,
             actualResult:    actualResult ?? null,

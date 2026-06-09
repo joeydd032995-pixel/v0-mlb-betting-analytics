@@ -62,6 +62,8 @@ export async function POST(request: Request) {
         nrfiProbability: true,
         confidence:      true,
         actualResult:    true,
+        nrfiOdds:        true,
+        yrfiOdds:        true,
       },
       orderBy: { date: "asc" },
     })
@@ -105,11 +107,15 @@ export async function POST(request: Request) {
         )
       }
 
-      // Use GameResult as the canonical source of truth
+      // Use GameResult as the canonical source of truth.  Stored odds (when
+      // present) let each side be priced at its real line; rows without odds
+      // fall back to a symmetric -110 inside computeBacktestMetrics.
       rows.push({
         nrfiProbability: p.nrfiProbability,
         actualNrfi:      grNrfi,
         confidence:      p.confidence,
+        nrfiOdds:        p.nrfiOdds,
+        yrfiOdds:        p.yrfiOdds,
       })
     }
 

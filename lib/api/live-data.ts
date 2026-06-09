@@ -4,8 +4,15 @@ import {
   fetchTeamStats,
   fetchPitcherLast5FirstInnings,
   fetchTeamLast5FirstInnings,
+  fetchPitcherFirstInningSplits,
 } from "./mlb-stats"
-import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats, FirstInningResult } from "./mlb-stats"
+import type {
+  MLBGame,
+  MLBPitcherSeasonStats,
+  MLBTeamHittingStats,
+  FirstInningResult,
+  PitcherFirstInningSplitStats,
+} from "./mlb-stats"
 import { fetchAllNrfiOdds, extractNrfiOdds } from "./odds"
 import type { OddsEvent } from "./odds"
 import { fetchVenueWeather } from "./weather"
@@ -16,7 +23,12 @@ import { MLB_TEAMS } from "../constants/mlb-teams"
 import { STADIUM_PARK_FACTORS } from "../constants/mlb-stadiums"
 import { PitchingStatsCalculator } from "../advanced-stats"
 import type { PitchingStats } from "../advanced-stats"
-import { resolveTeamId, estimateNrfiRate, estimateOffenseFactor } from "./shared-helpers"
+import {
+  resolveTeamId,
+  estimateNrfiRate,
+  estimateNrfiRateFromFirstInningRuns,
+  estimateOffenseFactor,
+} from "./shared-helpers"
 import { fetchProbableLineup, enrichLineupHands } from "./lineups"
 import { FLAGS } from "../config"
 
@@ -38,8 +50,6 @@ function buildPitchingStatsShape(
   const estimatedER = ip > 0 ? Math.round((apiStats.era * ip) / 9) : 0
   // Estimate batters faced (BF ≈ IP × 4.3).
   const estimatedBF = Math.max(1, Math.round(ip * 4.3))
-  // Estimate fly balls from HR using league HR/FB ≈ 12.8%.
-  const estimatedFlyBalls = Math.round(apiStats.homeRuns / 0.128)
 
   return {
     IP: ip,
@@ -51,7 +61,11 @@ function buildPitchingStatsShape(
     HBP: 0,           // not provided by this API endpoint
     K: apiStats.strikeOuts,
     groundBalls: 0,   // Statcast only
-    flyBalls: estimatedFlyBalls,
+    // No real batted-ball data from this endpoint. Leave flyBalls at 0 so
+    // calculateXFIP falls back to FIP explicitly — the old HR/0.128 estimate
+    // made xFIP ≈ FIP by construction while presenting it as independent
+    // (AUDIT_REPORT.md P2-6).
+    flyBalls: 0,
     lineDrives: 0,    // Statcast only
     popUps: 0,        // Statcast only
     exitVelocityAllowed: [],   // Statcast only
@@ -164,14 +178,17 @@ function mapPitcher(
   teamId: string,
   pitcherName: string,
   last5: FirstInningResult[] = [],
-  statcast: StatcastPitcherSummary | null = null
+  statcast: StatcastPitcherSummary | null = null,
+  fiSplits: PitcherFirstInningSplitStats | null = null
 ): Pitcher {
   const defaultEra = 4.0
   const defaultWhip = 1.28
   const defaultKRate = 0.225
   const defaultBbRate = 0.085
 
-  // If no API data at all, build a fully default pitcher
+  // If no API data at all, build a fully default pitcher — flagged via
+  // statsSource: "default" so downstream consumers can tell it apart from a
+  // real prediction input (AUDIT_REPORT.md P2-13).
   if (!apiStats) {
     const nrfiRate = estimateNrfiRate(defaultEra)
     return {
@@ -180,6 +197,7 @@ function mapPitcher(
       teamId,
       throws: "R",
       age: 0,
+      statsSource: "default",
       firstInning: {
         era: defaultEra,
         whip: defaultWhip,
@@ -214,7 +232,6 @@ function mapPitcher(
   // MLB Stats API returns flattened stats (MLBPitcherSeasonStats)
   const era = apiStats.era
   const whip = apiStats.whip
-  const startCount = apiStats.gamesStarted
   const innings = apiStats.inningsPitched
 
   // K% and BB% per batter faced (approx: BF ≈ IP × 4.3)
@@ -224,11 +241,25 @@ function mapPitcher(
   // HR/9
   const hrPer9 = innings > 0 ? (apiStats.homeRuns / innings) * 9 : 1.1
 
-  const nrfiRate = estimateNrfiRate(era)
-  const firstBatterOBP = (whip / (1 + whip)) * 0.85
+  // ── First-inning fields: REAL i01 splits when available ────────────────────
+  // (AUDIT_REPORT.md P0-2.)  The split gives the pitcher's actual first-inning
+  // ERA/WHIP/K%/BB%/HR9/BABIP and — critically — actual first-inning RUNS
+  // (all runs, the stat NRFI settles on), from which the scoreless-half rate
+  // is estimated.  Falls back to the season-ERA proxy when the split is
+  // missing (rookie debut, API failure).
+  const hasSplits = fiSplits !== null && fiSplits.games >= 1
+  const startCount = hasSplits ? fiSplits.games : apiStats.gamesStarted
+  const nrfiRate = hasSplits
+    ? estimateNrfiRateFromFirstInningRuns(fiSplits.runs / fiSplits.games)
+    : estimateNrfiRate(era)
+
+  const fiWhip = hasSplits ? fiSplits.whip : whip
+  // firstBatterOBP is a WHIP-derived ESTIMATE (no real leadoff-batter split
+  // from this API); UI copy labels it as such.
+  const firstBatterOBP = (fiWhip / (1 + fiWhip)) * 0.85
 
   // Compute FIP and xFIP using PitchingStatsCalculator with available data.
-  // xFIP normalises HR using league HR/FB rate; we estimate flyBalls from HR count.
+  // No batted-ball data here, so calculateXFIP falls back to FIP explicitly.
   const pitchingShape = buildPitchingStatsShape(apiStats, pitcherId, teamId)
   const fip  = innings > 0 ? PitchingStatsCalculator.calculateFIP(pitchingShape)  : era
   const xfip = innings > 0 ? PitchingStatsCalculator.calculateXFIP(pitchingShape) : era
@@ -239,15 +270,16 @@ function mapPitcher(
     teamId,
     throws: apiStats.throws,
     age: 0,
+    statsSource: "live",
     firstInning: {
-      era,
-      whip,
-      kRate,
-      bbRate,
-      hrPer9,
-      babip: 0.3,
+      era:    hasSplits ? fiSplits.era    : era,
+      whip:   fiWhip,
+      kRate:  hasSplits ? fiSplits.kRate  : kRate,
+      bbRate: hasSplits ? fiSplits.bbRate : bbRate,
+      hrPer9: hasSplits ? fiSplits.hrPer9 : hrPer9,
+      babip:  hasSplits && fiSplits.babip !== null ? fiSplits.babip : 0.3,
       nrfiRate,
-      avgRunsAllowed: 1 - nrfiRate,
+      avgRunsAllowed: hasSplits ? fiSplits.runs / fiSplits.games : 1 - nrfiRate,
       firstBatterOBP,
       last5Results: last5.map((r) => r.nrfi),
       last5RunsAllowed: last5.map((r) => r.runs),
@@ -290,8 +322,9 @@ function mapTeam(
   const offenseFactor = estimateOffenseFactor(ops)
   const runsPerGame = offenseFactor * 0.48
   const yrfiRate = 1 - Math.exp(-runsPerGame)
-  // wOBA ≈ obp * 0.88: linear approximation from 2024 season regression
-  const woba = obp * 0.88
+  // wOBA is scaled to the OBP scale by definition (2024: lg wOBA .312 vs lg
+  // OBP .314) — a near-1.0 factor, not the old 0.88 (AUDIT_REPORT.md P2-7).
+  const woba = obp * 0.993
 
   return {
     id: teamId,
@@ -309,12 +342,15 @@ function mapTeam(
       kRate: 0.225,
       bbRate: 0.085,
       yrfiRate,
-      homeYrfiRate: yrfiRate + 0.02,
-      awayYrfiRate: yrfiRate - 0.02,
+      // No real home/away or vs-hand split data from this endpoint — use the
+      // base rate rather than inventing ±0.02 / ×1.05 offsets that looked
+      // like data (AUDIT_REPORT.md P2-12).
+      homeYrfiRate: yrfiRate,
+      awayYrfiRate: yrfiRate,
       last10YrfiRate: yrfiRate,
       last5Results: last5.map((r) => r.nrfi),
       avgRunsVsRHP: runsPerGame,
-      avgRunsVsLHP: runsPerGame * 1.05,
+      avgRunsVsLHP: runsPerGame,
     },
   }
 }
@@ -369,6 +405,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         awayTeamStats,
         homePitcherStats,
         awayPitcherStats,
+        homePitcherFiSplits,
+        awayPitcherFiSplits,
         weather,
         homePitcherLast5,
         awayPitcherLast5,
@@ -382,6 +420,11 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         fetchTeamStats(awayTeamApiId),
         homePitcherApiId ? fetchPitcherStats(homePitcherApiId) : Promise.resolve(null),
         awayPitcherApiId ? fetchPitcherStats(awayPitcherApiId) : Promise.resolve(null),
+        // Real first-inning splits (sitCodes=i01) — preferred source for all
+        // firstInning.* fields; mapPitcher falls back to the season proxy
+        // when null (AUDIT_REPORT.md P0-2).
+        homePitcherApiId ? fetchPitcherFirstInningSplits(homePitcherApiId) : Promise.resolve(null),
+        awayPitcherApiId ? fetchPitcherFirstInningSplits(awayPitcherApiId) : Promise.resolve(null),
         Promise.resolve(weatherByVenue.get(venue) ?? DOME_WEATHER_FALLBACK),
         homePitcherApiId ? fetchPitcherLast5FirstInnings(homePitcherApiId) : Promise.resolve([]),
         awayPitcherApiId ? fetchPitcherLast5FirstInnings(awayPitcherApiId) : Promise.resolve([]),
@@ -413,6 +456,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
         awayTeamStats,
         homePitcherStats,
         awayPitcherStats,
+        homePitcherFiSplits,
+        awayPitcherFiSplits,
         lineups,
         weather,
         homePitcherLast5,
@@ -436,6 +481,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
     awayTeamStats,
     homePitcherStats,
     awayPitcherStats,
+    homePitcherFiSplits,
+    awayPitcherFiSplits,
     weather,
     homePitcherLast5,
     awayPitcherLast5,
@@ -474,7 +521,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       game.homeTeamId,
       homePitcherName,
       homePitcherLast5,
-      homePitcherStatcast
+      homePitcherStatcast,
+      homePitcherFiSplits
     )
     const awayPitcher = mapPitcher(
       awayPitcherStats,
@@ -482,7 +530,8 @@ export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
       game.awayTeamId,
       awayPitcherName,
       awayPitcherLast5,
-      awayPitcherStatcast
+      awayPitcherStatcast,
+      awayPitcherFiSplits
     )
 
     pitchers.set(homePitcher.id, homePitcher)

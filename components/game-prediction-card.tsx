@@ -341,7 +341,7 @@ function ModelBreakdownPanel({ bd, awayAbbr, homeAbbr }: { bd: ModelBreakdown; a
     ...(hh.logisticMetaNrfi != null && ah.logisticMetaNrfi != null
       ? [{ name: "Logistic Stack", p: hh.logisticMetaNrfi * ah.logisticMetaNrfi, detail: "Logistic regression on base-4 avg" }] : []),
     ...(hh.nnInteractionNrfi != null && ah.nnInteractionNrfi != null
-      ? [{ name: "NN Interaction", p: (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2, detail: "Poisson × Markov cross-model interaction" }] : []),
+      ? [{ name: "NN Interaction", p: hh.nnInteractionNrfi * ah.nnInteractionNrfi, detail: "Poisson × Markov cross-model interaction" }] : []),
     ...(hh.hierarchicalBayesNrfi != null && ah.hierarchicalBayesNrfi != null
       ? [{ name: "Hier. Bayes", p: (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2, detail: "Dynamic-prior shrunk pitcher rate" }] : []),
   ]

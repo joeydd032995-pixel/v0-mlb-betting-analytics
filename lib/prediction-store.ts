@@ -52,7 +52,7 @@ export interface TrackedPrediction {
   zipNrfi: number
   /** Markov Chain P(NRFI) */
   markovNrfi: number
-  /** Four-model ensemble P(NRFI): Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20% */
+  /** Final headline ensemble P(NRFI) (base-4 blend: Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%) */
   ensembleNrfi: number
   /** 0–1 model agreement score */
   modelConsensus: number

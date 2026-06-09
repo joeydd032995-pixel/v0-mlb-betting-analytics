@@ -55,6 +55,13 @@ export function combine9Models(input: CombineInputs): CombineResult {
   if (present.deepNrfi) total += DEFAULT_WEIGHTS.deepNrfi
   if (present.monteCarlo) total += DEFAULT_WEIGHTS.monteCarlo
 
+  // Every input non-finite → no model to blend.  Return NaN explicitly so the
+  // caller can detect it and fall back (dividing by total=0 would silently
+  // produce final=0, which calibrates to a real-looking probability).
+  if (total === 0) {
+    return { final: Number.NaN, weights: { ensemble7: 0, deepNrfi: 0, monteCarlo: 0 } }
+  }
+
   const w = {
     ensemble7: present.ensemble7 ? DEFAULT_WEIGHTS.ensemble7 / total : 0,
     deepNrfi: present.deepNrfi ? DEFAULT_WEIGHTS.deepNrfi / total : 0,

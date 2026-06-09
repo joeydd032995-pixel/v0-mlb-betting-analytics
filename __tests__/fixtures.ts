@@ -1,5 +1,5 @@
 import type { Game, Pitcher, Team } from "../lib/types"
-import { LEAGUE_AVG_NRFI } from "../lib/nrfi-models"
+import { LEAGUE_HALF_NRFI } from "../lib/nrfi-models"
 
 export function makeGame(overrides: Partial<Game> = {}): Game {
   return {
@@ -49,14 +49,15 @@ export function makePitcher(
       bbRate:             0.085,
       hrPer9:             1.0,
       babip:              0.295,
-      nrfiRate:           overrides.nrfiRate ?? LEAGUE_AVG_NRFI,
+      // nrfiRate is the HALF-INNING scoreless rate (league avg ≈ 0.718).
+      nrfiRate:           overrides.nrfiRate ?? LEAGUE_HALF_NRFI,
       avgRunsAllowed:     0.52,
       firstBatterOBP:     0.300,
       last5Results:       [true, true, false, true, false],
       last5RunsAllowed:   [0, 0, 1, 0, 1],
       startCount:         overrides.startCount ?? 20,
-      homeNrfiRate:       LEAGUE_AVG_NRFI,
-      awayNrfiRate:       LEAGUE_AVG_NRFI,
+      homeNrfiRate:       LEAGUE_HALF_NRFI,
+      awayNrfiRate:       LEAGUE_HALF_NRFI,
       isBullpenGame:      overrides.isBullpenGame ?? false,
       careerFirstInnings: overrides.careerFirstInnings,
     },

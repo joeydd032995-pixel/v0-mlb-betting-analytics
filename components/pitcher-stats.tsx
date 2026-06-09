@@ -4,7 +4,7 @@ import type { Pitcher, Team } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { LEAGUE_AVG_NRFI } from "@/lib/nrfi-models"
+import { LEAGUE_HALF_NRFI } from "@/lib/nrfi-models"
 import { METRIC_GLOSSARY } from "@/lib/types"
 import { HelpCircle } from "lucide-react"
 
@@ -61,7 +61,8 @@ function BayesianTrustMeter({
   const n = Math.max(1, starts)
   const dataWeight = Math.min(0.97, n / (n + k))
   const shrunkenRate = Math.max(0.35, Math.min(0.92,
-    (nrfiRate * n + LEAGUE_AVG_NRFI * k) / (n + k)
+    // Prior is the HALF-INNING league rate (the pitcher rate is a half-inning quantity).
+    (nrfiRate * n + LEAGUE_HALF_NRFI * k) / (n + k)
   ))
   const seasonPct = Math.round(dataWeight * 100)
   const leaguePct = 100 - seasonPct
