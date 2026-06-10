@@ -99,11 +99,12 @@ export const CONFIG = {
   // Park factor window
   parkFactorYears: 3,
 
-  // Kelly Criterion
+  // Kelly Criterion — single source of truth for the engine
+  // (lib/nrfi-engine.ts) and the backtester (lib/backtest-metrics.ts).
   kelly: {
     scaling: 0.25, // Quarter Kelly
-    minEdge: 0.02, // 2% minimum edge
-    maxBet: 0.05, // 5% max of bankroll
+    minEdge: 0.03, // 3% minimum edge before a bet is recommended
+    maxBet: 0.05, // 5% max of bankroll per bet (cap on the fractional-Kelly stake)
   },
 
   // Projection model

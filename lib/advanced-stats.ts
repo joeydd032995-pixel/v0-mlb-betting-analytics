@@ -330,32 +330,51 @@ export class PitchingStatsCalculator {
   }
 
   // xFIP = ((13 * (FB * lgHR/FB)) + (3 * (BB + HBP)) - (2 * K)) / IP + FIP_constant
+  //
+  // When no real fly-ball data exists (flyBalls === 0 — the live MLB Stats API
+  // pipeline has no batted-ball counts) xFIP falls back to FIP explicitly.
+  // The old pipeline back-estimated FB from HR (HR / league HR/FB), which made
+  // xFIP ≈ FIP by construction while presenting it as an independent stat
+  // (AUDIT_REPORT.md P2-6) — the explicit fallback is the honest equivalent.
   static calculateXFIP(stats: PitchingStats): number {
     if (stats.IP === 0) return 0
     const fb = stats.flyBalls
+    if (fb === 0) return this.calculateFIP(stats)
     const expectedHR = fb * (CONFIG.league.HR_FB / 100)
     const xfip = (13 * expectedHR + 3 * (stats.BB + stats.HBP) - 2 * stats.K) / stats.IP + CONFIG.FIP_constant
     return xfip
   }
 
-  // SIERA (Skill-Interactive ERA) - simplified formula
+  // SIERA (Skill-Interactive ERA) — published FanGraphs formula (Swartz 2011):
+  //
+  //   SIERA = 6.145 − 16.986·(SO/PA) + 11.434·(BB/PA) − 1.858·(netGB/PA)
+  //           + 7.653·(SO/PA)² ± 6.664·(netGB/PA)²
+  //           + 10.130·(SO/PA)·(netGB/PA) − 5.195·(BB/PA)·(netGB/PA)
+  //
+  //   netGB = GB − FB − PU; the ± term is MINUS when netGB/PA ≥ 0, PLUS when
+  //   negative.  (The previous implementation used an invented variant with a
+  //   POSITIVE K% coefficient — strikeouts raised SIERA — AUDIT_REPORT.md P2-5.)
+  //
+  // Without batted-ball data (the live pipeline) netGB/PA = 0 and the formula
+  // degrades to its K/BB core. Note: the league-level additive constant drifts
+  // by season in published SIERA; this uses the canonical 2011 coefficients.
   static calculateSIERA(stats: PitchingStats): number {
-    const K_pct = this.calculateKPct(stats)
-    const BB_pct = this.calculateBBPct(stats)
-    const GB_pct = this.calculateGBPct(stats)
-    const HR_FB = this.calculateHRFB(stats)
+    if (stats.BF === 0) return CONFIG.league.ERA
+    const so = stats.K / stats.BF
+    const bb = stats.BB / stats.BF
+    const netGB = (stats.groundBalls - stats.flyBalls - stats.popUps) / stats.BF
 
-    // Simplified SIERA formula
-    const siera =
-      6.25 * (BB_pct / 100) +
-      6.3 * (K_pct / 100) -
-      14.1 * Math.pow(GB_pct / 100, 2) * (K_pct / (K_pct + BB_pct)) -
-      1.4 * (GB_pct / 100) -
-      0.18 * (GB_pct / 100) * (K_pct / 100) -
-      0.7 * (HR_FB / 100) +
-      4.17
-
-    return siera
+    const quadGBSign = netGB >= 0 ? -1 : 1
+    return (
+      6.145 -
+      16.986 * so +
+      11.434 * bb -
+      1.858 * netGB +
+      7.653 * so * so +
+      quadGBSign * 6.664 * netGB * netGB +
+      10.130 * so * netGB -
+      5.195 * bb * netGB
+    )
   }
 
   // xERA from xwOBA allowed

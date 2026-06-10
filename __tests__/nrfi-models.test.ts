@@ -12,6 +12,7 @@ import {
   computePAOutcomes,
   log5,
   LEAGUE_AVG_NRFI,
+  LEAGUE_HALF_NRFI,
   ENSEMBLE_WEIGHTS,
 } from "../lib/nrfi-models"
 import type { Pitcher, Team } from "../lib/types"
@@ -37,14 +38,14 @@ function makePitcher(overrides: {
       bbRate: 0.085,
       hrPer9: 1.0,
       babip: 0.295,
-      nrfiRate: overrides.nrfiRate ?? LEAGUE_AVG_NRFI,
+      nrfiRate: overrides.nrfiRate ?? LEAGUE_HALF_NRFI,
       avgRunsAllowed: 0.52,
       firstBatterOBP: 0.300,
       last5Results: [true, true, false, true, false],
       last5RunsAllowed: [0, 0, 1, 0, 1],
       startCount: overrides.startCount ?? 20,
-      homeNrfiRate: LEAGUE_AVG_NRFI,
-      awayNrfiRate: LEAGUE_AVG_NRFI,
+      homeNrfiRate: LEAGUE_HALF_NRFI,
+      awayNrfiRate: LEAGUE_HALF_NRFI,
       isBullpenGame: overrides.isBullpenGame ?? false,
       careerFirstInnings: overrides.careerFirstInnings,
     },
@@ -70,9 +71,12 @@ describe("bayesianShrinkage", () => {
     expect(dataWeight).toBeGreaterThanOrEqual(0.97)
   })
 
-  it("approaches league mean when sample size is 0", () => {
+  it("approaches the HALF-INNING league mean when sample size is 0", () => {
+    // nrfiRate is P(scoreless half) — its prior is LEAGUE_HALF_NRFI (≈ 0.718),
+    // not the game-level LEAGUE_AVG_NRFI (the scale mismatch behind the old
+    // systematic YRFI bias — AUDIT_REPORT.md P0-1).
     const { shrunkenRate } = bayesianShrinkage(0.80, 0)
-    expect(shrunkenRate).toBeCloseTo(LEAGUE_AVG_NRFI, 2)
+    expect(shrunkenRate).toBeCloseTo(LEAGUE_HALF_NRFI, 2)
   })
 
   it("clamps output within [0.35, 0.92]", () => {
@@ -115,17 +119,17 @@ describe("getDynamicPriorWeight", () => {
 
 describe("applyDynamicShrinkage vs bayesianShrinkage", () => {
   it("applies heavier shrinkage than legacy for a 5-start veteran pitcher", () => {
-    // careerFirstInnings: 300 → k=50; n=5
-    // dynamic:  (5*0.80 + 50*0.516) / (5+50) ≈ 0.542
-    // legacy:   k≈1.14, dataWeight≈0.81, result≈0.747
+    // careerFirstInnings: 300 → k=50; n=5; prior = LEAGUE_HALF_NRFI ≈ 0.7183
+    // dynamic:  (5*0.80 + 50*0.7183) / (5+50) ≈ 0.726
+    // legacy:   k≈1.14, dataWeight≈0.81, result ≈ 0.81*0.80 + 0.19*0.7183 ≈ 0.785
     const pitcher = makePitcher({ nrfiRate: 0.80, startCount: 5, careerFirstInnings: 300 })
     const k       = getDynamicPriorWeight(pitcher)  // 50
     const dynamic = applyDynamicShrinkage(pitcher, k)
     const { shrunkenRate: legacy } = bayesianShrinkage(0.80, 5)
 
     expect(dynamic).toBeLessThan(legacy)
-    expect(dynamic).toBeCloseTo(0.542, 2)
-    expect(legacy).toBeGreaterThan(0.70)
+    expect(dynamic).toBeCloseTo(0.726, 2)
+    expect(legacy).toBeGreaterThan(0.75)
   })
 })
 
@@ -291,9 +295,15 @@ describe("ENSEMBLE_WEIGHTS", () => {
     expect(Object.keys(ENSEMBLE_WEIGHTS)).toHaveLength(7)
   })
 
-  it("all weights are positive", () => {
-    for (const [k, v] of Object.entries(ENSEMBLE_WEIGHTS)) {
-      expect(v, k).toBeGreaterThan(0)
+  it("base-4 weights are positive; meta-model weights are 0 (display-only)", () => {
+    // Meta-models carry no independent information (deterministic transforms
+    // of the base 4) — their blend weights are 0 pending walk-forward CV
+    // evidence (AUDIT_REPORT.md P1-6).
+    for (const k of ["poisson", "zip", "markov", "mapre"] as const) {
+      expect(ENSEMBLE_WEIGHTS[k], k).toBeGreaterThan(0)
+    }
+    for (const k of ["logisticMeta", "nnInteraction", "hierarchicalBayes"] as const) {
+      expect(ENSEMBLE_WEIGHTS[k], k).toBe(0)
     }
   })
 
@@ -306,24 +316,41 @@ describe("ENSEMBLE_WEIGHTS", () => {
 // ─── combineMAPREHalves ───────────────────────────────────────────────────────
 
 describe("combineMAPREHalves", () => {
-  it("uses standard Poisson when λ_total <= 0.8 and neither half exceeds 0.60", () => {
-    // λ=0.3+0.3=0.6: no ρ (neither > 0.60), λ_adj=0.6 < 0.8 → Poisson
+  it("equals the Poisson product at league-average λ (no correlation ramp)", () => {
+    // λ=0.3 per half is below the 0.35 ramp start → pure independence product.
     const result = combineMAPREHalves(0.3, 0.3)
-    expect(result).toBeCloseTo(Math.exp(-0.6), 3)
+    expect(result).toBeCloseTo(Math.exp(-0.6), 6)
   })
 
-  it("switches to NegBin (no ρ) when λ_total > 0.8 but neither half > 0.60", () => {
-    // λ=0.5+0.5=1.0: no ρ, λ_adj=1.0 > 0.8 → NegBin
-    const lambdaAdj = 1.0
-    const expected  = Math.pow(1.3 / (1.3 + lambdaAdj), 1.3)
-    expect(combineMAPREHalves(0.5, 0.5)).toBeCloseTo(expected, 3)
+  it("positive cross-half correlation RAISES P(NRFI) above independence at high λ", () => {
+    // Both halves λ=0.7 (ramp saturated, ρ=0.06).  Positive correlation makes
+    // P(0,0) > p_h × p_a — the old implementation moved it the wrong way
+    // (AUDIT_REPORT.md P1-5).
+    const pH = Math.exp(-0.7)
+    const independence = pH * pH
+    expect(combineMAPREHalves(0.7, 0.7)).toBeGreaterThan(independence)
+    const expected = independence + 0.06 * Math.sqrt(pH * (1 - pH) * pH * (1 - pH))
+    expect(combineMAPREHalves(0.7, 0.7)).toBeCloseTo(expected, 6)
   })
 
-  it("applies ρ=0.06 AND NegBin when both λ > 0.60 (ρ always makes total > 0.8)", () => {
-    // λ=0.7+0.7=1.4, ρ fires → λ_adj=1.484 > 0.8 → NegBin with ρ
-    const lambdaAdj = 1.4 * 1.06
-    const expected  = Math.pow(1.3 / (1.3 + lambdaAdj), 1.3)
-    expect(combineMAPREHalves(0.7, 0.7)).toBeCloseTo(expected, 3)
+  it("is continuous — no jump across the old λ_total = 0.8 NegBin boundary", () => {
+    // The old hard Poisson→NegBin switch produced a +0.079 discontinuity at
+    // λ_total = 0.8.  Sweep across the region and require small local steps.
+    let prev = combineMAPREHalves(0.35, 0.35)
+    for (let lam = 0.355; lam <= 0.50; lam += 0.005) {
+      const curr = combineMAPREHalves(lam, lam)
+      expect(Math.abs(curr - prev), `λ per half = ${lam.toFixed(3)}`).toBeLessThan(0.02)
+      prev = curr
+    }
+  })
+
+  it("is monotonically decreasing in λ", () => {
+    let prev = combineMAPREHalves(0.1, 0.1)
+    for (let lam = 0.15; lam <= 1.5; lam += 0.05) {
+      const curr = combineMAPREHalves(lam, lam)
+      expect(curr, `λ=${lam.toFixed(2)}`).toBeLessThan(prev)
+      prev = curr
+    }
   })
 
   it("returns a value in (0, 1) for all inputs", () => {

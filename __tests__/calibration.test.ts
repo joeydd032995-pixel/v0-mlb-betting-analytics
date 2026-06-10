@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest"
 import { calibrateWithMonotonicSpline } from "../lib/calibration"
 import { LEAGUE_AVG_NRFI } from "../lib/nrfi-models"
 
-// LEAGUE_ANCHOR as computed by the engine at module load time
-const LEAGUE_ANCHOR_IN_ENGINE = 0.559
+// Post-audit the knot table is the identity mapping (the old "Apr 2025" knots
+// were fitted to the pre-fix engine's biased output distribution — see
+// lib/calibration.ts header).  LEAGUE_ANCHOR therefore equals LEAGUE_AVG_NRFI.
+const LEAGUE_ANCHOR_IN_ENGINE = LEAGUE_AVG_NRFI
 
 describe("calibrateWithMonotonicSpline", () => {
   it("is monotonically non-decreasing across the full input range", () => {
@@ -28,12 +30,19 @@ describe("calibrateWithMonotonicSpline", () => {
     }
   })
 
-  it("maps the boundary knots exactly", () => {
-    expect(calibrateWithMonotonicSpline(0.05)).toBeCloseTo(0.060, 5)
-    expect(calibrateWithMonotonicSpline(0.95)).toBeCloseTo(0.930, 5)
+  it("maps the boundary knots exactly (identity table)", () => {
+    expect(calibrateWithMonotonicSpline(0.05)).toBeCloseTo(0.05, 5)
+    expect(calibrateWithMonotonicSpline(0.95)).toBeCloseTo(0.95, 5)
   })
 
-  it("maps 0.80 to approximately 0.800 (near-identity in the high range)", () => {
-    expect(calibrateWithMonotonicSpline(0.80)).toBeCloseTo(0.800, 4)
+  it("is the identity in the interior (until knots are refit out-of-sample)", () => {
+    for (const x of [0.30, 0.45, 0.516, 0.60, 0.80]) {
+      expect(calibrateWithMonotonicSpline(x)).toBeCloseTo(x, 6)
+    }
+  })
+
+  it("clamps inputs outside the knot range to the boundary values", () => {
+    expect(calibrateWithMonotonicSpline(0.01)).toBeCloseTo(0.05, 6)
+    expect(calibrateWithMonotonicSpline(0.99)).toBeCloseTo(0.95, 6)
   })
 })

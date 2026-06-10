@@ -1,16 +1,17 @@
 /**
  * Walk-forward backtest metric computation.
  *
- * Uses the same Kelly-criterion formula as the TypeScript production engine
- * (lib/nrfi-engine.ts:kellyFraction) so that simulated ROI is directly
- * comparable to live betting behaviour.
+ * Uses the same Kelly-criterion parameters as the TypeScript production engine
+ * (imported from lib/config.ts — single source of truth) so that simulated ROI
+ * is directly comparable to live betting behaviour.
  */
 
 import { impliedProbability } from "./utils/odds"
+import { CONFIG } from "./config"
 
-// Matches KELLY_FRACTION and MIN_KELLY_EDGE in lib/nrfi-engine.ts
-const KELLY_FRACTION = 0.25
-const MIN_KELLY_EDGE = 0.03
+const KELLY_FRACTION = CONFIG.kelly.scaling   // 0.25 (quarter Kelly)
+const MIN_KELLY_EDGE = CONFIG.kelly.minEdge   // 0.03
+const MAX_KELLY_BET  = CONFIG.kelly.maxBet    // 0.05 (5% of bankroll cap)
 const DEFAULT_AMERICAN_ODDS = -110
 
 export interface BacktestRow {
@@ -20,8 +21,10 @@ export interface BacktestRow {
   actualNrfi: boolean
   /** "High" | "Medium" | "Low" */
   confidence: string
-  /** American odds for NRFI side if stored, otherwise undefined (falls back to -110). */
+  /** American odds for the NRFI side if stored, otherwise undefined (falls back to -110). */
   nrfiOdds?: number | null
+  /** American odds for the YRFI side if stored, otherwise undefined (falls back to -110). */
+  yrfiOdds?: number | null
 }
 
 export interface CalibrationBin {
@@ -42,19 +45,24 @@ export interface BacktestMetrics {
   byConfidence: Record<string, { n: number; brier: number; accuracy: number; roiKelly: number }>
 }
 
+/** Net profit per unit staked for American odds (e.g. 100/110 ≈ 0.909 at -110). */
+function profitPerUnit(americanOdds: number): number {
+  return americanOdds > 0 ? americanOdds / 100 : 100 / Math.abs(americanOdds)
+}
+
 /**
- * Compute proper fractional Kelly bet size matching nrfi-engine.ts:kellyFraction().
+ * Fractional Kelly bet size matching nrfi-engine.ts:kellyFraction().
  *
- * decimalOdds here is *profit per unit* (e.g. 100/110 ≈ 0.909 at -110),
- * not total return including stake — matches the engine convention.
+ * `americanOdds` must keep its sign — passing Math.abs(odds) converts every
+ * favourite line into an underdog line and inflates b (and the stake) by
+ * ~68% at -110.  That exact bug invalidated all pre-2026-06 BacktestRun rows
+ * (AUDIT_REPORT.md P0-3).
  */
 function kellyBetSize(modelProb: number, americanOdds: number): number {
-  const profitPerUnit = americanOdds > 0
-    ? americanOdds / 100
-    : 100 / Math.abs(americanOdds)
+  const b = profitPerUnit(americanOdds)
   const q = 1 - modelProb
-  const rawKelly = (profitPerUnit * modelProb - q) / profitPerUnit
-  return Math.max(0, Math.min(0.25, rawKelly * KELLY_FRACTION))
+  const rawKelly = (b * modelProb - q) / b
+  return Math.max(0, Math.min(MAX_KELLY_BET, rawKelly * KELLY_FRACTION))
 }
 
 function computeSliceMetrics(
@@ -89,30 +97,35 @@ function computeSliceMetrics(
     if (row.actualNrfi) b.nrfi++
     calBuckets.set(bin, b)
 
-    const americanOdds = row.nrfiOdds ?? DEFAULT_AMERICAN_ODDS
-    const impliedProb = impliedProbability(americanOdds)
-    const edge = p - impliedProb
+    // Each side is evaluated against ITS OWN line.  The old code measured the
+    // YRFI edge as the complement of the vigged NRFI implied probability and
+    // paid YRFI wins at the NRFI line's profit — wrong whenever the market is
+    // asymmetric (AUDIT_REPORT.md P1-3).
+    const nrfiOdds = row.nrfiOdds ?? DEFAULT_AMERICAN_ODDS
+    const yrfiOdds = row.yrfiOdds ?? DEFAULT_AMERICAN_ODDS
+    const nrfiEdge = p - impliedProbability(nrfiOdds)
+    const yrfiEdge = (1 - p) - impliedProbability(yrfiOdds)
 
-    if (Math.abs(edge) < MIN_KELLY_EDGE) continue
+    let bettingOnNrfi: boolean
+    if (nrfiEdge >= MIN_KELLY_EDGE && nrfiEdge >= yrfiEdge) bettingOnNrfi = true
+    else if (yrfiEdge >= MIN_KELLY_EDGE) bettingOnNrfi = false
+    else continue  // no side clears the minimum edge
 
-    const profitPerUnit = Math.abs(americanOdds) > 0
-      ? (americanOdds > 0 ? americanOdds / 100 : 100 / Math.abs(americanOdds))
-      : 1
-
-    // Bet direction: positive edge → bet on NRFI (y=1 is a win)
-    const bettingOnNrfi = edge > 0
+    const betOdds      = bettingOnNrfi ? nrfiOdds : yrfiOdds
     const betModelProb = bettingOnNrfi ? p : 1 - p
-    const betSize = kellyBetSize(betModelProb, Math.abs(americanOdds))
+    const betProfit    = profitPerUnit(betOdds)
+    const betSize      = kellyBetSize(betModelProb, betOdds)
+    if (betSize <= 0) continue
 
     const won = bettingOnNrfi === row.actualNrfi
-    const pl = won ? betSize * profitPerUnit : -betSize
+    const pl = won ? betSize * betProfit : -betSize
 
     totalWagered += betSize
     totalPLKelly += pl
     plHistory.push(pl)
 
-    // Flat unit stake (-110 odds only, profit = 0.909 per unit)
-    totalPLFlat += won ? profitPerUnit : -1
+    // Flat unit stake at the chosen side's own odds
+    totalPLFlat += won ? betProfit : -1
     flatBets++
   }
 

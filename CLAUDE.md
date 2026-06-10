@@ -17,7 +17,7 @@ npx prisma db push        # Push schema to Neon DB (non-migration)
 npx prisma studio         # Open Prisma Studio GUI
 ```
 
-There are no automated tests — CI runs type-check + lint + build only (`.github/workflows/ci.yml`).
+Tests: vitest suites in `__tests__/` (`pnpm test`). CI runs type-check + lint + build + unit tests (`.github/workflows/ci.yml`).
 
 Husky runs `eslint --fix` on staged `.ts`/`.tsx` files via lint-staged before every commit.
 
@@ -40,9 +40,14 @@ Data flow:
 1. `lib/api/live-data.ts` — fetches today's games from MLB Stats API, odds from The Odds API, weather from OpenWeatherMap; returns typed `Game`, `Pitcher`, `Team` maps
 2. `lib/nrfi-engine.ts` — orchestrates per-game prediction; applies Bayesian shrinkage, weather/umpire multipliers; calls `lib/nrfi-models.ts`
 3. `lib/nrfi-models.ts` — implements the 7 models: Poisson, ZIP, Markov Chain (24-state), MAPRE, logisticMeta, nnInteraction, hierarchicalBayes; weights defined in `ENSEMBLE_WEIGHTS`
-4. `lib/calibration.ts` — monotonic P-spline calibration applied to raw ensemble output
+4. `lib/calibration.ts` — monotonic piecewise-linear calibration over knots applied to raw ensemble output (currently the identity mapping pending an out-of-sample refit — see AUDIT_REPORT.md P1-4)
 5. Final formula: `clamp(0.76 × calibrated + 0.24 × LEAGUE_ANCHOR, 0.18, 0.85)`
-   where `LEAGUE_ANCHOR = calibrateWithMonotonicSpline(0.516) ≈ 0.559` (computed at module load, not a magic constant)
+   where `LEAGUE_ANCHOR = calibrateWithMonotonicSpline(0.516)` — equals 0.516 under the identity calibration (computed at module load, not a magic constant)
+
+Scale convention: every per-pitcher `nrfiRate` is the HALF-INNING scoreless rate
+(league average `LEAGUE_HALF_NRFI = √0.516 ≈ 0.718`); the game-level league NRFI
+rate is `LEAGUE_AVG_NRFI = 0.516`. Shrinkage priors must target the half-inning
+constant — see AUDIT_REPORT.md P0-1 and `__tests__/audit-regression.test.ts`.
 
 API route `app/api/predictions/route.ts` calls `getLiveGameSlate()` → `computeAllPredictions()` and returns JSON. All date resolution uses ET timezone: `new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())`.
 
@@ -76,7 +81,7 @@ MLB Stats API is always available and free; all other external data falls back t
 | `lib/types.ts` | All TypeScript interfaces — source of truth for `Game`, `Pitcher`, `Team`, `NRFIPrediction`, etc. |
 | `lib/nrfi-engine.ts` | Ensemble orchestration, blend constants, confidence scoring, recommendation tiers |
 | `lib/nrfi-models.ts` | 7 model implementations + `ENSEMBLE_WEIGHTS` + Bayesian shrinkage helpers |
-| `lib/calibration.ts` | Monotonic P-spline (19 knots) |
+| `lib/calibration.ts` | Monotonic piecewise-linear calibration (19 knots; identity until refit) |
 | `lib/weather.ts` | Vector wind + humidity multiplier |
 | `lib/api/live-data.ts` | Live game slate builder (MLB + odds + weather) |
 | `lib/api/mlb-stats.ts` | MLB Stats API wrappers |

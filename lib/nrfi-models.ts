@@ -15,25 +15,28 @@ import type { Pitcher, Team, EnsembleWeights } from "./types"
 
 // ─── League Constants ─────────────────────────────────────────────────────────
 
-/** ~51.6% of MLB first innings produce zero runs (2024–2025 recalibrated) */
+/** ~51.6% of MLB first innings produce zero runs (2024–2025 recalibrated).
+ *  GAME-level rate: P(neither team scores in the 1st). */
 export const LEAGUE_AVG_NRFI = 0.516
 
-// ─── Default Model Configuration ─────────────────────────────────────────────
-
 /**
- * Per-model calibration: weight in ensemble, multiplicative scale, additive bias.
- * @deprecated These are 4-model legacy weights. Use ENSEMBLE_WEIGHTS for the 7-model ensemble.
+ * HALF-INNING league rate: P(one team's half of the 1st is scoreless).
+ * Under cross-half independence LEAGUE_AVG_NRFI = LEAGUE_HALF_NRFI², so
+ * LEAGUE_HALF_NRFI = √0.516 ≈ 0.718 (matches the empirical ~0.72 MLB rate).
+ *
+ * IMPORTANT: every per-pitcher `nrfiRate` in this codebase is a HALF-INNING
+ * quantity (P(his half is scoreless)).  All shrinkage priors must therefore
+ * target LEAGUE_HALF_NRFI, never the game-level LEAGUE_AVG_NRFI — mixing the
+ * two scales was the root cause of the systematic YRFI bias documented in
+ * AUDIT_REPORT.md P0-1.
  */
-export const MODEL_CONFIG = {
-  poisson: { weight: 0.18, scale: 1.05, bias:  0.03 },
-  zip:     { weight: 0.39, scale: 1.12, bias:  0.02 },
-  markov:  { weight: 0.31, scale: 0.92, bias: -0.04 },
-  mapre:   { weight: 0.12, scale: 1.08, bias:  0.01 },
-} as const
+export const LEAGUE_HALF_NRFI = Math.sqrt(LEAGUE_AVG_NRFI)
 /** 2024 MLB league averages (from config.ts) */
 const LEAGUE_K_RATE = 0.225
 const LEAGUE_BB_RATE = 0.085
-const LEAGUE_HR_RATE = 0.034      // ~3.4 HR per 100 PA
+// HR per PA: league HR/9 ≈ 1.16 ÷ (9 × 4.3 PA/inning) ≈ 0.030.  The old 0.034
+// implied HR/9 ≈ 1.32 (a 2019-era rate) and biased the MAPRE M_HR baseline.
+const LEAGUE_HR_RATE = 0.030
 const LEAGUE_AVG_OBP = 0.314
 const LEAGUE_HIT_RATE = LEAGUE_AVG_OBP - LEAGUE_BB_RATE   // ≈ 0.229
 
@@ -87,7 +90,8 @@ export function bayesianShrinkage(
   const k = WITHIN_VAR / BETWEEN_VAR  // ≈ 1.14
 
   const dataWeight = Math.min(0.97, starts / (starts + k))
-  const shrunkenRate = dataWeight * observed + (1 - dataWeight) * LEAGUE_AVG_NRFI
+  // Prior is the HALF-INNING league rate — `observed` is P(scoreless half).
+  const shrunkenRate = dataWeight * observed + (1 - dataWeight) * LEAGUE_HALF_NRFI
 
   return {
     shrunkenRate: Math.max(0.35, Math.min(0.92, shrunkenRate)),
@@ -140,11 +144,16 @@ export function computePAOutcomes(
 ): PAOutcomes {
   // Pitcher event rates (derived from first-inning stats)
   const pitcherBB = pitcher.firstInning.bbRate
-  const pitcherHR = Math.min(0.07, pitcher.firstInning.hrPer9 / 9)
+  // HR per PA: HR/9 innings ÷ (9 × 4.3 PA per inning) = hrPer9 / 38.7.
+  // (Dividing by 9 alone gives HR per INNING — a 4.3× unit error; see
+  // AUDIT_REPORT.md P1-1.)  League HR/9 ≈ 1.2 → ≈ 0.031 HR/PA.
+  const pitcherHR = Math.min(0.07, pitcher.firstInning.hrPer9 / 38.7)
 
-  // Hits per PA from WHIP: WHIP / IP_per_inning ≈ (BB+H) per PA
-  // One inning ≈ 3.5 PA on average; so H/PA ≈ WHIP/3.5 − BB/PA
-  const pitcherHit = Math.max(0.06, pitcher.firstInning.whip / 3.5 - pitcherBB)
+  // Hits per PA from WHIP: WHIP is (BB+H) per inning; an inning averages
+  // ≈ 4.25 PA, so (BB+H)/PA ≈ WHIP/4.25 and H/PA ≈ WHIP/4.25 − BB/PA.
+  // League WHIP 1.28 → (1.28/4.25 − 0.085) ≈ 0.216 H/PA, consistent with a
+  // ~.314 league OBP once walks and HRs are added back.
+  const pitcherHit = Math.max(0.06, pitcher.firstInning.whip / 4.25 - pitcherBB)
 
   // Top-of-order batter baseline (5% better OBP than league avg, 8% better SLG)
   // Scale the offensive event rates by offenseFactor
@@ -248,6 +257,23 @@ function applyHR(runners: number): [0, number] {
   if (runners & 0b100) runs++
   return [0, runs]
 }
+
+/**
+ * Structural-bias correction for the 24-state Markov chain.
+ *
+ * The chain's deliberate simplifications (outs never advance runners, singles
+ * advance every runner exactly one base, no errors/wild pitches/steals) all
+ * suppress run scoring, so with exactly league-average PA inputs it returns
+ * P(0) ≈ 0.773 where the empirical half-inning rate is LEAGUE_HALF_NRFI
+ * ≈ 0.718.  Correct via exact λ-scaling P(0)^γ = e^(−γλ) with
+ *
+ *   γ = ln(LEAGUE_HALF_NRFI) / ln(0.7731) ≈ 1.285
+ *
+ * (0.7731 measured from computeMarkovNrfi(computePAOutcomes(league pitcher,
+ * 1.0)) — see __tests__/audit-regression.test.ts which re-derives it.)
+ * Applied in compute7ModelEnsemble and to the Monte Carlo output (same chain).
+ */
+export const MARKOV_CALIBRATION_EXPONENT = 1.285
 
 export interface MarkovResult {
   /** P(NRFI) — probability of 0 runs in this half-inning */
@@ -391,10 +417,13 @@ export function computeZIPModel(
 
   // ── Lambda: log-linear model for "active inning" scoring rate ─────────────
   // log(λ) = β₀ + β₁·log(offFactor) + β₂·log(parkFactor) + β₃·tempEffect
-  // Calibration: offFactor=1.0, park=1.0, 72°F → λ≈0.42
+  // Calibration: at offFactor=1.0, park=1.0, 72°F, league K%:
+  //   ω = σ(−1.38) = 0.2010 and we need ω + (1−ω)e^(−λ) = LEAGUE_HALF_NRFI
+  //   ⇒ e^(−λ) = (0.7183 − 0.2010)/0.7990 ⇒ λ ≈ 0.435
+  // so a fully league-average half-inning lands exactly on the league rate.
   const tempLambdaAdj = (temperatureF - 72) * 0.004  // heat → ball carries farther
   const logLambda =
-    Math.log(0.42) +
+    Math.log(0.435) +
     0.90 * Math.log(Math.max(0.4, offenseFactor)) +
     0.60 * Math.log(Math.max(0.7, parkFactor)) +
     tempLambdaAdj
@@ -443,7 +472,7 @@ export interface MAPREInputs {
   sOpsPlus?: number
   /** Pitcher's allowed BAbip in the 1st inning. Default 0.295 (league avg). */
   babip1st?: number
-  /** Batting team's 1st-inning HR per PA. Default 0.034 (league avg). */
+  /** Batting team's 1st-inning HR per PA. Default LEAGUE_HR_RATE (0.030). */
   hrPerPa1st?: number
   /**
    * Pitcher barrel% deviation (Statcast) or (1st-inning ERA / season ERA − 1).
@@ -502,7 +531,7 @@ export function computeMAPREHalfInning(
   const {
     sOpsPlus            = 100,
     babip1st: babipRaw,
-    hrPerPa1st          = 0.034,
+    hrPerPa1st          = LEAGUE_HR_RATE,
     barrelDev           = 0,
     isHomePitcher       = false,
     awayShortRestOrTravel = false,
@@ -514,7 +543,7 @@ export function computeMAPREHalfInning(
   const clampM = (v: number) => Math.max(0.70, Math.min(1.50, v))
   const M_sOPS     = clampM(1 + 0.0015 * (sOpsPlus    - 100))
   const M_BAbip    = clampM(1 + 1.8    * (babip1st     - 0.295))
-  const M_HR       = clampM(1 + 9      * (hrPerPa1st   - 0.034))
+  const M_HR       = clampM(1 + 9      * (hrPerPa1st   - LEAGUE_HR_RATE))
   const M_pitchMix = clampM(1 + 0.12   * barrelDev)
 
   // ── Additive deltas (each clamped [−0.10, +0.15]) ─────────────────────────
@@ -525,7 +554,11 @@ export function computeMAPREHalfInning(
   // ── Adjusted lambda ────────────────────────────────────────────────────────
   let lambdaAdj = baseLambda * M_sOPS * M_BAbip * M_HR * M_pitchMix
                 + delta_HFA + delta_rest
-  lambdaAdj = Math.max(lambdaAdj, 0.35)   // small-sample floor (already > 0)
+  // Floor keeps λ physically plausible.  On the half-inning scale the league
+  // baseLambda is −ln(0.718) ≈ 0.33, so the floor sits well below it (the old
+  // 0.35 floor was tuned to the pre-audit mis-scaled λ and would bind on
+  // every league-average matchup).
+  lambdaAdj = Math.max(lambdaAdj, 0.10)
 
   return {
     lambdaAdj,
@@ -536,27 +569,34 @@ export function computeMAPREHalfInning(
 /**
  * Combine two half-inning MAPRE lambdaAdj values into a game-level P(NRFI).
  *
- * Standard per-half product (exp(-λ_home) × exp(-λ_away)) is equivalent to
- * exp(-(λ_home + λ_away)) — pure Poisson independence. MAPRE adds two
- * corrections that the per-half product cannot express:
+ * Base: per-half Poisson product exp(−λ_h)·exp(−λ_a) = exp(−(λ_h + λ_a)).
+ * Run-scoring "clumping" (overdispersion) is already absorbed upstream in the
+ * rate calibration (estimateNrfiRate* anchor the league rate to the empirical
+ * P(0), not the pure-Poisson one), so no Negative-Binomial branch is applied
+ * here — the old hard switch at λ = 0.8 created a +0.079 discontinuity and
+ * double-counted clumping (AUDIT_REPORT.md P1-5).
  *
- * 1. Cross-half correlation (ρ = 0.06): when both pitchers face high-run
- *    environments (λ > 0.60), a shared latent factor (park, weather, umpire
- *    zone) inflates both halves simultaneously.
- * 2. Negative Binomial overdispersion: in very high-run games (λ_total_adj >
- *    0.8), pure Poisson underestimates tail risk because run-scoring is
- *    "clumped". NegBin with r=1.3 adds the necessary overdispersion.
+ * Cross-half correlation: a shared latent run environment (park, weather,
+ * umpire) makes the two halves positively correlated.  Positive correlation
+ * RAISES P(both zero) relative to independence:
+ *
+ *   P(0,0) = p_h·p_a + ρ·√(p_h(1−p_h)·p_a(1−p_a))
+ *
+ * ρ ramps continuously from 0 to 0.06 as each half's λ rises through
+ * [0.35, 0.60] (league-average λ ≈ 0.33 → no adjustment; clearly high-run
+ * matchups → full ρ).  The continuous ramp avoids step changes in the output.
  */
 export function combineMAPREHalves(
   homeLambdaAdj: number,
   awayLambdaAdj: number
 ): number {
-  const lambdaTotal = homeLambdaAdj + awayLambdaAdj
-  const rho         = (homeLambdaAdj > 0.60 && awayLambdaAdj > 0.60) ? 0.06 : 0
-  const lambdaAdj   = lambdaTotal * (1 + rho)
-  const pNrfi = lambdaAdj > 0.8
-    ? Math.pow(1.3 / (1.3 + lambdaAdj), 1.3)
-    : Math.exp(-lambdaAdj)
+  const pH = Math.exp(-homeLambdaAdj)
+  const pA = Math.exp(-awayLambdaAdj)
+
+  const ramp = (lambda: number) => Math.max(0, Math.min(1, (lambda - 0.35) / 0.25))
+  const rho = 0.06 * ramp(homeLambdaAdj) * ramp(awayLambdaAdj)
+
+  const pNrfi = pH * pA + rho * Math.sqrt(pH * (1 - pH) * pA * (1 - pA))
   return Math.max(0.01, Math.min(0.99, pNrfi))
 }
 
@@ -573,20 +613,24 @@ export function combineMAPREHalves(
 // ─── 7-Model Ensemble Weights ────────────────────────────────────────────────
 // Raw design-intent weights. Edit these to change the blend; normalisation
 // enforces sum-to-1.0 regardless of floating-point rounding.
-// Note: the base-four ratio here (12:30:48:10) deliberately differs from
-// MODEL_CONFIG (18:39:31:12) — the 7-model ensemble shifts more weight onto
-// Markov and less onto ZIP vs the original 4-model stack.
-// TODO: run scripts/deepnrfi/backtest_v2.py with a --free-weights flag (scipy
-// SLSQP, Dirichlet constraint) to validate or replace these values. Until then,
-// do not describe them as "CV-optimized" in documentation or PRs.
+//
+// 2026-06 audit remediation (AUDIT_REPORT.md P1-6): the three meta-models are
+// deterministic transforms of the four base models — logisticMeta is a
+// function of the weighted base average, nnInteraction a product of two
+// members, hierarchicalBayes a duplicate of the shrinkage prior.  They carry
+// no independent information, so their blend weights are 0; the values are
+// still computed (on corrected scales) for the UI breakdown.  Restore nonzero
+// weights only with walk-forward CV evidence (scripts/deepnrfi/backtest_v2.py).
+//
+// The base-four weights (12:30:48:10) remain design-intent, NOT CV-optimized.
 const RAW_ENSEMBLE_WEIGHTS = {
   poisson:           0.12,
   zip:               0.30,
   markov:            0.48,
   mapre:             0.10,
-  logisticMeta:      0.05,
-  nnInteraction:     0.03,
-  hierarchicalBayes: 0.02,
+  logisticMeta:      0,
+  nnInteraction:     0,
+  hierarchicalBayes: 0,
 }
 const _rawWeightSum = Object.values(RAW_ENSEMBLE_WEIGHTS).reduce((a, b) => a + b, 0)
 export const ENSEMBLE_WEIGHTS: EnsembleWeights = Object.fromEntries(
@@ -616,15 +660,20 @@ export function getDynamicPriorWeight(pitcher: Pitcher): number {
 }
 
 /**
- * Shrink the pitcher's observed NRFI rate toward the league mean using the
- * dynamic prior weight returned by getDynamicPriorWeight.
+ * Shrink the pitcher's observed half-inning scoreless rate toward the
+ * HALF-INNING league mean (LEAGUE_HALF_NRFI ≈ 0.718) using the dynamic prior
+ * weight returned by getDynamicPriorWeight.
+ *
+ * `nrfiRate` is P(his half of the 1st is scoreless) — shrinking it toward the
+ * game-level LEAGUE_AVG_NRFI (0.516) was the scale mismatch behind the
+ * systematic YRFI bias (AUDIT_REPORT.md P0-1).
  *
  * Uses pitcher.firstInning.startCount (the existing field) as sample size n.
  */
 export function applyDynamicShrinkage(pitcher: Pitcher, priorWeight: number): number {
   const n        = pitcher.firstInning.startCount || 1
   const observed = pitcher.firstInning.nrfiRate
-  const shrunk   = (observed * n + LEAGUE_AVG_NRFI * priorWeight) / (n + priorWeight)
+  const shrunk   = (observed * n + LEAGUE_HALF_NRFI * priorWeight) / (n + priorWeight)
   return Math.max(0.35, Math.min(0.92, shrunk))
 }
 
@@ -726,11 +775,26 @@ export interface SevenModelResult {
 /**
  * Compute P(no runs in this half-inning) for all 7 models.
  *
- * @param lambda   Poisson λ (expected runs) for this half-inning.
- * @param pitcher  The pitcher on the mound (used for ZIP omega, Markov PA outcomes, MAPRE).
- * @param team     The batting team (used for offense factor in Markov and MAPRE).
- * @param side     "home" → home pitcher is on the mound; "away" → away pitcher.
- * @param ctx      Precomputed pitcher context (shrunkRate, rawBaseLambda, dataWeight).
+ * Environment routing (AUDIT_REPORT.md P1-2): each model receives the
+ * park/weather/form environment exactly once —
+ *   • Poisson:  via `lambda` (the engine bakes everything into it)
+ *   • ZIP:      via `zipEnvFactor` (its log-linear λ term) + `temperature`
+ *   • Markov:   via `envLambdaMult` applied as P(0)^envLambdaMult — exact
+ *               λ-scaling, since P(0) = e^(−λ) ⇒ P(0)^m = e^(−mλ)
+ *   • MAPRE:    via `envLambdaMult` applied to its base λ
+ *
+ * @param lambda         Poisson λ (expected runs) for this half-inning (fully adjusted).
+ * @param pitcher        The pitcher on the mound (ZIP omega, Markov PA outcomes, MAPRE).
+ * @param team           The batting team (offense factor in Markov and MAPRE).
+ * @param side           "home" → home pitcher is on the mound; "away" → away pitcher.
+ * @param ctx            Precomputed pitcher context (shrunkRate, rawBaseLambda, dataWeight).
+ * @param temperature    Game-time °F; 72 = dome/neutral default (ZIP only).
+ * @param umpireWideness [-1, 1]; 0 = neutral (ZIP only).
+ * @param zipEnvFactor   park × wind/humidity multiplier for ZIP's λ model
+ *                       (excludes the monthly factor — ZIP uses real temperature).
+ * @param envLambdaMult  park × weather × form × monthly × umpire λ multiplier
+ *                       for Markov and MAPRE (excludes offense, which both
+ *                       models already incorporate).
  */
 export function compute7ModelEnsemble(
   lambda:          number,
@@ -739,17 +803,21 @@ export function compute7ModelEnsemble(
   side:            "home" | "away",
   ctx:             PitcherContext,
   temperature:     number = 72,  // Fahrenheit; 72 = dome/neutral default
-  umpireWideness:  number = 0    // [-1, 1]; 0 = neutral
+  umpireWideness:  number = 0,   // [-1, 1]; 0 = neutral
+  zipEnvFactor:    number = 1.0,
+  envLambdaMult:   number = 1.0
 ): SevenModelResult {
   // ── Original 4 models ─────────────────────────────────────────────────────
   const poisson    = Math.exp(-lambda)
 
-  // ZIP: call the full implementation (temperature + umpire corrections).
-  // Park factor is already baked into lambda; pass 1.0 to avoid double-counting.
+  // ZIP: full implementation (temperature + umpire corrections).  The engine
+  // passes park × wind/humidity as zipEnvFactor; ZIP's own log-linear λ model
+  // applies it (β₂ = 0.6 dampening), so the environment is counted here and
+  // not in `lambda` (which ZIP never reads).
   const zipResult  = computeZIPModel(
     pitcher,
     team.firstInning.offenseFactor,
-    1.0,
+    zipEnvFactor,
     temperature,
     umpireWideness
   )
@@ -757,14 +825,18 @@ export function compute7ModelEnsemble(
   const clampOmega = zipResult.omega
 
   // Markov: handedness-adjusted offense (Opt #2) + shrunk rate from ctx (Opt #5).
-  // Inlined from the former computeMarkov24 so paOutcomes can be returned for UI.
+  // Environment applied as exact λ-scaling: P(0)^m = e^(−mλ).
   const lineupFactor  = getLineupVsHand(pitcher.throws, team)
   const shrunkPitcher = { ...pitcher, firstInning: { ...pitcher.firstInning, nrfiRate: ctx.shrunkRate } }
   const paOutcomes    = computePAOutcomes(shrunkPitcher, lineupFactor)
-  const markov        = computeMarkovNrfi(paOutcomes).nrfiProb
+  const markovRaw     = computeMarkovNrfi(paOutcomes).nrfiProb
+  // Two exact λ-scalings: the structural-bias calibration exponent (see
+  // MARKOV_CALIBRATION_EXPONENT) and the environment multiplier.
+  const markov        = Math.max(0.02, Math.min(0.98,
+    Math.pow(markovRaw, MARKOV_CALIBRATION_EXPONENT * envLambdaMult)))
 
-  // MAPRE: raw base lambda from ctx avoids double-counting park/weather/umpire.
-  // Inlined from the former computeMAPREhalf to capture lambdaAdj for UI.
+  // MAPRE: base λ scaled by the environment multiplier, then the MAPRE
+  // matchup multipliers are layered on top.
   const mapreInputs: MAPREInputs = {
     sOpsPlus:              team.firstInning.sOpsPlus ?? team.firstInning.offenseFactor * 100,
     babip1st:              pitcher.firstInning.babip,
@@ -773,39 +845,33 @@ export function compute7ModelEnsemble(
     isHomePitcher:         side === "home",
     awayShortRestOrTravel: false,
   }
-  const mapreResult = computeMAPREHalfInning(ctx.rawBaseLambda, mapreInputs)
+  const mapreResult = computeMAPREHalfInning(ctx.rawBaseLambda * envLambdaMult, mapreInputs)
   const mapre       = mapreResult.nrfiProb
 
-  // ── 3 Meta-models (Opt #8) ────────────────────────────────────────────────
+  // ── 3 Meta-models (Opt #8 — display-only since the 2026-06 audit; blend
+  //    weights are 0 in RAW_ENSEMBLE_WEIGHTS pending walk-forward CV) ────────
 
-  // Logistic Stack: baseAvg weighted by the renormalised base-4 weights
-  // (Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%) — these sum to 1.0, making
-  // baseAvg a proper weighted average of the four base-model probabilities.
-  // σ(−2.3 + 4.1 × baseAvg): α = −2.3 captures the log-odds baseline for a
-  // zero-run half-inning; β = 4.1 stretches it across the full probability range.
+  // Logistic Stack placeholder: the weighted base-4 average itself.  The old
+  // σ(−2.3 + 4.1·x) squash had unvalidated coefficients and only distorted the
+  // average; a real trained stacker can replace this (sub-flag STACKER_MODE).
   const baseAvg      = 0.120 * poisson + 0.300 * zip + 0.480 * markov + 0.100 * mapre
-  const logisticMeta = 1 / (1 + Math.exp(-(-2.3 + 4.1 * baseAvg)))
+  const logisticMeta = baseAvg
 
-  // NN Interaction: Poisson × Markov product normalised by LEAGUE_AVG_NRFI (0.516).
-  // Derivation: full-game P(NRFI) = P(top_half = 0) × P(bottom_half = 0) under independence.
-  // At league average, each half ≈ sqrt(0.516) ≈ 0.718, so 0.718² ≈ 0.516 is the product
-  // of two league-average halves — the correct normaliser so that an average-pitcher matchup
-  // gives nnInteraction ≈ 1.0 instead of ≈ 1.46 (which the old 0.67 divisor caused).
-  // When both models agree on strong dominance, the product amplifies that confidence.
-  // Game level: (homeHalf + awayHalf) / 2 — averaged as a joint environment signal.
+  // NN Interaction: Poisson × Markov product normalised by the HALF-INNING
+  // league rate so the result is itself a half-inning probability:
+  // at league average 0.718 × 0.718 / 0.718 = 0.718.  When both models agree
+  // on dominance the product amplifies the signal beyond either input.
+  // (The old /LEAGUE_AVG_NRFI divisor produced a >1 ratio, not a probability —
+  // AUDIT_REPORT.md P1-6.)  Game level: homeHalf × awayHalf product.
   const nnInteraction = Math.max(0.02, Math.min(0.98,
-    poisson * markov / LEAGUE_AVG_NRFI
+    poisson * markov / LEAGUE_HALF_NRFI
   ))
 
-  // Hierarchical Bayes: same dynamic k as getDynamicPriorWeight (k=30/50/80),
-  // not the legacy empirical-Bayes k=1.14.
-  // Game level: homeHalf × awayHalf (independent half-inning product).
-  const n_hier    = pitcher.firstInning.startCount || 1
-  const k_hier    = getDynamicPriorWeight(pitcher)
-  const w_dynamic = Math.min(0.97, n_hier / (n_hier + k_hier))
-  const hierarchicalBayes = Math.max(0.35, Math.min(0.92,
-    w_dynamic * ctx.shrunkRate + (1 - w_dynamic) * LEAGUE_AVG_NRFI
-  ))
+  // Hierarchical Bayes: the dynamically-shrunk scoreless rate itself (already
+  // shrunk toward LEAGUE_HALF_NRFI with k = 30/50/80 in ctx).  The old version
+  // re-shrunk ctx.shrunkRate a second time toward the game-level constant,
+  // which double-regressed and landed on the wrong scale (AUDIT_REPORT.md P1-6).
+  const hierarchicalBayes = Math.max(0.35, Math.min(0.92, ctx.shrunkRate))
 
   return {
     poisson, zip, markov, mapre, logisticMeta, nnInteraction, hierarchicalBayes,

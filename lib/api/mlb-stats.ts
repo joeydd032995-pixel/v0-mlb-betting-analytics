@@ -82,21 +82,29 @@ export interface MLBTeamHittingStats {
 
 // ─── Fetch helper ─────────────────────────────────────────────────────────────
 
+/**
+ * Fetch helper with a single retry: transient network errors and 5xx responses
+ * are retried once after a short delay; 4xx responses are not (they will not
+ * succeed on retry).  A silent degradation to league-average defaults from one
+ * transient blip was previously indistinguishable from real data
+ * (AUDIT_REPORT.md §7a).
+ */
 async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> {
-  try {
-    const res = await fetch(`${BASE_URL}${path}`, {
-      next: { revalidate },
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) {
-      console.error(`[mlb-stats] HTTP ${res.status} for ${path}`)
-      return null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${BASE_URL}${path}`, {
+        next: { revalidate },
+        signal: AbortSignal.timeout(8000),
+      })
+      if (res.ok) return (await res.json()) as T
+      console.error(`[mlb-stats] HTTP ${res.status} for ${path} (attempt ${attempt + 1})`)
+      if (res.status < 500) return null
+    } catch (err) {
+      console.error(`[mlb-stats] fetch error for ${path} (attempt ${attempt + 1}):`, err)
     }
-    return (await res.json()) as T
-  } catch (err) {
-    console.error(`[mlb-stats] fetch error for ${path}:`, err)
-    return null
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 400))
   }
+  return null
 }
 
 // ─── Point-in-time helpers ────────────────────────────────────────────────────
@@ -304,6 +312,97 @@ export async function fetchTeamLast5FirstInnings(
       return extractFirstInningResult(ls, g.teams.home.team.id === teamApiId)
     })
     .filter((r): r is FirstInningResult => r !== null)
+}
+
+// ─── First-inning splits (sitCode i01) ────────────────────────────────────────
+
+/**
+ * Real first-inning pitching splits for one season, from
+ *   /people/{id}/stats?stats=statSplits&group=pitching&sitCodes=i01&season=YYYY
+ *
+ * Unlike the season-ERA proxy, these are the pitcher's ACTUAL first-inning
+ * numbers: runs (all runs, not just earned), IP, K, BB, H, HR, batters faced,
+ * and the number of first innings pitched.  This is the preferred source for
+ * every `Pitcher.firstInning` field (AUDIT_REPORT.md P0-2).
+ *
+ * NOTE: this is a season-aggregate split — using it for a historical backfill
+ * would leak future games into past predictions.  The point-in-time backfill
+ * path must keep using the as-of ERA proxy.
+ */
+export interface PitcherFirstInningSplitStats {
+  /** Number of first innings pitched (games started, effectively). */
+  games: number
+  inningsPitched: number
+  /** ALL runs allowed in the 1st (the stat NRFI settles on), not just earned. */
+  runs: number
+  era: number
+  whip: number
+  /** K and BB per batter faced — real rates, not the IP×4.3 estimate. */
+  kRate: number
+  bbRate: number
+  hrPer9: number
+  /** First-inning BABIP, or null when the denominator is degenerate. */
+  babip: number | null
+}
+
+export async function fetchPitcherFirstInningSplits(
+  playerId: number,
+  season: number | string = SEASON
+): Promise<PitcherFirstInningSplitStats | null> {
+  type RawSplit = {
+    split?: { code?: string }
+    stat: {
+      gamesPlayed?: number
+      inningsPitched?: string
+      earnedRuns?: number
+      runs?: number
+      era?: string
+      whip?: string
+      strikeOuts?: number
+      baseOnBalls?: number
+      hits?: number
+      homeRuns?: number
+      battersFaced?: number
+      atBats?: number
+      sacFlies?: number
+    }
+  }
+  type RawStatGroup = { splits?: RawSplit[] }
+
+  const data = await mlbFetch<{ stats?: RawStatGroup[] }>(
+    `/people/${playerId}/stats?stats=statSplits&group=pitching&sitCodes=i01&season=${season}`,
+    3600
+  )
+  const split = data?.stats?.[0]?.splits?.find((s) => s.split?.code === "i01")
+  const st = split?.stat
+  if (!st) return null
+
+  const games = st.gamesPlayed ?? 0
+  const ip = parseBaseballInnings(st.inningsPitched)
+  if (games < 1 || ip <= 0) return null
+
+  const bf = Math.max(1, st.battersFaced ?? Math.round(ip * 4.3))
+  const k = st.strikeOuts ?? 0
+  const bb = st.baseOnBalls ?? 0
+  const hits = st.hits ?? 0
+  const hr = st.homeRuns ?? 0
+  const ab = st.atBats ?? 0
+  const sf = st.sacFlies ?? 0
+
+  const babipDenom = ab - k - hr + sf
+  const babip = babipDenom > 0 ? (hits - hr) / babipDenom : null
+
+  return {
+    games,
+    inningsPitched: ip,
+    runs: st.runs ?? st.earnedRuns ?? 0,
+    era: parseFloat(st.era ?? "") || (ip > 0 ? ((st.earnedRuns ?? 0) * 9) / ip : 4.0),
+    whip: parseFloat(st.whip ?? "") || (ip > 0 ? (bb + hits) / ip : 1.28),
+    kRate: k / bf,
+    bbRate: bb / bf,
+    hrPer9: ip > 0 ? (hr / ip) * 9 : 1.1,
+    babip,
+  }
 }
 
 /**

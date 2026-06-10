@@ -83,6 +83,13 @@ export interface Pitcher {
   age: number
   firstInning: PitcherFirstInningStats
   overall: PitcherOverallStats
+  /**
+   * Data lineage: "live" = real API stats; "default" = league-average
+   * placeholder built after an API failure or for a no-stats pitcher.
+   * Lets consumers distinguish a genuine prediction input from a phantom
+   * (AUDIT_REPORT.md P2-13). Absent on objects built before this field existed.
+   */
+  statsSource?: "live" | "default"
   // ── Ensemble++ Phase 1 extensions (all optional) ──────────────────────────────
   // Note: careerFirstInnings and isBullpenGame live on PitcherFirstInningStats
   // (added by the code-quality-audit branch); the engine reads them there.
@@ -373,8 +380,13 @@ export interface ModelBreakdown {
 }
 
 export interface ValueAnalysis {
+  /** Vigged implied probability straight from the posted line. */
   impliedNrfiProb: number
   impliedYrfiProb: number
+  /** No-vig "fair" probabilities (multiplicative de-vig; the pair sums to 1). */
+  fairNrfiProb: number
+  fairYrfiProb: number
+  /** Edges measured against the VIGGED implied probabilities (conservative). */
   nrfiEdge: number
   yrfiEdge: number
   nrfiOdds: number

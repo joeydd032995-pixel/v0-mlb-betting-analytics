@@ -52,7 +52,7 @@ export interface TrackedPrediction {
   zipNrfi: number
   /** Markov Chain P(NRFI) */
   markovNrfi: number
-  /** Four-model ensemble P(NRFI): Poisson 20%, ZIP 30%, Markov 30%, MAPRE 20% */
+  /** Final headline ensemble P(NRFI) (base-4 blend: Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%) */
   ensembleNrfi: number
   /** 0–1 model agreement score */
   modelConsensus: number
@@ -302,7 +302,7 @@ export function buildTrackedPrediction(
       ? Math.max(0.05, Math.min(0.95, hh.logisticMetaNrfi * ah.logisticMetaNrfi))
       : undefined,
     nnInteractionNrfi: hh?.nnInteractionNrfi != null && ah?.nnInteractionNrfi != null
-      ? Math.max(0.05, Math.min(0.95, (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2))
+      ? Math.max(0.05, Math.min(0.95, hh.nnInteractionNrfi * ah.nnInteractionNrfi))
       : undefined,
     // Product matches how blend7Models combines hierarchicalBayes (it is NOT in GAME_LEVEL_KEYS).
     hierarchicalBayesNrfi: hh?.hierarchicalBayesNrfi != null && ah?.hierarchicalBayesNrfi != null

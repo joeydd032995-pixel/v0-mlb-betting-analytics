@@ -33,6 +33,7 @@ import type {
 import {
   ENSEMBLE_WEIGHTS,
   LEAGUE_AVG_NRFI,
+  MARKOV_CALIBRATION_EXPONENT,
   compute7ModelEnsemble,
   combineMAPREHalves,
   getLineupVsHand,
@@ -43,7 +44,7 @@ import {
 import { calibrateWithMonotonicSpline } from "./calibration"
 import { computeVectorWeatherMultiplier } from "./weather"
 import { impliedProbability } from "./utils/odds"
-import { FLAGS } from "./config"
+import { FLAGS, CONFIG } from "./config"
 import { buildDeepNrfiFeatures } from "./features/feature-vector"
 import { predictDeepNRFI } from "./deepnrfi-model"
 import { simulateGameFirstInning } from "./monte-carlo"
@@ -54,8 +55,11 @@ import { hashGameId } from "@/lib/utils/hash"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MIN_KELLY_EDGE      = 0.03
-const KELLY_FRACTION      = 0.25
+// Kelly parameters come from the central config so the engine, the backtester,
+// and the UI calculator can never drift apart (AUDIT_REPORT.md P2-3).
+const MIN_KELLY_EDGE      = CONFIG.kelly.minEdge   // 0.03
+const KELLY_FRACTION      = CONFIG.kelly.scaling   // 0.25 (quarter Kelly)
+const MAX_KELLY_BET       = CONFIG.kelly.maxBet    // 0.05 (5% of bankroll cap)
 const COLD_TEMP_THRESHOLD_F = 50
 /**
  * Final-stage shrinkage toward a league baseline:
@@ -64,9 +68,9 @@ const COLD_TEMP_THRESHOLD_F = 50
  *
  * - LEAGUE_AVG_NRFI (0.516) is the raw 2024–2025 league NRFI rate.
  * - LEAGUE_ANCHOR is that value passed through the calibration spline so it
- *   lives on the same scale as the model's calibrated output (≈ 0.559 under
- *   the current Apr-2025 knots). Computed at module load so it auto-updates
- *   whenever calibration knots are re-fitted — no magic number to track.
+ *   lives on the same scale as the model's calibrated output.  With the
+ *   post-audit identity calibration this equals LEAGUE_AVG_NRFI exactly;
+ *   it auto-updates whenever calibration knots are re-fitted.
  * - 0.76 means the model's own calibrated probability carries 76 % of the
  *   weight; the remaining 24 % shrinks it toward the calibrated league mean.
  *
@@ -84,9 +88,9 @@ function computeLeagueAnchor(): number {
   }
 }
 const LEAGUE_ANCHOR       = computeLeagueAnchor()
-// Effective output range under the current calibration spline + league-anchor blend:
-//   min = 0.76 × 0.060 + 0.24 × 0.559 ≈ 0.180  → CLAMP_MIN activates here
-//   max = 0.76 × 0.930 + 0.24 × 0.559 ≈ 0.841  → CLAMP_MAX is a guard above this ceiling
+// Effective output range under the identity calibration + league-anchor blend:
+//   min = 0.76 × 0.05 + 0.24 × 0.516 ≈ 0.162  → CLAMP_MIN (0.18) binds just above
+//   max = 0.76 × 0.95 + 0.24 × 0.516 ≈ 0.846  → CLAMP_MAX (0.85) is a guard at this ceiling
 // These clamps guard against pathological calibration outputs, not the engine's
 // expressive range. Revise only via walk-forward CV (scripts/deepnrfi/backtest_v2.py).
 const CLAMP_MIN           = 0.18
@@ -118,16 +122,19 @@ function getMonthlyLambdaFactor(date: string): number {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function impliedToAmerican(prob: number): number {
-  if (prob >= 0.5) return -Math.round((prob / (1 - prob)) * 100)
-  return Math.round(((1 - prob) / prob) * 100)
+  // Clamp away from {0, 1} to avoid division by zero / ±Infinity.
+  const p = Math.max(0.0001, Math.min(0.9999, prob))
+  if (p >= 0.5) return -Math.round((p / (1 - p)) * 100)
+  return Math.round(((1 - p) / p) * 100)
 }
 
 function kellyFraction(edge: number, odds: number): number {
-  const modelProb  = Math.max(0, Math.min(1, impliedProbability(odds) + edge))
-  const decimalOdds = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
-  const q          = 1 - modelProb
-  const rawKelly   = (decimalOdds * modelProb - q) / decimalOdds
-  return Math.max(0, Math.min(0.25, rawKelly * KELLY_FRACTION))
+  const modelProb = Math.max(0, Math.min(1, impliedProbability(odds) + edge))
+  // b = net profit per unit staked (NOT the decimal odds, which include the stake).
+  const b        = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
+  const q        = 1 - modelProb
+  const rawKelly = (b * modelProb - q) / b
+  return Math.max(0, Math.min(MAX_KELLY_BET, rawKelly * KELLY_FRACTION))
 }
 
 function expectedValue(modelProb: number, odds: number): number {
@@ -138,13 +145,20 @@ function expectedValue(modelProb: number, odds: number): number {
 // ─── Recent Form Multiplier ───────────────────────────────────────────────────
 
 function computeRecentFormMultiplier(home: Pitcher, away: Pitcher): number {
-  const recentRate = (results: boolean[]): number | null =>
-    results.length >= 3 ? results.filter(Boolean).length / results.length : null
-  const homeRecent = recentRate(home.firstInning.last5Results)
-  const awayRecent = recentRate(away.firstInning.last5Results)
+  // Each deviation comes from a 3–5 game binomial sample, so it is shrunk by
+  // n/(n+5) before use (n=5 → keep 50%; n=3 → keep 37.5%).  Prevents pure
+  // small-sample noise from moving λ the full ±15% (AUDIT_REPORT.md P2-10).
+  const recentDeviation = (results: boolean[], seasonRate: number): number | null => {
+    if (results.length < 3) return null
+    const recent = results.filter(Boolean).length / results.length
+    const shrink = results.length / (results.length + 5)
+    return (recent - seasonRate) * shrink
+  }
   const deviations: number[] = []
-  if (homeRecent !== null) deviations.push(homeRecent - home.firstInning.nrfiRate)
-  if (awayRecent !== null) deviations.push(awayRecent - away.firstInning.nrfiRate)
+  const homeDev = recentDeviation(home.firstInning.last5Results, home.firstInning.nrfiRate)
+  const awayDev = recentDeviation(away.firstInning.last5Results, away.firstInning.nrfiRate)
+  if (homeDev !== null) deviations.push(homeDev)
+  if (awayDev !== null) deviations.push(awayDev)
   if (deviations.length === 0) return 1.0
   const avg = deviations.reduce((a, b) => a + b, 0) / deviations.length
   return Math.max(0.85, Math.min(1.15, 1.0 - 0.30 * avg))
@@ -164,24 +178,19 @@ function computeLambda(
 
 // ─── Opt #8: 7-Model Blend ───────────────────────────────────────────────────
 
-// Keys whose values are game-level signals (not half-inning probabilities).
-// These are averaged across halves rather than multiplied.
-// nnInteraction: joint environment signal → average captures overall game tone.
-// hierarchicalBayes uses the half-inning product (homeHalf × awayHalf) per spec.
-const GAME_LEVEL_KEYS = new Set<keyof typeof ENSEMBLE_WEIGHTS>(["nnInteraction"])
-
 /**
  * Combine two half-inning SevenModelResult objects into a game-level P(NRFI).
  *
- * Half-inning probability models (Poisson/ZIP/Markov/MAPRE/hierarchicalBayes):
- *   P_game = P_home_half × P_away_half  (independence assumption)
+ * Every model value is a half-inning probability (post-audit, nnInteraction
+ * included), so the game level is the independence product for all of them:
+ *   P_game = P_home_half × P_away_half
  *
- * MAPRE: overridden by mapreGameLevel when provided (see combineMAPREHalves).
+ * The cross-half independence assumption is documented and partially relaxed
+ * by MAPRE: when `mapreGameLevel` is provided it carries the positive
+ * cross-half correlation correction from combineMAPREHalves.
  *
- * Game-level signal model (nnInteraction only):
- *   P_game = (home[k] + away[k]) / 2   (average — not a probability product)
- *
- * ENSEMBLE_WEIGHTS are pre-normalised to sum to 1.0.
+ * ENSEMBLE_WEIGHTS are pre-normalised to sum to 1.0 (meta-model weights are
+ * currently 0 — see RAW_ENSEMBLE_WEIGHTS in lib/nrfi-models.ts).
  */
 function blend7Models(
   home: SevenModelResult,
@@ -192,14 +201,9 @@ function blend7Models(
   const keys = Object.keys(w) as Array<keyof typeof ENSEMBLE_WEIGHTS>
   let ensemble = 0
   for (const key of keys) {
-    let gameLevelProb: number
-    if (key === "mapre" && mapreGameLevel !== undefined) {
-      gameLevelProb = mapreGameLevel
-    } else if (GAME_LEVEL_KEYS.has(key)) {
-      gameLevelProb = (home[key] + away[key]) / 2
-    } else {
-      gameLevelProb = home[key] * away[key]
-    }
+    const gameLevelProb = (key === "mapre" && mapreGameLevel !== undefined)
+      ? mapreGameLevel
+      : home[key] * away[key]
     ensemble += w[key] * gameLevelProb
   }
   return Math.max(0, Math.min(1, ensemble))
@@ -209,17 +213,19 @@ function blend7Models(
 
 function buildPitcherFactor(pitcher: Pitcher): PredictionFactor {
   const fi  = pitcher.firstInning
-  const pct = `${(fi.nrfiRate * 100).toFixed(0)}% NRFI`
-  if (fi.nrfiRate >= 0.72) {
+  // nrfiRate is the HALF-INNING scoreless rate (league average ≈ 0.718) —
+  // thresholds sit relative to that scale, not the game-level 0.516.
+  const pct = `${(fi.nrfiRate * 100).toFixed(0)}% clean 1st`
+  if (fi.nrfiRate >= 0.79) {
     return {
       name:        `${pitcher.name} — Elite Ace`,
       impact:      "positive",
       magnitude:   "strong",
-      description: `${pitcher.name} has a ${(fi.nrfiRate * 100).toFixed(0)}% NRFI rate this season — among the league's best.`,
+      description: `${pitcher.name} keeps his first inning scoreless ${(fi.nrfiRate * 100).toFixed(0)}% of the time — among the league's best.`,
       value:       pct,
     }
   }
-  if (fi.nrfiRate >= 0.64) {
+  if (fi.nrfiRate >= 0.70) {
     return {
       name:        `${pitcher.name} — Solid Starter`,
       impact:      "positive",
@@ -231,8 +237,8 @@ function buildPitcherFactor(pitcher: Pitcher): PredictionFactor {
   return {
     name:        `${pitcher.name} — Vulnerable`,
     impact:      "negative",
-    magnitude:   fi.nrfiRate < 0.57 ? "strong" : "moderate",
-    description: `${pitcher.name}'s ${(fi.nrfiRate * 100).toFixed(0)}% NRFI rate creates first-inning risk.`,
+    magnitude:   fi.nrfiRate < 0.64 ? "strong" : "moderate",
+    description: `${pitcher.name} allows a first-inning run in ${(100 - fi.nrfiRate * 100).toFixed(0)}% of his starts — above the league rate.`,
     value:       pct,
   }
 }
@@ -319,14 +325,16 @@ function buildFactors(
     }
   }
 
+  // firstBatterOBP is an ESTIMATE derived from WHIP (see lib/api/live-data.ts),
+  // not an observed leadoff-batter split — the copy below says so explicitly.
   if (hp.firstBatterOBP >= 0.36)
     factors.push({ name: `${homePitcher.name} — Leadoff Issues`, impact: "negative", magnitude: "slight",
-      description: `Gets first batter on base ${(hp.firstBatterOBP * 100).toFixed(0)}% of the time — sets up trouble.`,
-      value: `.${Math.round(hp.firstBatterOBP * 1000)} 1st OBP` })
+      description: `Estimated to allow the first batter on base ${(hp.firstBatterOBP * 100).toFixed(0)}% of the time (WHIP-based estimate).`,
+      value: `.${Math.round(hp.firstBatterOBP * 1000)} est. 1st OBP` })
   else if (hp.firstBatterOBP <= 0.26)
     factors.push({ name: `${homePitcher.name} — Quick Outs`, impact: "positive", magnitude: "slight",
-      description: `Retires the leadoff hitter ${(100 - hp.firstBatterOBP * 100).toFixed(0)}% of the time.`,
-      value: `.${Math.round(hp.firstBatterOBP * 1000)} 1st OBP` })
+      description: `Estimated to retire the leadoff hitter ${(100 - hp.firstBatterOBP * 100).toFixed(0)}% of the time (WHIP-based estimate).`,
+      value: `.${Math.round(hp.firstBatterOBP * 1000)} est. 1st OBP` })
 
   return factors
 }
@@ -398,10 +406,19 @@ function computeValueAnalysis(
 ): ValueAnalysis {
   const impliedNrfi = impliedProbability(odds.nrfiOdds)
   const impliedYrfi = impliedProbability(odds.yrfiOdds)
+  // No-vig "fair" probabilities via multiplicative normalisation: the two
+  // vigged implied probabilities sum to > 1 (the overround); dividing by their
+  // sum removes the bookmaker margin (AUDIT_REPORT.md P2-1).
+  const overround   = impliedNrfi + impliedYrfi
+  const fairNrfi    = overround > 0 ? impliedNrfi / overround : impliedNrfi
+  const fairYrfi    = overround > 0 ? impliedYrfi / overround : impliedYrfi
   const yrfiProb    = 1 - nrfiProb
+  // Edges are measured against the VIGGED implied probabilities (conservative:
+  // a bet must clear the bookmaker margin before it shows positive edge).
   const nrfiEdge    = nrfiProb - impliedNrfi
   const yrfiEdge    = yrfiProb - impliedYrfi
   const base = { impliedNrfiProb: impliedNrfi, impliedYrfiProb: impliedYrfi,
+    fairNrfiProb: fairNrfi, fairYrfiProb: fairYrfi,
     nrfiEdge, yrfiEdge, nrfiOdds: odds.nrfiOdds, yrfiOdds: odds.yrfiOdds }
   if (nrfiEdge >= MIN_KELLY_EDGE)
     return { ...base, recommendedBet: "NRFI",
@@ -494,6 +511,19 @@ export function computeNRFIPrediction(
   const umpireFactor    = Math.max(-0.5, Math.min(0.5, game.umpire?.nrfiFactor ?? 0))
   const umpireLambdaMult = Math.max(0.05, 1 - umpireFactor)
 
+  // ── Environment routing (AUDIT_REPORT.md P1-2) ───────────────────────────────
+  // Each model sees the run environment exactly once:
+  //  • Poisson — full multiplier baked into λ below.
+  //  • ZIP     — park × wind/humidity × form via zipEnvFactor; temperature is
+  //              handled internally from the real game temp, so the monthly
+  //              seasonal factor is EXCLUDED to avoid double-counting the
+  //              temperature cycle (P2-9); umpire enters via umpireWideness.
+  //  • Markov/MAPRE — full λ multiplier (park × weather × form × monthly ×
+  //              umpire) via envLambdaMult; offense is excluded because both
+  //              models already incorporate it from team factors.
+  const zipEnvFactor  = game.parkFactor * vectorWeatherMult * recentMult
+  const envLambdaMult = game.parkFactor * combinedMult * umpireLambdaMult
+
   // ── Lambda per half-inning ───────────────────────────────────────────────────
   // awayScoresLambda: expected runs for away team (top 1st) vs home pitcher
   const awayScoresLambda = Math.max(0.05,
@@ -514,9 +544,9 @@ export function computeNRFIPrediction(
 
   // ── Opt #8: 7-model ensemble per half ───────────────────────────────────────
   // "home half" = home pitcher on mound, away team batting
-  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx, gameTemperature, umpireWideness)
+  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx, gameTemperature, umpireWideness, zipEnvFactor, envLambdaMult)
   // "away half" = away pitcher on mound, home team batting
-  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx, gameTemperature, umpireWideness)
+  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx, gameTemperature, umpireWideness, zipEnvFactor, envLambdaMult)
 
   // ── MAPRE game-level: cross-half ρ + NegBin overdispersion ──────────────────
   const mapreGameLevel = combineMAPREHalves(homeHalf7.mapreLambdaAdj, awayHalf7.mapreLambdaAdj)
@@ -564,16 +594,22 @@ export function computeNRFIPrediction(
     // stacker on the same calibrated scale as ensemble7 (post-spline) and
     // DeepNRFI (post-internal-calibration). Without this the raw MC output
     // mixes a different distribution into the static 0.75/0.20/0.05 weights.
+    // The MC simulator walks the same simplified 24-state chain as the Markov
+    // model, so the same structural-bias exponent applies first
+    // (P_game^γ = (p_h·p_a)^γ = p_h^γ·p_a^γ — see MARKOV_CALIBRATION_EXPONENT).
     const mcCalibrated =
       mcResult && Number.isFinite(mcResult.pNRFI)
-        ? calibrateWithMonotonicSpline(mcResult.pNRFI)
+        ? calibrateWithMonotonicSpline(Math.pow(mcResult.pNRFI, MARKOV_CALIBRATION_EXPONENT))
         : null
     const stack = combine9Models({
       ensemble7: calibrated7,
       deepNrfi: deepResult?.probability ?? null,
       monteCarlo: mcCalibrated,
     })
-    const calibratedV2 = calibrateV2(stack.final)
+    // If every stacker input was non-finite, combine9Models returns NaN —
+    // fall back to the v1 calibrated ensemble instead of calibrating NaN.
+    const stackFinal = Number.isFinite(stack.final) ? stack.final : calibrated7
+    const calibratedV2 = calibrateV2(stackFinal)
     const blendedV2 = ENSEMBLE_BLEND * calibratedV2 + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
     nrfiProb = Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, blendedV2))
     ensembleWeights = stack.weights

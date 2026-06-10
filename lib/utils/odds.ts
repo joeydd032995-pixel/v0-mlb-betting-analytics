@@ -26,12 +26,33 @@ export function calculateEV(probability: number, odds: number): number {
   return probability * (decimalOdds - 1) - (1 - probability) * 1
 }
 
-export function kellyFraction(probability: number, odds: number, fractional = 0.5): number {
+/**
+ * Fractional Kelly stake.  Default fraction matches the engine's quarter-Kelly
+ * (CONFIG.kelly.scaling) — the old 0.5 default silently disagreed with the
+ * production engine (AUDIT_REPORT.md P2-3).
+ */
+export function kellyFraction(probability: number, odds: number, fractional = 0.25): number {
   const decimalOdds = americanToDecimal(odds)
   const q = 1 - probability
   const b = decimalOdds - 1
   const kelly = (probability * b - q) / b
   return Math.max(0, kelly * fractional)
+}
+
+/**
+ * Strip the bookmaker margin (vig) from a two-way market via multiplicative
+ * normalisation: fair_i = implied_i / (implied_A + implied_B).
+ * Returns fair probabilities that sum to exactly 1, plus the overround.
+ */
+export function noVigProbabilities(
+  oddsA: number,
+  oddsB: number
+): { fairA: number; fairB: number; overround: number } {
+  const a = impliedProbability(oddsA)
+  const b = impliedProbability(oddsB)
+  const total = a + b
+  if (total <= 0) return { fairA: a, fairB: b, overround: 0 }
+  return { fairA: a / total, fairB: b / total, overround: total - 1 }
 }
 
 export function calculateROI(profit: number, wagered: number): number {
