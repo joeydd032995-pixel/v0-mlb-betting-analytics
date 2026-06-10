@@ -110,7 +110,7 @@ function buildLightTeam(teamId: string, stats: MLBTeamHittingStats | null): Team
   const offenseFactor = estimateOffenseFactor(ops)
   const runsPerGame = offenseFactor * 0.48
   const yrfiRate = 1 - Math.exp(-runsPerGame)
-  const woba = obp * 0.88
+  const woba = obp * 0.993
 
   return {
     id: teamId,

@@ -69,7 +69,7 @@ The codebase is well-engineered software (clean separation, 110 passing tests, s
 
 | Formula | Location | Verdict |
 |---|---|---|
-| American → implied prob: `100/(o+100)`, `|o|/(|o|+100)` | `lib/utils/odds.ts:17-22` | ✅ canonical |
+| American → implied prob: `100/(o+100)`, `\|o\|/(\|o\|+100)` | `lib/utils/odds.ts:17-22` | ✅ canonical |
 | American ↔ decimal | `lib/utils/odds.ts:3-15` | ✅ canonical |
 | EV = p·b − q (b = decimal−1) | `utils/odds.ts:24-27`, `nrfi-engine.ts:133-136` | ✅ equivalent to p·decimal − 1 (verified: EV(0.55, −110) = 0.0500) |
 | Kelly f\* = (bp − q)/b | `nrfi-engine.ts:125-131`, `utils/odds.ts:29-35` | ✅ formula correct (the variable named `decimalOdds` at engine:127 is actually b = profit-per-unit — misleading name, right math). Negative Kelly floored at 0 ✅ |

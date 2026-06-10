@@ -1,5 +1,5 @@
-import type { Game, Pitcher, Team } from "../lib/types"
-import { LEAGUE_HALF_NRFI } from "../lib/nrfi-models"
+import type { Game, Pitcher, Team } from "@/lib/types"
+import { LEAGUE_HALF_NRFI } from "@/lib/nrfi-models"
 
 export function makeGame(overrides: Partial<Game> = {}): Game {
   return {

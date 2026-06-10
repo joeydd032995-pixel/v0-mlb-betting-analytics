@@ -6,17 +6,17 @@
  * adjusting the expectation.
  */
 import { describe, it, expect } from "vitest"
-import { computeNRFIPrediction } from "../lib/nrfi-engine"
+import { computeNRFIPrediction } from "@/lib/nrfi-engine"
 import {
   computePAOutcomes,
   computeMarkovNrfi,
   LEAGUE_AVG_NRFI,
   LEAGUE_HALF_NRFI,
-} from "../lib/nrfi-models"
-import { estimateNrfiRate, estimateNrfiRateFromFirstInningRuns, LEAGUE_FIRST_INNING_RUNS_PER_HALF } from "../lib/api/shared-helpers"
-import { computeBacktestMetrics } from "../lib/backtest-metrics"
-import { CONFIG } from "../lib/config"
-import type { Game, Pitcher, Team } from "../lib/types"
+} from "@/lib/nrfi-models"
+import { estimateNrfiRate, estimateNrfiRateFromFirstInningRuns, LEAGUE_FIRST_INNING_RUNS_PER_HALF } from "@/lib/api/shared-helpers"
+import { computeBacktestMetrics } from "@/lib/backtest-metrics"
+import { CONFIG } from "@/lib/config"
+import type { Game, Pitcher, Team } from "@/lib/types"
 
 // ─── Truly league-average fixtures (2024 MLB) ─────────────────────────────────
 

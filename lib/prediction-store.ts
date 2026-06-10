@@ -302,7 +302,7 @@ export function buildTrackedPrediction(
       ? Math.max(0.05, Math.min(0.95, hh.logisticMetaNrfi * ah.logisticMetaNrfi))
       : undefined,
     nnInteractionNrfi: hh?.nnInteractionNrfi != null && ah?.nnInteractionNrfi != null
-      ? Math.max(0.05, Math.min(0.95, (hh.nnInteractionNrfi + ah.nnInteractionNrfi) / 2))
+      ? Math.max(0.05, Math.min(0.95, hh.nnInteractionNrfi * ah.nnInteractionNrfi))
       : undefined,
     // Product matches how blend7Models combines hierarchicalBayes (it is NOT in GAME_LEVEL_KEYS).
     hierarchicalBayesNrfi: hh?.hierarchicalBayesNrfi != null && ah?.hierarchicalBayesNrfi != null

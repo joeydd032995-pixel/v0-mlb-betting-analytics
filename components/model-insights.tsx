@@ -696,14 +696,14 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             {/* Final output bar */}
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
               <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Final NRFI / YRFI %</p>
-              <NrfiYrfiBar nrfi={64} color="bg-gradient-to-r from-emerald-500 to-emerald-400" />
+              <NrfiYrfiBar nrfi={61.8} color="bg-gradient-to-r from-emerald-500 to-emerald-400" />
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
-                  <p className="text-2xl font-bold text-emerald-400">64.1%</p>
+                  <p className="text-2xl font-bold text-emerald-400">61.8%</p>
                   <p className="text-xs text-muted-foreground mt-0.5">NRFI</p>
                 </div>
                 <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-center">
-                  <p className="text-2xl font-bold text-rose-400">35.9%</p>
+                  <p className="text-2xl font-bold text-rose-400">38.2%</p>
                   <p className="text-xs text-muted-foreground mt-0.5">YRFI</p>
                 </div>
               </div>

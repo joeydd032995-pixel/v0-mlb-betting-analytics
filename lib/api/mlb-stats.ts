@@ -374,7 +374,6 @@ export async function fetchPitcherFirstInningSplits(
     3600
   )
   const split = data?.stats?.[0]?.splits?.find((s) => s.split?.code === "i01")
-    ?? data?.stats?.[0]?.splits?.[0]
   const st = split?.stat
   if (!st) return null
 

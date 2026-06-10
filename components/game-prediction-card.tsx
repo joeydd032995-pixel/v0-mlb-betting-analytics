@@ -343,7 +343,7 @@ function ModelBreakdownPanel({ bd, awayAbbr, homeAbbr }: { bd: ModelBreakdown; a
     ...(hh.nnInteractionNrfi != null && ah.nnInteractionNrfi != null
       ? [{ name: "NN Interaction", p: hh.nnInteractionNrfi * ah.nnInteractionNrfi, detail: "Poisson × Markov cross-model interaction" }] : []),
     ...(hh.hierarchicalBayesNrfi != null && ah.hierarchicalBayesNrfi != null
-      ? [{ name: "Hier. Bayes", p: (hh.hierarchicalBayesNrfi + ah.hierarchicalBayesNrfi) / 2, detail: "Dynamic-prior shrunk pitcher rate" }] : []),
+      ? [{ name: "Hier. Bayes", p: hh.hierarchicalBayesNrfi * ah.hierarchicalBayesNrfi, detail: "Dynamic-prior shrunk pitcher rate" }] : []),
   ]
   const { label, color, bg, bdr } = consensusLabel(bd.modelConsensus)
 

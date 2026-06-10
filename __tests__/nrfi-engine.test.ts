@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { computeNRFIPrediction, computeAllPredictions } from "../lib/nrfi-engine"
+import { computeNRFIPrediction, computeAllPredictions } from "@/lib/nrfi-engine"
+import { LEAGUE_HALF_NRFI } from "@/lib/nrfi-models"
 import { makeGame, makePitcher, makePitchers, makeTeams, makeTeam } from "./fixtures"
 
 describe("computeNRFIPrediction — null safety", () => {
@@ -67,7 +68,7 @@ describe("computeNRFIPrediction — recommendation tiers", () => {
     ])
     return computeNRFIPrediction(makeGame(), pitchers, makeTeams())
   }
-  const LEAGUE_HALF = Math.sqrt(0.516)
+  const LEAGUE_HALF = LEAGUE_HALF_NRFI
 
   it("elite ace (0.85 scoreless-half rate) produces higher nrfiProbability than league average", () => {
     const ace = predWithNrfiRate(0.85)!.nrfiProbability

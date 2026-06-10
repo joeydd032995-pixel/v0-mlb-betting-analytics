@@ -321,7 +321,7 @@ export function PitcherStats({ pitchers, teams }: Props) {
       {/* Model note */}
       <p className="text-xs text-muted-foreground">
         * NRFI Rate = % of starts where 0 runs allowed in the 1st inning. Last 5 dots: green = NRFI, red = YRFI.
-        Model Trust shows how much of the prediction is based on season data vs the 62% league average —
+        Model Trust shows how much of the prediction is based on season data vs the ~71.8% half-inning league average —
         pitchers with &lt;5 GS are automatically shrunk toward the mean (Bayesian hierarchical shrinkage).
         "Adj NRFI" is the rate the engine actually uses after shrinkage.
       </p>

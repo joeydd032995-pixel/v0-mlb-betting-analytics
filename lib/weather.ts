@@ -3,7 +3,7 @@
  *
  * Replaces the scalar wind model (multiplier based on a plain "out/in" flag)
  * with a vector projection: effective wind = windSpeed × cos(θ_wind − θ_park).
- * Humidity dampens the ball-carry effect (humid air is denser and reduces carry).
+ * Humidity boosts ball-carry slightly (humid air is less dense than dry air at the same temperature).
  *
  * The existing Weather type uses WindDirection = "in" | "out" | "crosswind" | "calm"
  * (relative to the park, not compass degrees).  We map those tokens to relative
