@@ -4,6 +4,8 @@
  * No authentication required
  */
 
+import { sanitizeForLog } from "@/lib/utils/log"
+
 const BASE_URL = "https://statsapi.mlb.com/api/v1"
 const SEASON = process.env.NEXT_PUBLIC_MLB_SEASON ?? "2026"
 
@@ -97,10 +99,10 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
         signal: AbortSignal.timeout(8000),
       })
       if (res.ok) return (await res.json()) as T
-      console.error("[mlb-stats] HTTP %d for %s (attempt %d)", res.status, path, attempt + 1)
+      console.error("[mlb-stats] HTTP %d for %s (attempt %d)", res.status, sanitizeForLog(path), attempt + 1)
       if (res.status < 500) return null
     } catch (err) {
-      console.error("[mlb-stats] fetch error for %s (attempt %d):", path, attempt + 1, err)
+      console.error("[mlb-stats] fetch error for %s (attempt %d):", sanitizeForLog(path), attempt + 1, err)
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 400))
   }
