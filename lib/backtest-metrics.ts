@@ -41,8 +41,42 @@ export interface BacktestMetrics {
   roiFlat: number
   sharpe: number
   maxDrawdown: number
+  /**
+   * AUC (area under ROC) via the Mann-Whitney rank-sum identity. Pure
+   * DISCRIMINATION measure: P(model ranks a random NRFI game above a random
+   * YRFI game). 0.5 = no separation; invariant under any monotonic transform
+   * of nrfiProbability (so identity calibration, the league-anchor blend and
+   * the output clamp all leave it unchanged — it reflects raw-ensemble ranking).
+   */
+  auc: number
+  /** Std-dev of nrfiProbability — how much the predictions actually spread out. */
+  predStdDev: number
   calibration: CalibrationBin[]
   byConfidence: Record<string, { n: number; brier: number; accuracy: number; roiKelly: number }>
+}
+
+/**
+ * AUC = (R₁ − n₁(n₁+1)/2) / (n₁·n₀) where R₁ is the rank-sum of the positive
+ * class (actualNrfi=true). Ties share their averaged rank. Returns 0.5 when one
+ * class is empty (undefined separation).
+ */
+function computeAUC(rows: BacktestRow[]): number {
+  const n = rows.length
+  const pos = rows.filter((r) => r.actualNrfi).length
+  const neg = n - pos
+  if (pos === 0 || neg === 0) return 0.5
+
+  const sorted = [...rows].sort((a, b) => a.nrfiProbability - b.nrfiProbability)
+  let rankSumPos = 0
+  let i = 0
+  while (i < n) {
+    let j = i
+    while (j < n && sorted[j].nrfiProbability === sorted[i].nrfiProbability) j++
+    const avgRank = (i + 1 + j) / 2  // 1-based average rank for this tie group
+    for (let k = i; k < j; k++) if (sorted[k].actualNrfi) rankSumPos += avgRank
+    i = j
+  }
+  return (rankSumPos - (pos * (pos + 1)) / 2) / (pos * neg)
 }
 
 /** Net profit per unit staked for American odds (e.g. 100/110 ≈ 0.909 at -110). */
@@ -70,7 +104,7 @@ function computeSliceMetrics(
   ordered: boolean,
 ): Omit<BacktestMetrics, "byConfidence"> {
   if (rows.length === 0) {
-    return { n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0, sharpe: 0, maxDrawdown: 0, calibration: [] }
+    return { n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0, sharpe: 0, maxDrawdown: 0, auc: 0.5, predStdDev: 0, calibration: [] }
   }
 
   let brierSum = 0
@@ -156,6 +190,11 @@ function computeSliceMetrics(
     .sort((a, b) => a[0] - b[0])
     .map(([bin, d]) => ({ bin, actual: d.total > 0 ? d.nrfi / d.total : 0, count: d.total }))
 
+  const meanProb = rows.reduce((s, r) => s + r.nrfiProbability, 0) / rows.length
+  const predStdDev = Math.sqrt(
+    rows.reduce((s, r) => s + (r.nrfiProbability - meanProb) ** 2, 0) / rows.length
+  )
+
   return {
     n: rows.length,
     brierScore: brierSum / rows.length,
@@ -164,6 +203,8 @@ function computeSliceMetrics(
     roiFlat,
     sharpe,
     maxDrawdown,
+    auc: computeAUC(rows),
+    predStdDev,
     calibration,
   }
 }
@@ -176,7 +217,7 @@ export function computeBacktestMetrics(
   if (rows.length === 0) {
     return {
       n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0,
-      sharpe: 0, maxDrawdown: 0, calibration: [], byConfidence: {},
+      sharpe: 0, maxDrawdown: 0, auc: 0.5, predStdDev: 0, calibration: [], byConfidence: {},
     }
   }
 
