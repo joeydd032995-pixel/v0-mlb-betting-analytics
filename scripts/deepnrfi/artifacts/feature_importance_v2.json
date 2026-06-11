@@ -1,0 +1,349 @@
+{
+  "features": [
+    {
+      "name": "away_top4_k_pct",
+      "gain": 1216.2708940505981,
+      "meanAbsShap": 0.03420415251547121
+    },
+    {
+      "name": "away_top4_bb_pct",
+      "gain": 1154.3511312007904,
+      "meanAbsShap": 0.03915656631997056
+    },
+    {
+      "name": "away_pitcher_bb_rate",
+      "gain": 1102.5784695148468,
+      "meanAbsShap": 0.06760812101828877
+    },
+    {
+      "name": "home_pitcher_bb_rate",
+      "gain": 1099.8443396091461,
+      "meanAbsShap": 0.03617469078923753
+    },
+    {
+      "name": "home_pitcher_fb_spin",
+      "gain": 1095.2192604541779,
+      "meanAbsShap": 0.057684679617905084
+    },
+    {
+      "name": "ensemble7_nrfi",
+      "gain": 1054.5255210399628,
+      "meanAbsShap": 0.038867477977825325
+    },
+    {
+      "name": "home_pitcher_k_rate",
+      "gain": 1033.4533307552338,
+      "meanAbsShap": 0.06837654434377467
+    },
+    {
+      "name": "home_top4_bb_pct",
+      "gain": 1030.4793922901154,
+      "meanAbsShap": 0.043500399940475755
+    },
+    {
+      "name": "away_pitcher_pitches_last5",
+      "gain": 1017.3702971935272,
+      "meanAbsShap": 0.04818582239380091
+    },
+    {
+      "name": "weather_humidity",
+      "gain": 1017.1008117198944,
+      "meanAbsShap": 0.06175584718470218
+    },
+    {
+      "name": "away_pitcher_babip",
+      "gain": 1016.0752925872803,
+      "meanAbsShap": 0.03712505143153219
+    },
+    {
+      "name": "weather_wind_in_out",
+      "gain": 1002.3830530643463,
+      "meanAbsShap": 0.031404960985691024
+    },
+    {
+      "name": "umpire_career_nrfi",
+      "gain": 970.9440302848816,
+      "meanAbsShap": 0.0346541881430869
+    },
+    {
+      "name": "away_offense_vs_hand",
+      "gain": 970.8687553405762,
+      "meanAbsShap": 0.046268825044051075
+    },
+    {
+      "name": "away_pitcher_fb_spin",
+      "gain": 969.9990344047546,
+      "meanAbsShap": 0.04670187451692306
+    },
+    {
+      "name": "weather_wind_mph",
+      "gain": 968.5609726905823,
+      "meanAbsShap": 0.029145301133800632
+    },
+    {
+      "name": "umpire_sample",
+      "gain": 967.4748485088348,
+      "meanAbsShap": 0.07971771686817512
+    },
+    {
+      "name": "home_pitcher_pitches_last5",
+      "gain": 957.3347091674805,
+      "meanAbsShap": 0.04309714260940452
+    },
+    {
+      "name": "umpire_zone_tightness",
+      "gain": 942.1324882507324,
+      "meanAbsShap": 0.03558578411727943
+    },
+    {
+      "name": "home_top4_k_pct",
+      "gain": 899.5025608539581,
+      "meanAbsShap": 0.02640809875601443
+    },
+    {
+      "name": "away_pitcher_stuff_plus",
+      "gain": 857.5163400173187,
+      "meanAbsShap": 0.03550489262307336
+    },
+    {
+      "name": "home_pitcher_breaking_pct",
+      "gain": 855.4496028423309,
+      "meanAbsShap": 0.028319641769007926
+    },
+    {
+      "name": "home_pitcher_hr_per9",
+      "gain": 821.6321194171906,
+      "meanAbsShap": 0.04938795993412489
+    },
+    {
+      "name": "weather_pressure_hpa",
+      "gain": 816.6403207778931,
+      "meanAbsShap": 0.0477598999839624
+    },
+    {
+      "name": "away_pitcher_k_rate",
+      "gain": 811.3127989768982,
+      "meanAbsShap": 0.03132113824396265
+    },
+    {
+      "name": "away_top4_ops",
+      "gain": 808.8044292926788,
+      "meanAbsShap": 0.02235282992896002
+    },
+    {
+      "name": "weather_air_density",
+      "gain": 794.3746111392975,
+      "meanAbsShap": 0.03637196206155398
+    },
+    {
+      "name": "away_pitcher_breaking_pct",
+      "gain": 781.9804191589355,
+      "meanAbsShap": 0.03239044886420454
+    },
+    {
+      "name": "home_pitcher_babip",
+      "gain": 774.5430634021759,
+      "meanAbsShap": 0.029156711686767006
+    },
+    {
+      "name": "away_pitcher_fb_velo",
+      "gain": 750.4084508419037,
+      "meanAbsShap": 0.031748445850170726
+    },
+    {
+      "name": "home_pitcher_fb_velo",
+      "gain": 747.6159272193909,
+      "meanAbsShap": 0.03056547787472213
+    },
+    {
+      "name": "away_pitcher_hr_per9",
+      "gain": 743.256513595581,
+      "meanAbsShap": 0.033475135954336085
+    },
+    {
+      "name": "home_offense_vs_hand",
+      "gain": 729.1034395694733,
+      "meanAbsShap": 0.022482082540854195
+    },
+    {
+      "name": "home_pitcher_vstop_woba",
+      "gain": 677.5863018035889,
+      "meanAbsShap": 0.02780166735575153
+    },
+    {
+      "name": "away_pitcher_vstop_woba",
+      "gain": 630.3806133270264,
+      "meanAbsShap": 0.026282829172172836
+    },
+    {
+      "name": "weather_temp_f",
+      "gain": 601.9952692985535,
+      "meanAbsShap": 0.02045600659271021
+    },
+    {
+      "name": "home_pitcher_stuff_plus",
+      "gain": 596.3944101333618,
+      "meanAbsShap": 0.027306671646792735
+    },
+    {
+      "name": "home_pitcher_rolling3_ip",
+      "gain": 533.3176815509796,
+      "meanAbsShap": 0.032081615260271014
+    },
+    {
+      "name": "home_pitcher_vstop_k",
+      "gain": 519.0399494171143,
+      "meanAbsShap": 0.018589160683405107
+    },
+    {
+      "name": "away_pitcher_rolling3_ip",
+      "gain": 512.9417788982391,
+      "meanAbsShap": 0.020435305345064162
+    },
+    {
+      "name": "home_top4_ops",
+      "gain": 472.48729181289673,
+      "meanAbsShap": 0.013134858538700268
+    },
+    {
+      "name": "away_pitcher_vstop_k",
+      "gain": 465.36979818344116,
+      "meanAbsShap": 0.02248644936512994
+    },
+    {
+      "name": "park_factor",
+      "gain": 379.87855052948,
+      "meanAbsShap": 0.016489020520964164
+    },
+    {
+      "name": "park_hr_factor",
+      "gain": 366.04928278923035,
+      "meanAbsShap": 0.022957275080885492
+    },
+    {
+      "name": "park_elevation_ft",
+      "gain": 341.934650182724,
+      "meanAbsShap": 0.01589710673445975
+    },
+    {
+      "name": "away_travel_miles",
+      "gain": 332.8647401332855,
+      "meanAbsShap": 0.011585632154061411
+    },
+    {
+      "name": "away_offense_factor",
+      "gain": 322.2113392353058,
+      "meanAbsShap": 0.01522034348915398
+    },
+    {
+      "name": "away_pitcher_first_batter_obp",
+      "gain": 316.60930037498474,
+      "meanAbsShap": 0.014141544311091913
+    },
+    {
+      "name": "away_pitcher_shrunk_nrfi",
+      "gain": 304.46780228614807,
+      "meanAbsShap": 0.01104076649269496
+    },
+    {
+      "name": "home_offense_factor",
+      "gain": 291.2362995147705,
+      "meanAbsShap": 0.015007339161458296
+    },
+    {
+      "name": "home_pitcher_first_batter_obp",
+      "gain": 274.50648856163025,
+      "meanAbsShap": 0.011958888937232239
+    },
+    {
+      "name": "away_top4_wrcplus",
+      "gain": 232.5707802772522,
+      "meanAbsShap": 0.008094808937311803
+    },
+    {
+      "name": "home_pitcher_shrunk_nrfi",
+      "gain": 202.0878505706787,
+      "meanAbsShap": 0.007988432197642042
+    },
+    {
+      "name": "home_top4_wrcplus",
+      "gain": 183.7544994354248,
+      "meanAbsShap": 0.01122964284571824
+    },
+    {
+      "name": "home_pitcher_days_rest",
+      "gain": 183.14019131660461,
+      "meanAbsShap": 0.010277214340503446
+    },
+    {
+      "name": "away_pitcher_days_rest",
+      "gain": 177.41617059707642,
+      "meanAbsShap": 0.007851705178165039
+    },
+    {
+      "name": "home_pitcher_start_count",
+      "gain": 156.29194021224976,
+      "meanAbsShap": 0.007457053536242528
+    },
+    {
+      "name": "away_pitcher_start_count",
+      "gain": 133.27843856811523,
+      "meanAbsShap": 0.007705876689595348
+    },
+    {
+      "name": "home_travel_miles",
+      "gain": 128.81675028800964,
+      "meanAbsShap": 0.019215427584831
+    },
+    {
+      "name": "home_pitcher_recent_form",
+      "gain": 86.3120698928833,
+      "meanAbsShap": 0.003982285338233372
+    },
+    {
+      "name": "away_pitcher_recent_form",
+      "gain": 68.1355504989624,
+      "meanAbsShap": 0.004993256030479967
+    },
+    {
+      "name": "park_first_inning_runs",
+      "gain": 65.56071996688843,
+      "meanAbsShap": 0.004821519683410527
+    },
+    {
+      "name": "away_rest_days",
+      "gain": 40.45306921005249,
+      "meanAbsShap": 0.004348795539893512
+    },
+    {
+      "name": "weather_precip_prob",
+      "gain": 27.568430185317993,
+      "meanAbsShap": 0.009204568714351805
+    },
+    {
+      "name": "is_bullpen_game",
+      "gain": 14.615979671478271,
+      "meanAbsShap": 0.0008258485993715408
+    },
+    {
+      "name": "away_pitcher_is_bullpen",
+      "gain": 5.823390007019043,
+      "meanAbsShap": 0.0010568796139368588
+    },
+    {
+      "name": "home_rest_days",
+      "gain": 2.7466700077056885,
+      "meanAbsShap": 0.0004150518943443527
+    },
+    {
+      "name": "home_pitcher_is_bullpen",
+      "gain": 0.0,
+      "meanAbsShap": 0.0
+    },
+    {
+      "name": "is_dome",
+      "gain": 0.0,
+      "meanAbsShap": 0.0
+    }
+  ]
+}

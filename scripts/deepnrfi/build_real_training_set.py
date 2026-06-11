@@ -104,10 +104,12 @@ DEFAULTS = {
 _MIN_GAMES_PITCHES_LAST5 = 3
 _MIN_GAMES_ROLLING3_IP = 2
 _MIN_GAMES_IS_BULLPEN = 2
-# Minimum first-inning PAs before vstop_woba / vstop_k are trusted.  At ~3.8
-# PAs/inning a starter clears this in ~10-13 starts (about a month into the
-# season), which keeps tiny-sample relievers and call-ups on the default.
-_MIN_VSTOP_PA = 40
+# Minimum first-inning PAs before vstop_woba / vstop_k are trusted.  The
+# rolling 30-day window holds at most ~6 starts (~23 first-inning PAs), so the
+# threshold must be reachable inside the window: 12 PAs ≈ 3 starts.  (The old
+# value of 40 was unreachable, which is why these columns were constant/dead
+# in the v1 training set.)
+_MIN_VSTOP_PA = 12
 
 # Cap team-level rest at 7 days so off-season -> opening day doesn't show
 # 180-day rest values that would dominate any LightGBM split.  Anything
@@ -608,6 +610,80 @@ def fetch_games(db_url: str, date_from: date, date_to: date) -> pd.DataFrame:
     return df
 
 
+_UMPIRE_SHRINK_K = 20  # mirrors scripts/data/refresh_umpires.ts
+
+
+def build_umpire_map(db_url: str) -> dict[int, dict[str, float]]:
+    """Point-in-time home-plate-umpire features per gamePk.
+
+    Walks ALL game_results in date order (full table, not just the build
+    window, so prior-season history carries forward) and computes each game's
+    features from the umpire's strictly-PRIOR games only — no lookahead, safe
+    for walk-forward validation.  Mirrors scripts/data/refresh_umpires.ts:
+      career_nrfi:    EB-shrunk toward 0.516 (k=20)
+      zone_tightness: clamp(−z/2, −1, 1), z = shrunk z-score of the umpire's
+                      prior mean K/game vs the running league game-K
+                      distribution (game-level std, so magnitudes are smaller
+                      than the TS profiles — scale-irrelevant for LightGBM).
+    Boxscores come from the local cache (network fallback for misses).
+    """
+    sql = """
+        SELECT "gamePk" AS game_pk, date AS date_str, (nrfi)::int AS nrfi
+        FROM game_results ORDER BY date, "gamePk"
+    """
+    with psycopg.connect(db_url) as conn:
+        games = pd.read_sql(sql, conn)
+    print(f"[builder] umpire map: walking {len(games):,} game_results rows")
+
+    umps: dict[int, dict[str, float]] = {}        # ump_id → running state
+    league = {"kSum": 0.0, "kSq": 0.0, "kN": 0}   # running game-K distribution
+    out: dict[int, dict[str, float]] = {}
+
+    for g in games.itertuples(index=False):
+        box = fetch_boxscore(int(g.game_pk))
+        if not box:
+            continue
+        hp = next((o for o in box.get("officials", [])
+                   if o.get("officialType") == "Home Plate"), None)
+        ump_id = (hp or {}).get("official", {}).get("id")
+        home_k = box.get("teams", {}).get("home", {}).get("teamStats", {}).get("pitching", {}).get("strikeOuts")
+        away_k = box.get("teams", {}).get("away", {}).get("teamStats", {}).get("pitching", {}).get("strikeOuts")
+        game_k = home_k + away_k if isinstance(home_k, (int, float)) and isinstance(away_k, (int, float)) else None
+        if ump_id is None:
+            continue
+
+        u = umps.setdefault(int(ump_id), {"n": 0, "nrfi": 0, "kSum": 0.0, "kN": 0})
+
+        # Features from PRIOR state only
+        career_nrfi = (u["nrfi"] + _UMPIRE_SHRINK_K * LEAGUE_AVG_NRFI) / (u["n"] + _UMPIRE_SHRINK_K)
+        if league["kN"] > 1:
+            league_k = league["kSum"] / league["kN"]
+            var = league["kSq"] / league["kN"] - league_k ** 2
+            k_std = var ** 0.5 if var > 0 else 1.0
+        else:
+            league_k, k_std = 16.0, 1.0
+        ump_mean_k = u["kSum"] / u["kN"] if u["kN"] > 0 else league_k
+        z = ((ump_mean_k - league_k) / k_std) * (u["kN"] / (u["kN"] + _UMPIRE_SHRINK_K))
+        out[int(g.game_pk)] = {
+            "zone_tightness": max(-1.0, min(1.0, -z / 2)),  # fewer K ⇒ tighter ⇒ +
+            "career_nrfi":    career_nrfi,
+            "sample":         float(u["n"]),
+        }
+
+        # Update state with the current game
+        u["n"] += 1
+        u["nrfi"] += int(g.nrfi)
+        if game_k is not None:
+            u["kSum"] += float(game_k)
+            u["kN"] += 1
+            league["kSum"] += float(game_k)
+            league["kSq"] += float(game_k) ** 2
+            league["kN"] += 1
+
+    print(f"[builder] umpire map: {len(out):,} games, {len(umps)} umpires")
+    return out
+
+
 # ─── Row builder ──────────────────────────────────────────────────────────────
 
 def _wind_in_out_scalar(wind_mph: float, wind_dir_deg: float, park_orientation_deg: float = 0.0) -> float:
@@ -684,7 +760,7 @@ def compute_travel_rest_map(games: pd.DataFrame) -> dict[int, dict[str, float]]:
     return out
 
 
-def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict, wx: dict, tr: dict | None = None) -> dict:
+def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict, wx: dict, tr: dict | None = None, ump: dict | None = None) -> dict:
     """Compose one CSV row.  Missing keys → defaults; presence is implicit in NaN handling."""
     def pf(d: dict, key: str, default):
         v = d.get(key)
@@ -760,9 +836,9 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "park_first_inning_runs":  park["firstInningRunsFactor"],
         "park_hr_factor":          park["hrFactor"],
         "park_elevation_ft":       park["elevationFt"],
-        "umpire_zone_tightness":   0,
-        "umpire_career_nrfi":      LEAGUE_AVG_NRFI,
-        "umpire_sample":           0,
+        "umpire_zone_tightness":   float((ump or {}).get("zone_tightness", 0.0)),
+        "umpire_career_nrfi":      float((ump or {}).get("career_nrfi", LEAGUE_AVG_NRFI)),
+        "umpire_sample":           float((ump or {}).get("sample", 0.0)),
         "home_rest_days":          float((tr or {}).get("home_rest_days", DEFAULTS["days_rest"])),
         "away_rest_days":          float((tr or {}).get("away_rest_days", DEFAULTS["days_rest"])),
         "home_travel_miles":       float((tr or {}).get("home_travel_miles", 0.0)),
@@ -826,6 +902,10 @@ def main() -> int:
     # Built upfront so the resume-skip logic in the loop can't corrupt the
     # per-team last-game tracker by mid-walk skips.
     travel_rest = compute_travel_rest_map(games)
+
+    # 2d. Point-in-time umpire features over the FULL game_results history
+    # (boxscores are cache-hot from prior runs, so this is fast and local).
+    umpire_map = build_umpire_map(args.db_url)
 
     # 3. Resume checkpoint
     already = load_existing_game_ids()
@@ -893,7 +973,7 @@ def main() -> int:
             "ensemble7_inputs_lineup":  1 if ip.get("lineup") else 0,
         }
         tr = travel_rest.get(int(game.game_pk))
-        chunk.append(make_row(meta, p_home, p_away, b_home, b_away, wx, tr))
+        chunk.append(make_row(meta, p_home, p_away, b_home, b_away, wx, tr, umpire_map.get(int(game.game_pk))))
         processed += 1
 
         # Flush every 200 rows so a crash resumes cleanly.
