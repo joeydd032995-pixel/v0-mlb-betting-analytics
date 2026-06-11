@@ -97,10 +97,10 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
         signal: AbortSignal.timeout(8000),
       })
       if (res.ok) return (await res.json()) as T
-      console.error(`[mlb-stats] HTTP ${res.status} for ${path} (attempt ${attempt + 1})`)
+      console.error("[mlb-stats] HTTP %d for %s (attempt %d)", res.status, path, attempt + 1)
       if (res.status < 500) return null
     } catch (err) {
-      console.error(`[mlb-stats] fetch error for ${path} (attempt ${attempt + 1}):`, err)
+      console.error("[mlb-stats] fetch error for %s (attempt %d):", path, attempt + 1, err)
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 400))
   }
