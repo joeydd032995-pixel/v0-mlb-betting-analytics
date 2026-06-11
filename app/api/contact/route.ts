@@ -9,7 +9,9 @@ export async function POST(request: NextRequest) {
       company?: string
       message?: string
     }
-    console.log("[contact] Enterprise inquiry received from:", body.company ?? "unknown")
+    const rawCompany = body.company ?? "unknown"
+    const sanitizedCompany = rawCompany.replace(/[\r\n]/g, "")
+    console.log("[contact] Enterprise inquiry received from:", sanitizedCompany)
     return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json(
