@@ -7,6 +7,7 @@ import { NextResponse } from "next/server"
 import { stripe } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 import { priceIdToTier } from "@/lib/subscription"
+import { sanitizeForLog } from "@/lib/utils/log"
 import type Stripe from "stripe"
 
 export const dynamic = "force-dynamic"
@@ -118,7 +119,7 @@ export async function POST(req: Request) {
         break
     }
   } catch (err) {
-    console.error(`[stripe-webhook] DB error processing ${event.type}:`, err instanceof Error ? err.message : err)
+    console.error(`[stripe-webhook] DB error processing ${sanitizeForLog(event.type)}:`, err instanceof Error ? err.message : err)
     // Return 500 so Stripe will retry
     return NextResponse.json({ error: "Internal error" }, { status: 500 })
   }

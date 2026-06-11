@@ -30,6 +30,7 @@ import { buildTrackedPrediction } from "@/lib/prediction-store"
 import { STADIUM_PARK_FACTORS } from "@/lib/constants/mlb-stadiums"
 import { MLB_TEAMS } from "@/lib/constants/mlb-teams"
 import { resolveTeamId, estimateNrfiRate, estimateOffenseFactor } from "@/lib/api/shared-helpers"
+import { sanitizeForLog } from "@/lib/utils/log"
 import type { Game, Pitcher, Team, Weather } from "@/lib/types"
 import type { MLBGame, MLBPitcherSeasonStats, MLBTeamHittingStats } from "@/lib/api/mlb-stats"
 
@@ -457,7 +458,7 @@ export async function GET(request: Request) {
       }
 
     } catch (err) {
-      console.error(`[historical-sync] Error processing ${date}:`, err)
+      console.error(`[historical-sync] Error processing ${sanitizeForLog(date)}:`, err)
       skipped++
     }
   }

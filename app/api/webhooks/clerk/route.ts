@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server"
 import { Webhook } from "svix"
 import { prisma } from "@/lib/prisma"
+import { sanitizeForLog } from "@/lib/utils/log"
 
 export const dynamic = "force-dynamic"
 
@@ -78,26 +79,26 @@ export async function POST(request: Request) {
         create: { id: data.id, ...userData },
         update: userData,
       })
-      console.log(`[clerk-webhook] Created user ${data.id}`)
+      console.log(`[clerk-webhook] Created user ${sanitizeForLog(data.id)}`)
     } else if (type === "user.updated") {
       await prisma.user.upsert({
         where: { id: data.id },
         create: { id: data.id, ...userData },
         update: userData,
       })
-      console.log(`[clerk-webhook] Updated user ${data.id}`)
+      console.log(`[clerk-webhook] Updated user ${sanitizeForLog(data.id)}`)
     } else if (type === "user.deleted") {
       // deleteMany is idempotent — returns { count: 0 } instead of throwing P2025
       // when a duplicate delivery or manual cleanup already removed the user.
       const { count } = await prisma.user.deleteMany({ where: { id: data.id } })
       if (count > 0) {
-        console.log(`[clerk-webhook] Deleted user ${data.id}`)
+        console.log(`[clerk-webhook] Deleted user ${sanitizeForLog(data.id)}`)
       } else {
-        console.log(`[clerk-webhook] user.deleted: ${data.id} was already absent — no-op`)
+        console.log(`[clerk-webhook] user.deleted: ${sanitizeForLog(data.id)} was already absent — no-op`)
       }
     }
   } catch (err) {
-    console.error(`[clerk-webhook] DB error for ${type}:`, err)
+    console.error(`[clerk-webhook] DB error for ${sanitizeForLog(type)}:`, err)
     return NextResponse.json({ error: "Database error" }, { status: 500 })
   }
 
