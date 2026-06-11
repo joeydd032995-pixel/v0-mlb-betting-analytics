@@ -18,6 +18,7 @@ import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
 import { fetchGamesByDate, fetchGameLinescore } from "@/lib/api/mlb-stats"
+import { sanitizeForLog } from "@/lib/utils/log"
 import type { TrackedPrediction } from "@/lib/prediction-store"
 
 export const dynamic = "force-dynamic"
@@ -138,7 +139,7 @@ export async function GET(request: Request) {
           }
         }
       } catch (err) {
-        console.error(`[backfill] Error for date ${date}:`, err)
+        console.error(`[backfill] Error for date ${sanitizeForLog(date)}:`, err)
         // Continue with remaining dates
       }
     }

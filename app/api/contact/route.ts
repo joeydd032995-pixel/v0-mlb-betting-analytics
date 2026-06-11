@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { sanitizeForLog } from "@/lib/utils/log"
 
 // Stub — logs the contact request and returns 200.
 // Replace with your CRM, email, or ticketing system integration.
@@ -9,9 +10,7 @@ export async function POST(request: NextRequest) {
       company?: string
       message?: string
     }
-    const rawCompany = body.company ?? "unknown"
-    const sanitizedCompany = rawCompany.replace(/[\r\n]/g, "")
-    console.log("[contact] Enterprise inquiry received from:", sanitizedCompany)
+    console.log("[contact] Enterprise inquiry received from:", sanitizeForLog(body.company ?? "unknown"))
     return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json(
