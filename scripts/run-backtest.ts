@@ -5,6 +5,11 @@
  *   DATABASE_URL=... npx tsx scripts/run-backtest.ts
  *   DATABASE_URL=... npx tsx scripts/run-backtest.ts --synthetic
  *   DATABASE_URL=... npx tsx scripts/run-backtest.ts --synthetic --lambda=0.6
+ *   DATABASE_URL=... npx tsx scripts/run-backtest.ts --anchor-sweep
+ *
+ * --anchor-sweep: DIAGNOSTIC ONLY. Re-blends the stored final probability toward
+ * the league anchor at a range of ENSEMBLE_BLEND values and reports the holdout
+ * Brier / ROI for each, to inform (never auto-apply) the anchor-strength knob.
  *
  * Odds resolution per row:
  *   1. real stored nrfiOdds/yrfiOdds if present (none in the 2024–2025 archive yet)
@@ -31,6 +36,25 @@ const SYNTH_PARAMS: SyntheticOddsParams = LAMBDA_ARG
   ? { ...DEFAULT_SYNTH, marketSharpness: parseFloat(LAMBDA_ARG.split("=")[1]) }
   : DEFAULT_SYNTH
 const LAMBDA_SWEEP = [0.25, 0.5, 0.75, 1.0]
+
+// ─── Anchor-strength sweep (1d) ─────────────────────────────────────────────
+// Mirrors lib/nrfi-engine.ts: final = clamp(β·cal(raw) + (1−β)·ANCHOR, 0.18, 0.85).
+// Under the post-audit IDENTITY calibration cal(raw)=raw, so the stored final is
+// invertible back to raw wherever the clamp doesn't bind (it essentially never
+// does — pred stddev ≈ 0.057 around 0.5). We then re-blend at each candidate β.
+const RUN_ANCHOR_SWEEP = process.argv.includes("--anchor-sweep")
+const PROD_ENSEMBLE_BLEND = 0.76
+const LEAGUE_ANCHOR_VALUE = 0.516
+const CLAMP_MIN = 0.18
+const CLAMP_MAX = 0.85
+const ANCHOR_BLEND_SWEEP = [0.65, 0.70, 0.76, 0.80, 0.85]
+
+function invertFinalToRaw(final: number): number {
+  return (final - (1 - PROD_ENSEMBLE_BLEND) * LEAGUE_ANCHOR_VALUE) / PROD_ENSEMBLE_BLEND
+}
+function reblend(raw: number, beta: number): number {
+  return Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, beta * raw + (1 - beta) * LEAGUE_ANCHOR_VALUE))
+}
 
 function pct(n: number) { return (n * 100).toFixed(2) + "%" }
 function fmt(n: number, decimals = 4) { return n.toFixed(decimals) }
@@ -117,6 +141,7 @@ async function runSeason(season: number) {
   console.log(`  AUC:          ${fmt(m.auc, 4)}  (DISCRIMINATION; 0.5 = no ranking signal)`)
   console.log(`  Pred StdDev:  ${fmt(m.predStdDev, 4)}  (spread of predictions; near 0 = bunched at mean)`)
   console.log(`  Brier Score:  ${fmt(m.brierScore)}  (lower = better; coin-flip = 0.25)`)
+  console.log(`  Log-Loss:     ${fmt(m.logLoss)}  (lower = better; coin-flip ≈ 0.693)`)
   console.log(`  ROI Kelly:    ${pct(m.roiKelly)}`)
   console.log(`  ROI Flat:     ${pct(m.roiFlat)}`)
   console.log(`  Sharpe:       ${fmt(m.sharpe, 3)}`)
@@ -167,6 +192,24 @@ async function runSeason(season: number) {
     }
     console.log(`    (λ=0 → market==model→0 edge; λ=1 → market==league base rate. Real`)
     console.log(`     sharp books sit near the LOW end, so read these as optimistic.)`)
+  }
+
+  // Anchor-strength sweep — re-blend stored finals at each candidate β.
+  if (RUN_ANCHOR_SWEEP) {
+    console.log(`\n  Anchor-strength (ENSEMBLE_BLEND) sweep — Brier/ROI by β:`)
+    console.log(`    ${"β".padStart(5)}  ${"Brier".padStart(8)}  ${"Accuracy".padStart(9)}  ${"ROI-Kelly".padStart(10)}`)
+    console.log(`    ${"─".repeat(40)}`)
+    for (const beta of ANCHOR_BLEND_SWEEP) {
+      const sweepRows = rows.map((r) => ({
+        ...r,
+        nrfiProbability: reblend(invertFinalToRaw(r.nrfiProbability), beta),
+      }))
+      const sm = computeBacktestMetrics(sweepRows, true)
+      const marker = beta === PROD_ENSEMBLE_BLEND ? "  ← current" : ""
+      console.log(`    ${fmt(beta, 2).padStart(5)}  ${fmt(sm.brierScore).padStart(8)}  ${pct(sm.accuracy).padStart(9)}  ${pct(sm.roiKelly).padStart(10)}${marker}`)
+    }
+    console.log(`    (Higher β = more model weight / less league shrinkage. Promote a new`)
+    console.log(`     ENSEMBLE_BLEND only on a real holdout Brier gain, via the audit gate.)`)
   }
 
   console.log()

@@ -105,6 +105,26 @@ export const CONFIG = {
     scaling: 0.25, // Quarter Kelly
     minEdge: 0.03, // 3% minimum edge before a bet is recommended
     maxBet: 0.05, // 5% max of bankroll per bet (cap on the fractional-Kelly stake)
+
+    // Optional confidence-scaled fractional Kelly. When `enabled` is false the
+    // engine sizes every bet at the flat quarter-Kelly above, so live behaviour
+    // and the audited Kelly regression invariants are unchanged. When enabled,
+    // the fraction is multiplied by a factor that ramps linearly with the
+    // reliability score (10 → minFactor, 98 → maxFactor), still capped by maxBet.
+    // Keep OFF until a walk-forward ROI backtest shows the scaling helps.
+    confidenceScaling: {
+      enabled:   false,
+      minFactor: 0.5, // multiplier at the lowest confidence score (10)
+      maxFactor: 1.0, // multiplier at the highest confidence score (98)
+    },
+
+    // Liquidity guard on value bets. The two-way overround (sum of the vigged
+    // implied probabilities) is a proxy for market quality: a healthy book sits
+    // just above 1.0 (a few points of vig); an inverted (< minOverround) or
+    // very wide (> maxOverround) market signals a stale, thin, or mispriced
+    // line that shouldn't drive a recommended bet.
+    minOverround: 1.0,  // < 1.0 ⇒ inverted / arb-looking ⇒ untrustworthy
+    maxOverround: 1.15, // > 15% combined vig ⇒ treat as illiquid
   },
 
   // Projection model
