@@ -36,6 +36,8 @@ export interface CalibrationBin {
 export interface BacktestMetrics {
   n: number
   brierScore: number
+  /** Mean negative log-likelihood (cross-entropy); lower = better, coin-flip ≈ 0.693. */
+  logLoss: number
   accuracy: number
   roiKelly: number
   roiFlat: number
@@ -85,6 +87,44 @@ function profitPerUnit(americanOdds: number): number {
 }
 
 /**
+ * Mean log-loss (binary cross-entropy) of probabilities `probs` against binary
+ * `labels`. Probabilities are clipped to [1e-3, 1-1e-3] so a confident miss
+ * can't produce an infinite penalty. Returns 0 for an empty or
+ * mismatched-length input.
+ */
+export function logLoss(probs: number[], labels: Array<0 | 1 | boolean>): number {
+  if (probs.length === 0 || probs.length !== labels.length) return 0
+  const EPS = 1e-3
+  let s = 0
+  for (let i = 0; i < probs.length; i++) {
+    const p = Math.max(EPS, Math.min(1 - EPS, probs[i]))
+    const y = labels[i] ? 1 : 0
+    s += -(y * Math.log(p) + (1 - y) * Math.log(1 - p))
+  }
+  return s / probs.length
+}
+
+/**
+ * Pearson correlation between two equal-length numeric series. Returns 0 when a
+ * series has no variance (correlation is undefined) or the inputs are empty /
+ * mismatched — a safe neutral value for the diversity dashboard.
+ */
+export function pearson(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length < 2) return 0
+  const n = a.length
+  let sa = 0, sb = 0
+  for (let i = 0; i < n; i++) { sa += a[i]; sb += b[i] }
+  const ma = sa / n, mb = sb / n
+  let cov = 0, va = 0, vb = 0
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - ma, db = b[i] - mb
+    cov += da * db; va += da * da; vb += db * db
+  }
+  if (va === 0 || vb === 0) return 0
+  return cov / Math.sqrt(va * vb)
+}
+
+/**
  * Fractional Kelly bet size matching nrfi-engine.ts:kellyFraction().
  *
  * `americanOdds` must keep its sign — passing Math.abs(odds) converts every
@@ -104,7 +144,7 @@ function computeSliceMetrics(
   ordered: boolean,
 ): Omit<BacktestMetrics, "byConfidence"> {
   if (rows.length === 0) {
-    return { n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0, sharpe: 0, maxDrawdown: 0, auc: 0.5, predStdDev: 0, calibration: [] }
+    return { n: 0, brierScore: 0, logLoss: 0, accuracy: 0, roiKelly: 0, roiFlat: 0, sharpe: 0, maxDrawdown: 0, auc: 0.5, predStdDev: 0, calibration: [] }
   }
 
   let brierSum = 0
@@ -198,6 +238,7 @@ function computeSliceMetrics(
   return {
     n: rows.length,
     brierScore: brierSum / rows.length,
+    logLoss: logLoss(rows.map((r) => r.nrfiProbability), rows.map((r) => r.actualNrfi)),
     accuracy: correct / rows.length,
     roiKelly,
     roiFlat,
@@ -216,7 +257,7 @@ export function computeBacktestMetrics(
 ): BacktestMetrics {
   if (rows.length === 0) {
     return {
-      n: 0, brierScore: 0, accuracy: 0, roiKelly: 0, roiFlat: 0,
+      n: 0, brierScore: 0, logLoss: 0, accuracy: 0, roiKelly: 0, roiFlat: 0,
       sharpe: 0, maxDrawdown: 0, auc: 0.5, predStdDev: 0, calibration: [], byConfidence: {},
     }
   }

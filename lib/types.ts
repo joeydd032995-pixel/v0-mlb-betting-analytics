@@ -394,6 +394,10 @@ export interface ValueAnalysis {
   recommendedBet: "NRFI" | "YRFI" | "NO_BET"
   kellyFraction: number
   expectedValue: number
+  /** Two-way market overround (impliedNrfiProb + impliedYrfiProb); ~1.04–1.06 for a healthy book. */
+  overround: number
+  /** False when the overround is inverted or too wide — the line is treated as illiquid and no bet is surfaced. */
+  liquidityOk: boolean
 }
 
 export interface HistoricalResult {

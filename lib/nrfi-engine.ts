@@ -60,6 +60,13 @@ import { hashGameId } from "@/lib/utils/hash"
 const MIN_KELLY_EDGE      = CONFIG.kelly.minEdge   // 0.03
 const KELLY_FRACTION      = CONFIG.kelly.scaling   // 0.25 (quarter Kelly)
 const MAX_KELLY_BET       = CONFIG.kelly.maxBet    // 0.05 (5% of bankroll cap)
+const CONF_SCALING        = CONFIG.kelly.confidenceScaling
+const MIN_OVERROUND       = CONFIG.kelly.minOverround
+const MAX_OVERROUND       = CONFIG.kelly.maxOverround
+// Reliability score lives on [10, 98] (see computeConfidence); map it to the
+// configured [minFactor, maxFactor] Kelly multiplier when scaling is enabled.
+const CONF_SCORE_MIN      = 10
+const CONF_SCORE_MAX      = 98
 const COLD_TEMP_THRESHOLD_F = 50
 /**
  * Final-stage shrinkage toward a league baseline:
@@ -128,13 +135,27 @@ export function impliedToAmerican(prob: number): number {
   return Math.round(((1 - p) / p) * 100)
 }
 
-function kellyFraction(edge: number, odds: number): number {
+/**
+ * Confidence multiplier on the flat Kelly fraction. Returns 1 (no-op) unless
+ * confidence scaling is enabled in config, in which case it ramps linearly from
+ * `minFactor` at the lowest reliability score to `maxFactor` at the highest.
+ */
+export function confidenceFactor(confidenceScore?: number): number {
+  if (!CONF_SCALING.enabled || confidenceScore === undefined) return 1
+  const t = Math.max(0, Math.min(1,
+    (confidenceScore - CONF_SCORE_MIN) / (CONF_SCORE_MAX - CONF_SCORE_MIN)))
+  return CONF_SCALING.minFactor + (CONF_SCALING.maxFactor - CONF_SCALING.minFactor) * t
+}
+
+function kellyFraction(edge: number, odds: number, confidenceScore?: number): number {
   const modelProb = Math.max(0, Math.min(1, impliedProbability(odds) + edge))
   // b = net profit per unit staked (NOT the decimal odds, which include the stake).
   const b        = odds > 0 ? odds / 100 : 100 / Math.abs(odds)
   const q        = 1 - modelProb
   const rawKelly = (b * modelProb - q) / b
-  return Math.max(0, Math.min(MAX_KELLY_BET, rawKelly * KELLY_FRACTION))
+  // Confidence scaling is applied INSIDE the cap so the 5%-of-bankroll ceiling
+  // always binds last, regardless of the multiplier.
+  return Math.max(0, Math.min(MAX_KELLY_BET, rawKelly * KELLY_FRACTION * confidenceFactor(confidenceScore)))
 }
 
 function expectedValue(modelProb: number, odds: number): number {
@@ -402,7 +423,8 @@ function getRecommendation(nrfiProb: number): Recommendation {
 
 function computeValueAnalysis(
   nrfiProb: number,
-  odds:     { nrfiOdds: number; yrfiOdds: number; bookmaker: string }
+  odds:     { nrfiOdds: number; yrfiOdds: number; bookmaker: string },
+  confidenceScore?: number
 ): ValueAnalysis {
   const impliedNrfi = impliedProbability(odds.nrfiOdds)
   const impliedYrfi = impliedProbability(odds.yrfiOdds)
@@ -417,16 +439,20 @@ function computeValueAnalysis(
   // a bet must clear the bookmaker margin before it shows positive edge).
   const nrfiEdge    = nrfiProb - impliedNrfi
   const yrfiEdge    = yrfiProb - impliedYrfi
+  // Liquidity guard: an inverted or excessively wide two-way market is treated
+  // as a stale / thin / mispriced line; we surface the edge but never a bet.
+  const liquidityOk = overround >= MIN_OVERROUND && overround <= MAX_OVERROUND
   const base = { impliedNrfiProb: impliedNrfi, impliedYrfiProb: impliedYrfi,
     fairNrfiProb: fairNrfi, fairYrfiProb: fairYrfi,
-    nrfiEdge, yrfiEdge, nrfiOdds: odds.nrfiOdds, yrfiOdds: odds.yrfiOdds }
-  if (nrfiEdge >= MIN_KELLY_EDGE)
+    nrfiEdge, yrfiEdge, nrfiOdds: odds.nrfiOdds, yrfiOdds: odds.yrfiOdds,
+    overround, liquidityOk }
+  if (liquidityOk && nrfiEdge >= MIN_KELLY_EDGE)
     return { ...base, recommendedBet: "NRFI",
-      kellyFraction: kellyFraction(nrfiEdge, odds.nrfiOdds),
+      kellyFraction: kellyFraction(nrfiEdge, odds.nrfiOdds, confidenceScore),
       expectedValue: expectedValue(nrfiProb, odds.nrfiOdds) }
-  if (yrfiEdge >= MIN_KELLY_EDGE)
+  if (liquidityOk && yrfiEdge >= MIN_KELLY_EDGE)
     return { ...base, recommendedBet: "YRFI",
-      kellyFraction: kellyFraction(yrfiEdge, odds.yrfiOdds),
+      kellyFraction: kellyFraction(yrfiEdge, odds.yrfiOdds, confidenceScore),
       expectedValue: expectedValue(yrfiProb, odds.yrfiOdds) }
   return { ...base, recommendedBet: "NO_BET", kellyFraction: 0, expectedValue: 0 }
 }
@@ -691,7 +717,7 @@ export function computeNRFIPrediction(
   }
 
   const factors      = buildFactors(game, homePitcher, awayPitcher, homeTeam, awayTeam)
-  const valueAnalysis = game.odds ? computeValueAnalysis(nrfiProb, game.odds) : undefined
+  const valueAnalysis = game.odds ? computeValueAnalysis(nrfiProb, game.odds, confScore) : undefined
 
   return {
     gameId:            game.id,

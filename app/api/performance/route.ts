@@ -11,6 +11,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
+import { logLoss, pearson } from "@/lib/backtest-metrics"
+import { ENSEMBLE_WEIGHTS } from "@/lib/nrfi-models"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -105,13 +107,26 @@ export async function GET() {
         return typeof prob === "number" && isFinite(prob) && prob > 0
       })
       if (validPreds.length === 0) return null
-      let correct = 0; let maeSum = 0
+      let correct = 0; let maeSum = 0; let brierSum = 0
       for (const p of validPreds) {
         const prob = getProb(p)
+        const actual = p.actualResult === "NRFI" ? 1 : 0
         if ((prob >= 0.5 ? "NRFI" : "YRFI") === p.actualResult) correct++
-        maeSum += Math.abs(prob - (p.actualResult === "NRFI" ? 1 : 0))
+        maeSum += Math.abs(prob - actual)
+        brierSum += (prob - actual) ** 2
       }
-      return { accuracy: correct / validPreds.length, mae: maeSum / validPreds.length, total: validPreds.length, correct }
+      const ll = logLoss(
+        validPreds.map((p) => getProb(p)),
+        validPreds.map((p) => (p.actualResult === "NRFI" ? 1 : 0)),
+      )
+      return {
+        accuracy: correct / validPreds.length,
+        mae: maeSum / validPreds.length,
+        brier: brierSum / validPreds.length,
+        logLoss: ll,
+        total: validPreds.length,
+        correct,
+      }
     }
     const perModel = withResult.length > 0 ? {
       Poisson:  modelStats((p) => p.poissonNrfi),
@@ -119,6 +134,36 @@ export async function GET() {
       Markov:   modelStats((p) => p.markovNrfi),
       Ensemble: modelStats((p) => p.ensembleNrfi),
     } : null
+
+    // ── 5b. Ensemble diversity ─────────────────────────────────────────────
+    // Pairwise Pearson correlation of the stored base-model probabilities plus
+    // the average off-diagonal correlation (a low value means the models add
+    // independent signal — the ensemble-diversity metric). Only rows where all
+    // three base probabilities are valid non-zero numbers are used, so
+    // pre-per-model-column backfills can't drag a correlation toward 1.
+    const diversityRows = withResult.filter((p) =>
+      [p.poissonNrfi, p.zipNrfi, p.markovNrfi].every((v) => typeof v === "number" && isFinite(v) && v > 0)
+    )
+    const diversity = diversityRows.length >= 2 ? (() => {
+      const series = {
+        Poisson: diversityRows.map((p) => p.poissonNrfi),
+        ZIP:     diversityRows.map((p) => p.zipNrfi),
+        Markov:  diversityRows.map((p) => p.markovNrfi),
+      }
+      const names = Object.keys(series) as Array<keyof typeof series>
+      const matrix: Record<string, Record<string, number>> = {}
+      const offDiag: number[] = []
+      for (const a of names) {
+        matrix[a] = {}
+        for (const b of names) {
+          const r = a === b ? 1 : pearson(series[a], series[b])
+          matrix[a][b] = r
+          if (a < b) offDiag.push(r)
+        }
+      }
+      const avgCorrelation = offDiag.length > 0 ? offDiag.reduce((s, v) => s + v, 0) / offDiag.length : 0
+      return { n: diversityRows.length, matrix, avgCorrelation, weights: ENSEMBLE_WEIGHTS }
+    })() : null
 
     // ── 6. Monthly breakdown ──────────────────────────────────────────────
     //    Pull all game results and bucket by YYYY-MM
@@ -234,6 +279,7 @@ export async function GET() {
       accuracy,
       byConfidence,
       perModel,
+      diversity,
       monthly,
       byVersion,
       byEdgeBucket,

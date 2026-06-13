@@ -22,23 +22,6 @@ const MODEL_COLORS: Record<string, string> = {
   "Hierarchical Bayes": "#8b5cf6",
 }
 
-// Reliability diagram (illustrative calibration curve).
-// Real calibration requires raw prediction-by-prediction data; this approximates
-// from ensemble accuracy and MAE — useful for shape, not exact values.
-function buildCalibrationData(
-  perModel: ExtendedModelAccuracy["perModelAccuracy"]
-): { bucket: string; predicted: number; actual: number }[] {
-  const BUCKETS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-  const ensembleModel = perModel.find(m => m.model === "Ensemble")
-  const baseAcc = ensembleModel?.accuracy ?? 0.614
-
-  return BUCKETS.map(p => ({
-    bucket: `${(p * 100).toFixed(0)}%`,
-    predicted: p,
-    actual: Math.min(1, Math.max(0, p * baseAcc / 0.614)),
-  }))
-}
-
 export function AccuracyCharts({ accuracy }: Props) {
   const perModelData = useMemo(() => accuracy.perModelAccuracy.map(m => ({
     name: m.model === "Logistic Stack" ? "LogMeta" : m.model === "Hierarchical Bayes" ? "HierBayes" : m.model === "NN Interaction" ? "NN Cross" : m.model,
@@ -49,10 +32,20 @@ export function AccuracyCharts({ accuracy }: Props) {
     fullName: m.model,
   })), [accuracy.perModelAccuracy])
 
-  const perfectCal = useMemo(() => {
-    const cal = buildCalibrationData(accuracy.perModelAccuracy)
-    return cal.map(d => ({ ...d, perfect: d.predicted }))
-  }, [accuracy.perModelAccuracy])
+  // Real reliability diagram: predicted-probability bin vs observed NRFI rate,
+  // computed prediction-by-prediction in computeExtendedAccuracy. Bins with
+  // fewer than 5 settled predictions are dropped (too noisy to plot).
+  const perfectCal = useMemo(() =>
+    accuracy.calibrationData
+      .filter(d => d.count >= 5)
+      .map(d => ({
+        bucket:    `${(d.predictedBin * 100).toFixed(0)}%`,
+        predicted: d.predictedBin,
+        actual:    d.actualRate,
+        perfect:   d.predictedBin,
+        count:     d.count,
+      })),
+    [accuracy.calibrationData])
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -134,6 +127,11 @@ export function AccuracyCharts({ accuracy }: Props) {
 
       {/* Reliability / calibration diagram */}
       <Panel title="Calibration Curve" chip="Predicted vs Actual">
+        {perfectCal.length === 0 ? (
+          <p className="font-jet text-[11px] text-ds-muted py-4 text-center">
+            Not enough settled predictions yet to plot calibration (need ≥ 5 per probability bin).
+          </p>
+        ) : (
         <div style={{ height: 200 }}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={perfectCal} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
@@ -151,14 +149,14 @@ export function AccuracyCharts({ accuracy }: Props) {
                 tickLine={false}
               />
               <Tooltip
-                formatter={(v: number, name: string) => [`${(v * 100).toFixed(1)}%`, name === "actual" ? "Illustrative Rate" : name === "perfect" ? "Perfect Calibration" : "Predicted"]}
+                formatter={(v: number, name: string) => [`${(v * 100).toFixed(1)}%`, name === "actual" ? "Observed NRFI Rate" : name === "perfect" ? "Perfect Calibration" : "Predicted"]}
                 contentStyle={{ background: "var(--ds-panel-2)", border: "1px solid var(--ds-line)", borderRadius: 8, fontSize: 10, fontFamily: "var(--font-jet)" }}
                 cursor={{ stroke: "var(--ds-line)" }}
               />
               <Legend
                 formatter={(value: string) => (
                   <span style={{ color: "var(--ds-muted)", fontSize: 9, fontFamily: "var(--font-jet)" }}>
-                    {value === "actual" ? "Illustrative Rate" : value === "perfect" ? "Perfect" : value}
+                    {value === "actual" ? "Observed Rate" : value === "perfect" ? "Perfect" : value}
                   </span>
                 )}
               />
@@ -182,8 +180,9 @@ export function AccuracyCharts({ accuracy }: Props) {
             </LineChart>
           </ResponsiveContainer>
         </div>
+        )}
         <p className="font-jet text-[9px] text-ds-dim mt-2">
-          Illustrative only — approximated from ensemble accuracy, not raw prediction-by-prediction data.
+          Observed first-inning NRFI rate per predicted-probability bin (≥ 5 settled predictions each). A well-calibrated model tracks the dashed diagonal.
         </p>
       </Panel>
     </div>

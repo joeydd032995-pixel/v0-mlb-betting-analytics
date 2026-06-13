@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { computeBacktestMetrics } from "../lib/backtest-metrics"
-import type { BacktestRow } from "../lib/backtest-metrics"
+import { computeBacktestMetrics, logLoss, pearson } from "@/lib/backtest-metrics"
+import type { BacktestRow } from "@/lib/backtest-metrics"
 
 const ROWS: BacktestRow[] = [
   { nrfiProbability: 0.65, actualNrfi: true,  confidence: "High"   },
@@ -11,11 +11,68 @@ const ROWS: BacktestRow[] = [
   { nrfiProbability: 0.55, actualNrfi: true,  confidence: "Low"    },
 ]
 
+describe("logLoss", () => {
+  it("returns 0 for empty input", () => {
+    expect(logLoss([], [])).toBe(0)
+  })
+
+  it("returns 0 for mismatched-length input", () => {
+    expect(logLoss([0.5, 0.5], [1])).toBe(0)
+  })
+
+  it("a perfectly confident correct prediction approaches 0 (clipped)", () => {
+    // p=1 against y=1 clips to 1-1e-3, so -log(0.999) ≈ 0.001
+    expect(logLoss([1], [1])).toBeCloseTo(-Math.log(1 - 1e-3), 6)
+  })
+
+  it("a coin-flip prediction yields ≈ ln(2)", () => {
+    expect(logLoss([0.5, 0.5], [1, 0])).toBeCloseTo(Math.log(2), 6)
+  })
+
+  it("penalises a confident miss far more than a hedged one", () => {
+    const confidentMiss = logLoss([0.95], [0])
+    const hedgedMiss    = logLoss([0.6], [0])
+    expect(confidentMiss).toBeGreaterThan(hedgedMiss)
+  })
+
+  it("accepts boolean labels", () => {
+    expect(logLoss([0.5, 0.5], [true, false])).toBeCloseTo(Math.log(2), 6)
+  })
+})
+
+describe("pearson", () => {
+  it("returns 1 for a perfectly correlated series", () => {
+    expect(pearson([1, 2, 3, 4], [2, 4, 6, 8])).toBeCloseTo(1, 9)
+  })
+
+  it("returns -1 for a perfectly anti-correlated series", () => {
+    expect(pearson([1, 2, 3, 4], [4, 3, 2, 1])).toBeCloseTo(-1, 9)
+  })
+
+  it("returns 0 when a series has no variance (undefined correlation)", () => {
+    expect(pearson([1, 1, 1], [1, 2, 3])).toBe(0)
+  })
+
+  it("returns 0 for too-short or mismatched input", () => {
+    expect(pearson([1], [1])).toBe(0)
+    expect(pearson([], [])).toBe(0)
+    expect(pearson([1, 2], [1])).toBe(0)
+  })
+})
+
+describe("computeBacktestMetrics — log-loss field", () => {
+  it("reports a finite log-loss for non-empty rows and 0 when empty", () => {
+    expect(computeBacktestMetrics(ROWS).logLoss).toBeGreaterThan(0)
+    expect(computeBacktestMetrics([]).logLoss).toBe(0)
+  })
+})
+
 describe("computeBacktestMetrics — empty input", () => {
   it("returns zero-value object for empty rows", () => {
     const m = computeBacktestMetrics([])
     expect(m.n).toBe(0)
     expect(m.brierScore).toBe(0)
+    expect(m.logLoss).toBe(0)
     expect(m.accuracy).toBe(0)
     expect(m.roiKelly).toBe(0)
     expect(m.roiFlat).toBe(0)
