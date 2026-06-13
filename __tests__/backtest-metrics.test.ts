@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { computeBacktestMetrics, logLoss, pearson } from "../lib/backtest-metrics"
-import type { BacktestRow } from "../lib/backtest-metrics"
+import { computeBacktestMetrics, logLoss, pearson } from "@/lib/backtest-metrics"
+import type { BacktestRow } from "@/lib/backtest-metrics"
 
 const ROWS: BacktestRow[] = [
   { nrfiProbability: 0.65, actualNrfi: true,  confidence: "High"   },
@@ -14,6 +14,10 @@ const ROWS: BacktestRow[] = [
 describe("logLoss", () => {
   it("returns 0 for empty input", () => {
     expect(logLoss([], [])).toBe(0)
+  })
+
+  it("returns 0 for mismatched-length input", () => {
+    expect(logLoss([0.5, 0.5], [1])).toBe(0)
   })
 
   it("a perfectly confident correct prediction approaches 0 (clipped)", () => {
@@ -52,6 +56,7 @@ describe("pearson", () => {
   it("returns 0 for too-short or mismatched input", () => {
     expect(pearson([1], [1])).toBe(0)
     expect(pearson([], [])).toBe(0)
+    expect(pearson([1, 2], [1])).toBe(0)
   })
 })
 

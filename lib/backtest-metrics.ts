@@ -89,10 +89,11 @@ function profitPerUnit(americanOdds: number): number {
 /**
  * Mean log-loss (binary cross-entropy) of probabilities `probs` against binary
  * `labels`. Probabilities are clipped to [1e-3, 1-1e-3] so a confident miss
- * can't produce an infinite penalty. Returns 0 for an empty input.
+ * can't produce an infinite penalty. Returns 0 for an empty or
+ * mismatched-length input.
  */
 export function logLoss(probs: number[], labels: Array<0 | 1 | boolean>): number {
-  if (probs.length === 0) return 0
+  if (probs.length === 0 || probs.length !== labels.length) return 0
   const EPS = 1e-3
   let s = 0
   for (let i = 0; i < probs.length; i++) {
@@ -109,8 +110,8 @@ export function logLoss(probs: number[], labels: Array<0 | 1 | boolean>): number
  * mismatched — a safe neutral value for the diversity dashboard.
  */
 export function pearson(a: number[], b: number[]): number {
-  const n = Math.min(a.length, b.length)
-  if (n < 2) return 0
+  if (a.length !== b.length || a.length < 2) return 0
+  const n = a.length
   let sa = 0, sb = 0
   for (let i = 0; i < n; i++) { sa += a[i]; sb += b[i] }
   const ma = sa / n, mb = sb / n
