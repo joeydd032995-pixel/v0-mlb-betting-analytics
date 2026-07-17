@@ -203,12 +203,14 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
     try {
       const suffix = modelKey === "all" ? "" : `?model=${modelKey}`
       const res  = await fetch(`/api/export-data${suffix}`)
+      if (!res.ok) throw new Error(`Export failed with status ${res.status}`)
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement("a")
       a.href     = url
       const fileSuffix = modelKey === "all" ? "" : `-${modelKey}`
-      a.download = `nrfi-data${fileSuffix}-${new Date().toISOString().split("T")[0]}.csv`
+      const exportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      a.download = `nrfi-data${fileSuffix}-${exportDate}.csv`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {

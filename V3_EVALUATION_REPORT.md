@@ -25,6 +25,7 @@ Both variants evaluated on held-out 2026 data show **marginal degradation** vs v
 ## Metrics Comparison
 
 ### 2026 Hold-out Test Set (n=1,445 games)
+
 | Metric | v1 (Baseline) | v3 (Meta-features) | v3_enhanced (+ Statcast) | Gate? |
 |--------|---|---|---|---|
 | Test Brier | **0.2488** | 0.2594 | **0.2497** | < 0.2468 needed |
@@ -33,6 +34,7 @@ Both variants evaluated on held-out 2026 data show **marginal degradation** vs v
 | Status | ✅ | ❌ Failed | ❌ Missed by 0.0029 | — |
 
 ### v3 Training Performance (meta-features only)
+
 | Metric | Value |
 |--------|-------|
 | Train Brier | 0.2229 |
@@ -40,6 +42,7 @@ Both variants evaluated on held-out 2026 data show **marginal degradation** vs v
 | Overfit Gap | 0.0365 |
 
 ### v3_enhanced Training Performance (with Statcast aggregates)
+
 | Metric | Value |
 |--------|-------|
 | Train Brier | 0.2489 |
