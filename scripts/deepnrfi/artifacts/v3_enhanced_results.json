@@ -1,0 +1,15 @@
+{
+  "model_version": "v3_enhanced",
+  "features": 12,
+  "train_size": 7287,
+  "test_size": 1445,
+  "train_brier": 0.248919100221262,
+  "test_brier": 0.2497485090427507,
+  "train_logloss": 0.6909835822778931,
+  "test_logloss": 0.6926434463866137,
+  "v1_test_brier": 0.2488,
+  "gate_threshold": 0.2468,
+  "delta": 0.0009485090427507059,
+  "verdict": "\u274c HOLD",
+  "status": "v3 fails gate (needs < 0.2468)"
+}
