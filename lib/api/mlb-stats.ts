@@ -82,6 +82,11 @@ export interface MLBTeamHittingStats {
 
 // ─── Fetch helper ─────────────────────────────────────────────────────────────
 
+function sanitizeForLog(value: string): string {
+  // Prevent log forging/injection by removing line breaks and other control chars.
+  return value.replace(/[\r\n\t\f\v]/g, " ")
+}
+
 /**
  * Fetch helper with a single retry: transient network errors and 5xx responses
  * are retried once after a short delay; 4xx responses are not (they will not
@@ -90,6 +95,7 @@ export interface MLBTeamHittingStats {
  * (AUDIT_REPORT.md §7a).
  */
 async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> {
+  const safePath = sanitizeForLog(path)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(`${BASE_URL}${path}`, {
@@ -97,10 +103,10 @@ async function mlbFetch<T>(path: string, revalidate: number): Promise<T | null> 
         signal: AbortSignal.timeout(8000),
       })
       if (res.ok) return (await res.json()) as T
-      console.error("[mlb-stats] HTTP %d for %s (attempt %d)", res.status, path, attempt + 1)
+      console.error("[mlb-stats] HTTP %d for %s (attempt %d)", res.status, safePath, attempt + 1)
       if (res.status < 500) return null
     } catch (err) {
-      console.error("[mlb-stats] fetch error for %s (attempt %d):", path, attempt + 1, err)
+      console.error("[mlb-stats] fetch error for %s (attempt %d):", safePath, attempt + 1, err)
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, 400))
   }
