@@ -27,6 +27,9 @@ except ImportError as e:
     print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from transforms import invert_league_anchor  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 CSV_PATH = ROOT / "scripts" / "deepnrfi" / "data" / "training.csv"
 
@@ -58,7 +61,11 @@ def main() -> int:
         cur.execute(sql, (game_ids,))
         rows = cur.fetchall()
 
-    fetched = {int(gp): (float(en) if en is not None else None, ip) for gp, en, ip in rows}
+    # The DB stores the FINAL post-anchor headline probability; the serving
+    # path feeds the stacker the PRE-anchor calibrated7.  Invert the anchor
+    # blend so the CSV column matches the serving scale (exact while the
+    # calibration knots are identity — see transforms.invert_league_anchor).
+    fetched = {int(gp): (invert_league_anchor(float(en)) if en is not None else None, ip) for gp, en, ip in rows}
     print(f"[refresh] matched {len(fetched):,} / {len(game_ids):,} gameIds in DB")
 
     # Stats on what changed

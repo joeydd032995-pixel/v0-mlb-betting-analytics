@@ -31,6 +31,7 @@ from build_real_training_set import (
     compute_travel_rest_map,
 )
 from park_factors import haversine_miles, venue_coords
+from transforms import serving_shrunk_nrfi
 
 failures = 0
 
@@ -157,6 +158,25 @@ approx("pitches_last5 = 141  (47 pitches x 3 games)", p100["pitches_last5"], 141
 approx("rolling3_ip = 2.0  (tail-3 outs 2+2+2 / 3)", p100["rolling3_ip"], 2.0)
 ok("is_bullpen = 0  (min_inning 1, pitch_count 47 >= 40)", p100["is_bullpen"] == 0,
    f"got {p100['is_bullpen']}")
+
+print("aggregate_pitcher — serving-parity fields (pitcher 100):")
+# The shrunk rate must be the exact transforms.py chain applied to the
+# aggregated (runs_per_first, starts) — pins the DataFrame plumbing.
+ok("shrunk_nrfi == serving_shrunk_nrfi(runs_per_first, starts)",
+   p100["shrunk_nrfi"] is not None
+   and p100["runs_per_first"] is not None
+   and abs(p100["shrunk_nrfi"] - serving_shrunk_nrfi(
+       p100["runs_per_first"], p100["starts"], is_bullpen=bool(p100["is_bullpen"]))) < 1e-12,
+   f"got {p100['shrunk_nrfi']}")
+# Fixture: each game's 1st inning allows a run (HR among the 5 PAs)?  The
+# first-inning PAs are the first 3 of each game: single, double, walk — no
+# run scores on those events in the fixture's score columns, so scoreless.
+ok("recent_form = last-N first-inning scoreless rate (3 games → present)",
+   p100["recent_form"] is not None and 0.0 <= p100["recent_form"] <= 1.0,
+   f"got {p100['recent_form']}")
+ok("starts counts first-inning games (3)", p100["starts"] == 3, f"got {p100['starts']}")
+ok("shrunk_nrfi inside serving clamp [0.35, 0.92]",
+   0.35 <= p100["shrunk_nrfi"] <= 0.92)
 
 print("aggregate_pitcher — reliever (pitcher 200):")
 p200 = aggregate_pitcher(window, 200, GAME_DATE)

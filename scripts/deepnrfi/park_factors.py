@@ -82,6 +82,53 @@ PARK_FACTORS: dict[str, ExtendedParkFactor] = {
 }
 
 
+# Compass bearing (degrees) from home plate to center field, mirrored from
+# STADIUM_CF_BEARING in lib/constants/mlb-stadiums.ts (the live wind-token
+# source of truth).  Used by transforms.wind_in_out_token to reproduce the
+# serving path's out/in/crosswind mapping exactly.  Domes carry 0 but are
+# short-circuited by the dome check before wind ever matters.
+CF_BEARING_DEG: dict[str, float] = {
+    "Oriole Park at Camden Yards":  30,
+    "Fenway Park":                  55,
+    "Yankee Stadium":              215,
+    "Tropicana Field":               0,
+    "Rogers Centre":                 0,
+    "Guaranteed Rate Field":       280,
+    "Progressive Field":            10,
+    "Comerica Park":               185,
+    "Kauffman Stadium":            215,
+    "Target Field":                330,
+    "Minute Maid Park":              0,
+    "Angel Stadium":               220,
+    "Oakland Coliseum":            300,
+    "Sutter Health Park":          200,
+    "T-Mobile Park":               185,
+    "Globe Life Field":              0,
+    "Truist Park":                 195,
+    "loanDepot park":                0,
+    "Citi Field":                  100,
+    "Citizens Bank Park":           50,
+    "Nationals Park":              230,
+    "Wrigley Field":               355,
+    "Great American Ball Park":    200,
+    "American Family Field":         0,
+    "PNC Park":                    120,
+    "Busch Stadium":               200,
+    "Chase Field":                   0,
+    "Coors Field":                 265,
+    "Dodger Stadium":              200,
+    "Petco Park":                  315,
+    "Oracle Park":                 285,
+}
+
+
+def lookup_cf_bearing(venue: str | None) -> float | None:
+    """CF bearing for a venue, or None when unknown (→ crosswind token)."""
+    if venue is None:
+        return None
+    return CF_BEARING_DEG.get(venue)
+
+
 # `gr."homeTeam"` is the MLB Stats API full name (see app/api/historical-sync/route.ts:245).
 # This map drives off that string.  Add aliases here when a team relocates or
 # the API name drifts (e.g. the Athletics 2024→2025 rename).

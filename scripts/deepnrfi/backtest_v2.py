@@ -62,43 +62,49 @@ def kelly_roi(df: pd.DataFrame, fraction: float = 0.25, min_edge: float = 0.03) 
         decimalOdds = 100 / |american_odds|          # profit per unit at -110 = 0.9091
         q           = 1 - model_prob
         rawKelly    = (decimalOdds * model_prob - q) / decimalOdds
-        bet_size    = clip(rawKelly * fraction, 0, 0.25)
+        bet_size    = clip(rawKelly * fraction, 0, 0.05)   # CONFIG.kelly.maxBet
 
     The prior implementation used `edge * fraction` (linear approximation) which
     ignores the odds term and diverges from the TypeScript formula — making ROI
     figures not directly comparable to production betting behaviour.
     """
     df = df.copy()
-    # Derive edge from model probability vs -110 implied probability.
-    # Use stored edge column if present (future: could store actual odds per game).
+    # Derive PER-SIDE edges vs the -110 implied probability, matching the
+    # production gate (lib/nrfi-engine.ts computeValueAnalysis): each side must
+    # clear min_edge against ITS OWN vigged implied probability.  The previous
+    # |nrfi_edge| >= min_edge trigger classified p ∈ [0.446, 0.494] as "YRFI
+    # bets" although the YRFI edge there is below the 3% production threshold
+    # (or negative), inflating n_bets with stakes production would never place.
     implied = 110 / 210  # -110 American → implied probability ≈ 0.5238
-    if "edge" not in df.columns:
-        df["edge"] = df["p"] - implied
+    df["nrfi_edge"] = df["p"] - implied
+    df["yrfi_edge"] = (1 - df["p"]) - implied
 
-    bets = df[df["edge"].abs() >= min_edge].copy()
+    bets = df[(df["nrfi_edge"] >= min_edge) | (df["yrfi_edge"] >= min_edge)].copy()
     if bets.empty:
         return {"n_bets": 0, "roi": 0.0}
 
-    # Proper Kelly: decimalOdds = profit per unit staked at -110 odds
+    # Proper Kelly: b = profit per unit staked at -110 odds
     odds_decimal = 100 / 110  # ≈ 0.9091
 
-    # Model probability in the bet direction:
-    #   edge > 0 → bet on NRFI (y=1), model_prob = p
-    #   edge < 0 → bet on YRFI (y=0), model_prob = 1 - p
-    bets["model_prob"] = np.where(bets["edge"] > 0, bets["p"], 1 - bets["p"])
+    bet_nrfi = bets["nrfi_edge"] >= min_edge
+    bets["model_prob"] = np.where(bet_nrfi, bets["p"], 1 - bets["p"])
     bets["model_prob"] = bets["model_prob"].clip(0.01, 0.99)
     bets["q"] = 1 - bets["model_prob"]
 
     # rawKelly = (b * p - q) / b  where b = decimalOdds
     bets["raw_kelly"] = (odds_decimal * bets["model_prob"] - bets["q"]) / odds_decimal
-    # Fractional Kelly, capped at 25% max bankroll (matches KELLY_FRACTION = 0.25 cap)
-    bets["bet_size"] = (bets["raw_kelly"] * fraction).clip(0, 0.25)
+    # Fractional Kelly, capped at 5% of bankroll — CONFIG.kelly.maxBet, the
+    # production stake ceiling.  (The old 0.25 cap here let simulated stakes
+    # run up to 5× what the live engine would place on high-edge bets, so the
+    # simulated ROI/variance was not comparable to production behaviour.)
+    bets["bet_size"] = (bets["raw_kelly"] * fraction).clip(0, 0.05)
 
     bets["pl"] = np.where(
-        ((bets["edge"] > 0) & (bets["y"] == 1)) | ((bets["edge"] < 0) & (bets["y"] == 0)),
+        (bet_nrfi & (bets["y"] == 1)) | (~bet_nrfi & (bets["y"] == 0)),
         bets["bet_size"] * odds_decimal,
         -bets["bet_size"],
     )
+    bets["edge"] = np.where(bet_nrfi, bets["nrfi_edge"], bets["yrfi_edge"])
     total_wagered = bets["bet_size"].sum()
     return {
         "n_bets": int(len(bets)),
