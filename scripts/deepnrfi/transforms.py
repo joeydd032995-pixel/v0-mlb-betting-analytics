@@ -22,6 +22,19 @@ from __future__ import annotations
 
 import math
 
+# ─── Training feature-contract version ────────────────────────────────────────
+#
+# Bump whenever the MEANING/scale of any training.csv column changes (not for
+# new games appended under the same semantics).  The builder refuses to resume
+# into a CSV stamped with a different version, and the refresh script refuses
+# to touch one — resuming by gameId across contract versions silently mixes
+# incompatible feature distributions.
+#
+#   v1 — legacy 30-day-window builder (pre Audit V2)
+#   v2 — serving-parity builder: season-to-date slices, half-inning shrinkage,
+#        wind token, pre-anchor ensemble7_nrfi (AUDIT_REPORT_V2.md §2.1)
+TRAINING_FEATURE_CONTRACT_VERSION = 2
+
 # ─── League constants (mirror lib/nrfi-models.ts) ─────────────────────────────
 
 LEAGUE_AVG_NRFI = 0.516                      # game-level P(no run in the 1st)

@@ -104,15 +104,20 @@ ok("output is always in {−1, 0, +1}",
        for m in (0, 5, 12, 30) for d in range(0, 360, 15) for b in (None, 0, 90, 215, 355)))
 
 print("invert_league_anchor (exact inverse of the identity-knot final blend):")
-for cal in (0.10, 0.30, 0.516, 0.65, 0.95):
-    final = ENSEMBLE_BLEND * cal + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
-    final = min(FINAL_CLAMP_MAX, max(FINAL_CLAMP_MIN, final))
+# Boundary preimages: the cal values whose blend lands exactly on the clamps.
+LOWER_PREIMAGE = (FINAL_CLAMP_MIN - (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR) / ENSEMBLE_BLEND  # ≈ 0.0737
+UPPER_PREIMAGE = (FINAL_CLAMP_MAX - (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR) / ENSEMBLE_BLEND  # ≈ 0.9553
+for cal in (0.0, 0.10, 0.30, 0.516, 0.65, 0.95, 1.0):
+    final_unclamped = ENSEMBLE_BLEND * cal + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
+    final = min(FINAL_CLAMP_MAX, max(FINAL_CLAMP_MIN, final_unclamped))
     recovered = invert_league_anchor(final)
-    # Exact recovery whenever the clamp did not bind.
-    if FINAL_CLAMP_MIN < ENSEMBLE_BLEND * cal + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR < FINAL_CLAMP_MAX:
+    if FINAL_CLAMP_MIN < final_unclamped < FINAL_CLAMP_MAX:
+        # Exact recovery whenever the clamp did not bind.
         approx(f"round-trips cal={cal}", recovered, cal, 1e-12)
+    elif final_unclamped <= FINAL_CLAMP_MIN:
+        approx(f"lower-clamped cal={cal} → lower boundary preimage", recovered, LOWER_PREIMAGE, 1e-12)
     else:
-        ok(f"clamped cal={cal} maps to boundary preimage", 0.02 <= recovered <= 0.98)
+        approx(f"upper-clamped cal={cal} → upper boundary preimage", recovered, UPPER_PREIMAGE, 1e-12)
 approx("anchor fixed point: 0.516 → 0.516", invert_league_anchor(LEAGUE_AVG_NRFI), LEAGUE_AVG_NRFI, 1e-12)
 approx("non-finite input → league rate", invert_league_anchor(float("nan")), LEAGUE_AVG_NRFI)
 ok("monotone over the stored range",

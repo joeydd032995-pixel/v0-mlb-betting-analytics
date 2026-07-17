@@ -52,6 +52,7 @@ from park_factors import lookup_park, lookup_venue, lookup_cf_bearing, haversine
 from weather_archive import prefetch_weather, fetch_game_weather  # noqa: E402
 from transforms import (  # noqa: E402
     LEAGUE_HALF_NRFI,
+    TRAINING_FEATURE_CONTRACT_VERSION,
     invert_league_anchor,
     serving_shrunk_nrfi,
     wind_in_out_token,
@@ -899,6 +900,42 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+CONTRACT_PATH = DATA_DIR / "training_contract.json"
+
+
+def check_training_contract(csv_path: Path = CSV_PATH,
+                            contract_path: Path = CONTRACT_PATH) -> None:
+    """Refuse to resume into a CSV built under a different feature contract.
+
+    The resume logic skips rows purely by gameId, so appending rows whose
+    columns mean something different (e.g. legacy 30-day-window scale vs the
+    current serving-parity scale) would silently mix incompatible feature
+    distributions.  A sidecar marker records which contract version built the
+    CSV; mismatch (or a pre-marker legacy CSV) aborts with instructions.
+    Stamps the marker when starting fresh.
+    """
+    csv_live = csv_path.exists() and csv_path.stat().st_size > 0
+    if csv_live:
+        stamped = None
+        if contract_path.exists():
+            try:
+                stamped = json.loads(contract_path.read_text()).get("featureContractVersion")
+            except (json.JSONDecodeError, OSError):
+                stamped = None
+        if stamped != TRAINING_FEATURE_CONTRACT_VERSION:
+            raise SystemExit(
+                f"{csv_path.name} was built under feature-contract "
+                f"{'v' + str(stamped) if stamped is not None else 'an unknown/legacy version'}; "
+                f"this builder emits v{TRAINING_FEATURE_CONTRACT_VERSION}. "
+                f"Resuming would mix incompatible feature scales — delete or archive "
+                f"{csv_path} (and {contract_path.name}) and rebuild from scratch."
+            )
+        return
+    contract_path.write_text(json.dumps(
+        {"featureContractVersion": TRAINING_FEATURE_CONTRACT_VERSION}, indent=2,
+    ))
+
+
 def load_existing_game_ids() -> set[int]:
     if not CSV_PATH.exists():
         return set()
@@ -980,7 +1017,9 @@ def main() -> int:
     # (boxscores are cache-hot from prior runs, so this is fast and local).
     umpire_map = build_umpire_map(args.db_url)
 
-    # 3. Resume checkpoint
+    # 3. Resume checkpoint — guarded by the feature-contract version so a
+    # legacy-scale CSV can never be silently extended with new-scale rows.
+    check_training_contract()
     already = load_existing_game_ids()
     if already:
         print(f"[builder] resuming: {len(already):,} games already in {CSV_PATH.name}")

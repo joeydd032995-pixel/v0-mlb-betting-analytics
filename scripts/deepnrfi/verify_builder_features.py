@@ -28,10 +28,11 @@ from build_real_training_set import (
     _TEAM_REST_CAP_DAYS,
     aggregate_pitcher,
     aggregate_top_four,
+    check_training_contract,
     compute_travel_rest_map,
 )
 from park_factors import haversine_miles, venue_coords
-from transforms import serving_shrunk_nrfi
+from transforms import TRAINING_FEATURE_CONTRACT_VERSION, serving_shrunk_nrfi
 
 failures = 0
 
@@ -168,12 +169,12 @@ ok("shrunk_nrfi == serving_shrunk_nrfi(runs_per_first, starts)",
    and abs(p100["shrunk_nrfi"] - serving_shrunk_nrfi(
        p100["runs_per_first"], p100["starts"], is_bullpen=bool(p100["is_bullpen"]))) < 1e-12,
    f"got {p100['shrunk_nrfi']}")
-# Fixture: each game's 1st inning allows a run (HR among the 5 PAs)?  The
-# first-inning PAs are the first 3 of each game: single, double, walk — no
-# run scores on those events in the fixture's score columns, so scoreless.
-ok("recent_form = last-N first-inning scoreless rate (3 games → present)",
-   p100["recent_form"] is not None and 0.0 <= p100["recent_form"] <= 1.0,
-   f"got {p100['recent_form']}")
+# Fixture: the first-inning score columns show no runs in any of the 3 games,
+# so the last-5 scoreless rate is exactly 3/3 = 1.0 (and runs_per_first = 0).
+approx("recent_form = last-N first-inning scoreless rate (3 games → 1.0)",
+       p100["recent_form"], 1.0)
+approx("runs_per_first = 0.0 (fixture allows no first-inning runs)",
+       p100["runs_per_first"], 0.0)
 ok("starts counts first-inning games (3)", p100["starts"] == 3, f"got {p100['starts']}")
 ok("shrunk_nrfi inside serving clamp [0.35, 0.92]",
    0.35 <= p100["shrunk_nrfi"] <= 0.92)
@@ -284,6 +285,45 @@ tr_gap = compute_travel_rest_map(gap_df)
 ok("rest_days capped at _TEAM_REST_CAP_DAYS",
    tr_gap[11]["home_rest_days"] == float(_TEAM_REST_CAP_DAYS),
    f"got {tr_gap[11]['home_rest_days']}")
+
+print("check_training_contract — resume guard:")
+import json  # noqa: E402
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp_csv = Path(tmp) / "training.csv"
+    tmp_marker = Path(tmp) / "training_contract.json"
+
+    # Fresh start (no CSV) → stamps the marker with the current version.
+    check_training_contract(tmp_csv, tmp_marker)
+    stamped = json.loads(tmp_marker.read_text())["featureContractVersion"]
+    ok("fresh start stamps the current contract version",
+       stamped == TRAINING_FEATURE_CONTRACT_VERSION, f"got {stamped}")
+
+    # Matching marker + non-empty CSV → resume allowed (no exception).
+    tmp_csv.write_text("gameId\n1\n")
+    try:
+        check_training_contract(tmp_csv, tmp_marker)
+        ok("matching contract version allows resume", True)
+    except SystemExit:
+        ok("matching contract version allows resume", False)
+
+    # Stale version → refuse.
+    tmp_marker.write_text(json.dumps({"featureContractVersion": 1}))
+    try:
+        check_training_contract(tmp_csv, tmp_marker)
+        ok("stale contract version aborts the resume", False)
+    except SystemExit:
+        ok("stale contract version aborts the resume", True)
+
+    # Legacy CSV with no marker at all → refuse.
+    tmp_marker.unlink()
+    try:
+        check_training_contract(tmp_csv, tmp_marker)
+        ok("unmarked legacy CSV aborts the resume", False)
+    except SystemExit:
+        ok("unmarked legacy CSV aborts the resume", True)
 
 print()
 if failures:
