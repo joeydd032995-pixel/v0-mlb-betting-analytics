@@ -2,7 +2,7 @@
 Build a real, point-in-time training set for DeepNRFI without a live shadow
 window.  Reconstructs each game's feature vector from public data:
 
-  - pybaseball Statcast pitch-by-pitch (rolling 30 days BEFORE each game date)
+  - pybaseball Statcast pitch-by-pitch (season-to-date, strictly BEFORE each game date)
   - MLB Stats `/game/{gamePk}/boxscore` for the actual posted lineup + starters
   - Existing `model_predictions.ensembleNrfi` for the v1 ensemble feature
   - Static park / league-average defaults for weather + umpire (presence=0)
@@ -34,6 +34,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 try:
+    import numpy as np
     import pandas as pd
     import requests
     import psycopg
@@ -47,8 +48,15 @@ except ImportError as e:
 
 # Local modules — sibling files in the same scripts/deepnrfi/ dir.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from park_factors import lookup_park, lookup_venue, haversine_miles, venue_coords  # noqa: E402
+from park_factors import lookup_park, lookup_venue, lookup_cf_bearing, haversine_miles, venue_coords  # noqa: E402
 from weather_archive import prefetch_weather, fetch_game_weather  # noqa: E402
+from transforms import (  # noqa: E402
+    LEAGUE_HALF_NRFI,
+    TRAINING_FEATURE_CONTRACT_VERSION,
+    invert_league_anchor,
+    serving_shrunk_nrfi,
+    wind_in_out_token,
+)
 
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
@@ -64,10 +72,15 @@ CSV_PATH = DATA_DIR / "training.csv"
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-LEAGUE_AVG_NRFI = 0.516
-ROLLING_WINDOW_DAYS = 30
+LEAGUE_AVG_NRFI = 0.516            # game-level rate (umpire career_nrfi prior)
+ROLLING_WINDOW_DAYS = 30           # bulk-pull margin before --from (legacy name)
 TOP_OF_ORDER = 4
-SHRINKAGE_K = 1.14  # within_var / between_var, matches lib/nrfi-models.ts
+# Pitcher/batter aggregates are SEASON-TO-DATE (strictly before each game
+# date) for serving parity: the live feature vector reads season first-inning
+# splits and season Statcast pitch-mix aggregates, not a rolling 30-day
+# window.  Recency features (pitches_last5, rolling3_ip, recent_form,
+# is_bullpen) come from tails of the season per-game summary.
+SEASON_START_MONTH_DAY = (3, 1)    # season slice lower bound: March 1
 
 # Defaults mirror lib/features/feature-vector.ts so a missing/imputed feature
 # matches what the engine would emit at runtime.
@@ -104,11 +117,9 @@ DEFAULTS = {
 _MIN_GAMES_PITCHES_LAST5 = 3
 _MIN_GAMES_ROLLING3_IP = 2
 _MIN_GAMES_IS_BULLPEN = 2
-# Minimum first-inning PAs before vstop_woba / vstop_k are trusted.  The
-# rolling 30-day window holds at most ~6 starts (~23 first-inning PAs), so the
-# threshold must be reachable inside the window: 12 PAs ≈ 3 starts.  (The old
-# value of 40 was unreachable, which is why these columns were constant/dead
-# in the v1 training set.)
+# Minimum first-inning PAs before vstop_woba / vstop_k are trusted (≈ 3
+# starts).  With season-to-date slices this is reachable by mid-April; early
+# rows impute the DEFAULT, matching serving where the split arrives late.
 _MIN_VSTOP_PA = 12
 
 # Cap team-level rest at 7 days so off-season -> opening day doesn't show
@@ -355,9 +366,28 @@ def _pitcher_first_batter_obp(p: pd.DataFrame) -> float | None:
     return float(sum(results) / len(results))
 
 
-def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) -> dict:
-    """Per-pitcher Statcast summary over a date-windowed slice."""
-    p = window[window["pitcher"] == pitcher_id]
+def aggregate_pitcher(season: pd.DataFrame, pitcher_id: int, game_date: date) -> dict:
+    """Per-pitcher Statcast summary over a point-in-time slice.
+
+    `season` should be the SEASON-TO-DATE slice (all rows strictly before
+    `game_date`, same season) for serving parity — the live feature vector
+    reads season first-inning splits (sitCodes=i01) and season pitch-mix
+    aggregates.  Recency features come from tails of the per-game summary.
+
+    Serving-parity notes (see AUDIT_REPORT_V2.md §2.1):
+      - k_rate/bb_rate/hr_per9/babip are FIRST-INNING-only aggregates (the
+        live `firstInning.*` fields are the i01 split, not season-wide rates).
+      - shrunk_nrfi replicates the live chain exactly: runs-per-1st →
+        estimateNrfiRateFromFirstInningRuns → applyDynamicShrinkage toward
+        LEAGUE_HALF_NRFI (transforms.serving_shrunk_nrfi).  The legacy builder
+        shrank the raw scoreless fraction toward the game-level 0.516 with
+        k = 1.14 — wrong prior scale and ~2.2× the serving feature's spread.
+      - start_count is season-to-date first-inning starts (0–33 at serving;
+        the legacy 30-day window capped it at ~6).
+      - recent_form is the last-5-starts first-inning scoreless rate
+        (serving: last5Results mean; needs ≥ 3 starts, else imputed).
+    """
+    p = season[season["pitcher"] == pitcher_id]
     if p.empty:
         return {}
 
@@ -374,31 +404,39 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         spin_z = (fb_spin - 2300) / 220
         stuff_plus = 100 + 8 * velo_z + 5 * spin_z
 
-    events = p[p["events"].isin(PA_TERMINATING_EVENTS)]
-    n_pa = len(events)
-    k_rate = ((events["events"] == "strikeout").sum() / n_pa) if n_pa > 0 else None
-    bb_rate = ((events["events"] == "walk").sum() / n_pa) if n_pa > 0 else None
-
-    # Point-in-time first-inning NRFI rate.
-    # post_bat_score - bat_score = runs scored on the pitch; aggregate per game.
+    # ── First-inning slice: rate features + per-game scoreless/runs ──────────
     first_inning = p[p["inning"] == 1]
-    nrfi_rate = None
+    nrfi_rate = None            # raw empirical scoreless fraction (diagnostic)
+    runs_per_first = None       # runs allowed per 1st inning (serving input)
     starts = 0
+    last5_scoreless: list[int] = []
     if not first_inning.empty:
-        # Select only the columns we operate on so this works on pandas 2.0/2.1
-        # without needing the include_groups flag (added in pandas 2.2).
-        per_game = (
-            first_inning.groupby("game_pk")[["post_bat_score", "bat_score"]]
-            .apply(lambda g: int((g["post_bat_score"] - g["bat_score"]).max() == 0))
-        )
+        # post_bat_score - bat_score = runs scored on that pitch.  Per game:
+        # sum = runs allowed in the pitcher's 1st inning; max == 0 ⇔ scoreless.
+        # Column subset keeps this working on pandas 2.0/2.1 (no include_groups).
+        deltas = (first_inning["post_bat_score"] - first_inning["bat_score"]).clip(lower=0)
+        per_game = pd.DataFrame({
+            "game_date": first_inning["game_date"],
+            "runs": deltas,
+        }).groupby(first_inning["game_pk"]).agg(
+            game_date=("game_date", "first"),
+            runs=("runs", "sum"),
+        ).sort_values("game_date")
         starts = int(len(per_game))
         if starts > 0:
-            nrfi_rate = float(per_game.mean())
+            nrfi_rate = float((per_game["runs"] == 0).mean())
+            runs_per_first = float(per_game["runs"].mean())
+            last5 = per_game["runs"].tail(5)
+            if len(last5) >= 3:
+                last5_scoreless = [int(r == 0) for r in last5]
 
-    # First-inning splits ("vs top of order" by construction - inning 1 always
-    # faces batters 1-3).  These features were dead in the legacy builder
-    # because they were never populated; the data has always been in the
-    # Statcast slice we already pulled.
+    recent_form = (
+        float(sum(last5_scoreless) / len(last5_scoreless))
+        if last5_scoreless else None
+    )
+
+    # First-inning splits ("vs top of order" by construction — inning 1 always
+    # faces the top of the order).
     fi_events = first_inning[first_inning["events"].isin(PA_TERMINATING_EVENTS)]
     vstop_woba = None
     vstop_k = None
@@ -406,28 +444,24 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         vstop_k = float((fi_events["events"] == "strikeout").sum() / len(fi_events))
         vstop_woba = _compute_woba(fi_events)
 
-    if nrfi_rate is not None:
-        weight = starts / (starts + SHRINKAGE_K)
-        shrunk = weight * nrfi_rate + (1 - weight) * LEAGUE_AVG_NRFI
-        shrunk_nrfi = max(0.35, min(0.92, shrunk))
-    else:
-        shrunk_nrfi = None
+    # ── First-inning rate stats (serving: the sitCodes=i01 season split) ─────
+    n_fi_pa = len(fi_events)
+    k_rate = ((fi_events["events"] == "strikeout").sum() / n_fi_pa) if n_fi_pa > 0 else None
+    bb_rate = ((fi_events["events"] == "walk").sum() / n_fi_pa) if n_fi_pa > 0 else None
 
-    # HR/9: HRs allowed per 27 outs (~9 innings).  Outs ≈ PA - hits - walks - HBP - errors.
-    hits = (events["events"].isin(["single", "double", "triple", "home_run"])).sum()
-    bbs = (events["events"] == "walk").sum()
-    hbps = (events["events"] == "hit_by_pitch").sum()
-    errors = (events["events"] == "field_error").sum()
-    ks = (events["events"] == "strikeout").sum()
-    outs = max(0, n_pa - hits - bbs - hbps - errors)
-    hrs = (events["events"] == "home_run").sum()
+    hits = (fi_events["events"].isin(["single", "double", "triple", "home_run"])).sum()
+    bbs = (fi_events["events"] == "walk").sum()
+    hbps = (fi_events["events"] == "hit_by_pitch").sum()
+    errors = (fi_events["events"] == "field_error").sum()
+    ks = (fi_events["events"] == "strikeout").sum()
+    outs = max(0, n_fi_pa - hits - bbs - hbps - errors)
+    hrs = (fi_events["events"] == "home_run").sum()
     hr_per9 = (hrs * 27 / outs) if outs > 0 else None
 
-    babip = _pitcher_babip(int(hits), int(hrs), int(ks), n_pa, int(bbs), int(hbps))
+    babip = _pitcher_babip(int(hits), int(hrs), int(ks), n_fi_pa, int(bbs), int(hbps))
     first_batter_obp = _pitcher_first_batter_obp(p)
 
-    # Count-based features off the per-game summary.  Below the min-games
-    # threshold each returns None so make_row's pf() imputes a DEFAULT.
+    # ── Recency features off the per-game summary (all appearances) ──────────
     g = _pitcher_window_games(p)
     if not g.empty:
         days_rest = (game_date - g["game_date"].max()).days
@@ -442,11 +476,19 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         if len(g) >= _MIN_GAMES_ROLLING3_IP else None
     )
     if len(g) >= _MIN_GAMES_IS_BULLPEN:
-        # "Enters after inning 1" OR "low pitch count" — the pitch-count clause
-        # catches true openers (inning 1, but quick hook) the min-inning misses.
-        is_bullpen = 1 if (g["min_inning"].median() > 1 or g["pitch_count"].median() < 40) else 0
+        # Role detection from the LAST 10 appearances so a mid-season role
+        # change (starter → bullpen or opener) is reflected, mirroring the
+        # per-game isBullpenGame flag at serving.  "Enters after inning 1" OR
+        # "low pitch count" — the pitch-count clause catches true openers.
+        recent = g.tail(10)
+        is_bullpen = 1 if (recent["min_inning"].median() > 1 or recent["pitch_count"].median() < 40) else 0
     else:
         is_bullpen = None
+
+    # ── Serving-parity shrunk NRFI rate (transforms.py) ──────────────────────
+    shrunk_nrfi = serving_shrunk_nrfi(
+        runs_per_first, starts, is_bullpen=bool(is_bullpen),
+    )
 
     return {
         "fb_velo":          fb_velo,
@@ -465,6 +507,8 @@ def aggregate_pitcher(window: pd.DataFrame, pitcher_id: int, game_date: date) ->
         "shrunk_nrfi":      shrunk_nrfi,
         "starts":           starts,
         "nrfi_rate":        nrfi_rate,
+        "runs_per_first":   runs_per_first,
+        "recent_form":      recent_form,
         "vstop_woba":       vstop_woba,
         "vstop_k":          vstop_k,
     }
@@ -518,8 +562,8 @@ def _compute_ops(events: pd.DataFrame) -> float | None:
 def pitcher_throws(window: pd.DataFrame, pitcher_id: int) -> str | None:
     """Look up R/L/S from Statcast `p_throws` column for a given pitcher.
 
-    Returns the most common value in their last 30 days of pitches, or None
-    if the pitcher isn't in the window (e.g. injured / called up mid-season).
+    Returns the most common value in the supplied point-in-time slice, or None
+    if the pitcher isn't in it (e.g. injured / called up mid-season).
     """
     if "p_throws" not in window.columns:
         return None
@@ -544,7 +588,7 @@ def aggregate_top_four(
     batter_ids: list[int],
     opposing_throws: str | None = None,
 ) -> dict:
-    """Aggregate top-of-order offensive features (rolling window).
+    """Aggregate top-of-order offensive features (season-to-date slice).
 
     When `opposing_throws` is "L" or "R", also computes a `vs_hand_multiplier`
     equal to top-4 OPS vs that hand divided by top-4 OPS overall.  Mirrors the
@@ -686,16 +730,10 @@ def build_umpire_map(db_url: str) -> dict[int, dict[str, float]]:
 
 # ─── Row builder ──────────────────────────────────────────────────────────────
 
-def _wind_in_out_scalar(wind_mph: float, wind_dir_deg: float, park_orientation_deg: float = 0.0) -> float:
-    """
-    Signed wind-aligned-with-CF projection in mph.  Positive = blowing out
-    toward CF, negative = blowing in toward home.  When park_orientation is
-    unknown (0.0), this collapses to cos(dir) — directionally meaningful for
-    most parks since true north ≈ CF for the majority of stadiums.
-    """
-    import math as _math
-    theta = _math.radians(float(wind_dir_deg) - float(park_orientation_deg))
-    return float(wind_mph) * _math.cos(theta)
+# wind_in_out encoding comes from transforms.wind_in_out_token — the exact
+# port of the live mapWindDirection token (±1/0), replacing the legacy
+# mph-scaled cosine (wrong scale, no park orientation, inverted sign; see
+# AUDIT_REPORT_V2.md §2.1-W).
 
 
 def compute_travel_rest_map(games: pd.DataFrame) -> dict[int, dict[str, float]]:
@@ -767,19 +805,23 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         return v if v is not None else default
 
     park = lookup_park(meta["homeTeam"])
-    wind_in_out = _wind_in_out_scalar(wx.get("wind_mph", 0.0), wx.get("wind_dir_deg", 0.0))
+    wind_in_out = wind_in_out_token(
+        wx.get("wind_mph", 0.0),
+        wx.get("wind_dir_deg", 0.0),
+        lookup_cf_bearing(lookup_venue(meta["homeTeam"])),
+    )
 
     row = {
         # Pitcher: home (top of 1st = away batting vs home pitcher in the engine,
         # but we keep the same naming as feature-vector.ts).
-        "home_pitcher_shrunk_nrfi":     pf(p_home, "shrunk_nrfi", LEAGUE_AVG_NRFI),
+        "home_pitcher_shrunk_nrfi":     pf(p_home, "shrunk_nrfi", LEAGUE_HALF_NRFI),
         "home_pitcher_k_rate":          pf(p_home, "k_rate", DEFAULTS["k_rate"]),
         "home_pitcher_bb_rate":         pf(p_home, "bb_rate", DEFAULTS["bb_rate"]),
         "home_pitcher_hr_per9":         pf(p_home, "hr_per9", DEFAULTS["hr_per9"]),
         "home_pitcher_babip":           pf(p_home, "babip", DEFAULTS["babip"]),
         "home_pitcher_first_batter_obp": pf(p_home, "first_batter_obp", DEFAULTS["first_batter_obp"]),
         "home_pitcher_start_count":     pf(p_home, "starts", 0),
-        "home_pitcher_recent_form":     pf(p_home, "nrfi_rate", DEFAULTS["recent_form"]),
+        "home_pitcher_recent_form":     pf(p_home, "recent_form", DEFAULTS["recent_form"]),
         "home_pitcher_fb_velo":         pf(p_home, "fb_velo", DEFAULTS["fb_velo"]),
         "home_pitcher_fb_spin":         pf(p_home, "fb_spin", DEFAULTS["fb_spin"]),
         "home_pitcher_breaking_pct":    pf(p_home, "breaking_pct", DEFAULTS["breaking_pct"]),
@@ -791,14 +833,14 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "home_pitcher_vstop_k":         pf(p_home, "vstop_k", DEFAULTS["vstop_k"]),
         "home_pitcher_is_bullpen":      pf(p_home, "is_bullpen", DEFAULTS["is_bullpen"]),
         # Pitcher: away
-        "away_pitcher_shrunk_nrfi":     pf(p_away, "shrunk_nrfi", LEAGUE_AVG_NRFI),
+        "away_pitcher_shrunk_nrfi":     pf(p_away, "shrunk_nrfi", LEAGUE_HALF_NRFI),
         "away_pitcher_k_rate":          pf(p_away, "k_rate", DEFAULTS["k_rate"]),
         "away_pitcher_bb_rate":         pf(p_away, "bb_rate", DEFAULTS["bb_rate"]),
         "away_pitcher_hr_per9":         pf(p_away, "hr_per9", DEFAULTS["hr_per9"]),
         "away_pitcher_babip":           pf(p_away, "babip", DEFAULTS["babip"]),
         "away_pitcher_first_batter_obp": pf(p_away, "first_batter_obp", DEFAULTS["first_batter_obp"]),
         "away_pitcher_start_count":     pf(p_away, "starts", 0),
-        "away_pitcher_recent_form":     pf(p_away, "nrfi_rate", DEFAULTS["recent_form"]),
+        "away_pitcher_recent_form":     pf(p_away, "recent_form", DEFAULTS["recent_form"]),
         "away_pitcher_fb_velo":         pf(p_away, "fb_velo", DEFAULTS["fb_velo"]),
         "away_pitcher_fb_spin":         pf(p_away, "fb_spin", DEFAULTS["fb_spin"]),
         "away_pitcher_breaking_pct":    pf(p_away, "breaking_pct", DEFAULTS["breaking_pct"]),
@@ -845,7 +887,11 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
         "away_travel_miles":       float((tr or {}).get("away_travel_miles", 0.0)),
         # A None is_bullpen (insufficient window data) is falsy → treated as starter.
         "is_bullpen_game":         1 if (p_home.get("is_bullpen") or p_away.get("is_bullpen")) else 0,
-        "ensemble7_nrfi":          meta.get("ensemble7_nrfi") if meta.get("ensemble7_nrfi") is not None else LEAGUE_AVG_NRFI,
+        # Serving feeds the stacker the PRE-anchor calibrated7; the DB stores
+        # the FINAL post-anchor headline probability.  Invert the anchor blend
+        # so the training column sits on the serving scale (exact while the
+        # calibration knots are identity — see transforms.invert_league_anchor).
+        "ensemble7_nrfi":          invert_league_anchor(meta["ensemble7_nrfi"]) if meta.get("ensemble7_nrfi") is not None else LEAGUE_AVG_NRFI,
     }
     out = {k: meta[k] for k in META_COLS}
     out.update({k: row[k] for k in FEATURE_ORDER})
@@ -853,6 +899,42 @@ def make_row(meta: dict, p_home: dict, p_away: dict, b_home: dict, b_away: dict,
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
+
+CONTRACT_PATH = DATA_DIR / "training_contract.json"
+
+
+def check_training_contract(csv_path: Path = CSV_PATH,
+                            contract_path: Path = CONTRACT_PATH) -> None:
+    """Refuse to resume into a CSV built under a different feature contract.
+
+    The resume logic skips rows purely by gameId, so appending rows whose
+    columns mean something different (e.g. legacy 30-day-window scale vs the
+    current serving-parity scale) would silently mix incompatible feature
+    distributions.  A sidecar marker records which contract version built the
+    CSV; mismatch (or a pre-marker legacy CSV) aborts with instructions.
+    Stamps the marker when starting fresh.
+    """
+    csv_live = csv_path.exists() and csv_path.stat().st_size > 0
+    if csv_live:
+        stamped = None
+        if contract_path.exists():
+            try:
+                stamped = json.loads(contract_path.read_text()).get("featureContractVersion")
+            except (json.JSONDecodeError, OSError):
+                stamped = None
+        if stamped != TRAINING_FEATURE_CONTRACT_VERSION:
+            raise SystemExit(
+                f"{csv_path.name} was built under feature-contract "
+                f"{'v' + str(stamped) if stamped is not None else 'an unknown/legacy version'}; "
+                f"this builder emits v{TRAINING_FEATURE_CONTRACT_VERSION}. "
+                f"Resuming would mix incompatible feature scales — delete or archive "
+                f"{csv_path} (and {contract_path.name}) and rebuild from scratch."
+            )
+        return
+    contract_path.write_text(json.dumps(
+        {"featureContractVersion": TRAINING_FEATURE_CONTRACT_VERSION}, indent=2,
+    ))
+
 
 def load_existing_game_ids() -> set[int]:
     if not CSV_PATH.exists():
@@ -879,12 +961,40 @@ def write_chunk(rows: list[dict], header: bool) -> None:
 def main() -> int:
     args = parse_args()
 
-    # 1. Bulk Statcast pull — extend the start by ROLLING_WINDOW_DAYS so games on
-    # the early edge of --from still get a full rolling-30 window of history.
-    statcast_start = args.date_from - timedelta(days=ROLLING_WINDOW_DAYS)
+    # 1. Bulk Statcast pull — extend the start back to the season opening (March 1
+    # of --from's year) so every game gets a full SEASON-TO-DATE slice, matching
+    # the serving path's season splits.  (The old 30-day margin only supported a
+    # rolling window; keep it as a floor for mid-season --from values.)
+    season_floor = date(args.date_from.year, *SEASON_START_MONTH_DAY)
+    statcast_start = min(args.date_from - timedelta(days=ROLLING_WINDOW_DAYS), season_floor)
     statcast_df = fetch_statcast(statcast_start, args.date_to, args.no_cache)
     statcast_df["game_date"] = pd.to_datetime(statcast_df["game_date"]).dt.date
-    print(f"[builder] statcast rows: {len(statcast_df):,} (pulled from {statcast_start} to give a full rolling-30 window)")
+    # Exclude spring training / exhibitions — they pollute early-season windows
+    # with non-competitive pitch data the serving splits never see.
+    if "game_type" in statcast_df.columns:
+        before = len(statcast_df)
+        statcast_df = statcast_df[statcast_df["game_type"].isin(["R", "F", "D", "L", "W"])]
+        if len(statcast_df) < before:
+            print(f"[builder] dropped {before - len(statcast_df):,} spring/exhibition pitches")
+    statcast_df = statcast_df.reset_index(drop=True)
+    print(f"[builder] statcast rows: {len(statcast_df):,} (pulled from {statcast_start} for full season-to-date slices)")
+
+    # Index once by pitcher / batter so the per-game loop slices O(player rows)
+    # instead of masking the full frame per game (~5k games × 1.4M rows).
+    pitcher_idx = statcast_df.groupby("pitcher").indices
+    batter_idx = statcast_df.groupby("batter").indices
+
+    def season_slice_for(idx_map: dict, keys: list[int], game_date: date) -> pd.DataFrame:
+        rows: list = []
+        for k in keys:
+            r = idx_map.get(k)
+            if r is not None:
+                rows.append(r)
+        if not rows:
+            return statcast_df.iloc[0:0]
+        sub = statcast_df.iloc[np.concatenate(rows)]
+        season_start = date(game_date.year, *SEASON_START_MONTH_DAY)
+        return sub[(sub["game_date"] < game_date) & (sub["game_date"] >= season_start)]
 
     # 2. Games to score
     games = fetch_games(args.db_url, args.date_from, args.date_to)
@@ -907,7 +1017,9 @@ def main() -> int:
     # (boxscores are cache-hot from prior runs, so this is fast and local).
     umpire_map = build_umpire_map(args.db_url)
 
-    # 3. Resume checkpoint
+    # 3. Resume checkpoint — guarded by the feature-contract version so a
+    # legacy-scale CSV can never be silently extended with new-scale rows.
+    check_training_contract()
     already = load_existing_game_ids()
     if already:
         print(f"[builder] resuming: {len(already):,} games already in {CSV_PATH.name}")
@@ -939,19 +1051,18 @@ def main() -> int:
             skipped += 1
             continue
 
-        cutoff = game.date - timedelta(days=ROLLING_WINDOW_DAYS)
-        window = statcast_df[
-            (statcast_df["game_date"] < game.date) &
-            (statcast_df["game_date"] >= cutoff)
-        ]
+        home_slice = season_slice_for(pitcher_idx, [home_pid], game.date)
+        away_slice = season_slice_for(pitcher_idx, [away_pid], game.date)
 
-        p_home = aggregate_pitcher(window, home_pid, game.date)
-        p_away = aggregate_pitcher(window, away_pid, game.date)
+        p_home = aggregate_pitcher(home_slice, home_pid, game.date)
+        p_away = aggregate_pitcher(away_slice, away_pid, game.date)
         # Home offense faces the away starter; away offense faces the home starter.
-        away_throws = pitcher_throws(window, away_pid)
-        home_throws = pitcher_throws(window, home_pid)
-        b_home = aggregate_top_four(window, batting_order(box, "home"), away_throws)
-        b_away = aggregate_top_four(window, batting_order(box, "away"), home_throws)
+        away_throws = pitcher_throws(away_slice, away_pid)
+        home_throws = pitcher_throws(home_slice, home_pid)
+        home_order = batting_order(box, "home")
+        away_order = batting_order(box, "away")
+        b_home = aggregate_top_four(season_slice_for(batter_idx, home_order, game.date), home_order, away_throws)
+        b_away = aggregate_top_four(season_slice_for(batter_idx, away_order, game.date), away_order, home_throws)
 
         venue = lookup_venue(game.home_team)
         park = lookup_park(game.home_team)

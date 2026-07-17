@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -27,8 +28,12 @@ except ImportError as e:
     print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from transforms import TRAINING_FEATURE_CONTRACT_VERSION, invert_league_anchor  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 CSV_PATH = ROOT / "scripts" / "deepnrfi" / "data" / "training.csv"
+CONTRACT_PATH = ROOT / "scripts" / "deepnrfi" / "data" / "training_contract.json"
 
 
 def main() -> int:
@@ -38,6 +43,23 @@ def main() -> int:
         return 2
     if not CSV_PATH.exists():
         print(f"Training CSV not found: {CSV_PATH}", file=sys.stderr)
+        return 2
+
+    # Refuse to write serving-scale (anchor-inverted) values into a CSV built
+    # under a different feature contract — that would mix scales in one file.
+    stamped = None
+    if CONTRACT_PATH.exists():
+        try:
+            stamped = json.loads(CONTRACT_PATH.read_text()).get("featureContractVersion")
+        except (json.JSONDecodeError, OSError):
+            stamped = None
+    if stamped != TRAINING_FEATURE_CONTRACT_VERSION:
+        print(
+            f"{CSV_PATH.name} is stamped feature-contract "
+            f"{'v' + str(stamped) if stamped is not None else 'unknown/legacy'}; this script "
+            f"writes v{TRAINING_FEATURE_CONTRACT_VERSION} values. Rebuild the CSV with "
+            "build_real_training_set.py first.", file=sys.stderr,
+        )
         return 2
 
     print(f"[refresh] loading {CSV_PATH} ...")
@@ -58,7 +80,11 @@ def main() -> int:
         cur.execute(sql, (game_ids,))
         rows = cur.fetchall()
 
-    fetched = {int(gp): (float(en) if en is not None else None, ip) for gp, en, ip in rows}
+    # The DB stores the FINAL post-anchor headline probability; the serving
+    # path feeds the stacker the PRE-anchor calibrated7.  Invert the anchor
+    # blend so the CSV column matches the serving scale (exact while the
+    # calibration knots are identity — see transforms.invert_league_anchor).
+    fetched = {int(gp): (invert_league_anchor(float(en)) if en is not None else None, ip) for gp, en, ip in rows}
     print(f"[refresh] matched {len(fetched):,} / {len(game_ids):,} gameIds in DB")
 
     # Stats on what changed

@@ -104,6 +104,20 @@ const CLAMP_MIN           = 0.18
 const CLAMP_MAX           = 0.85
 const NRFI_CALL_THRESHOLD = 0.52
 
+/**
+ * Cross-language contract: scripts/deepnrfi/transforms.py replicates the final
+ * blend (ENSEMBLE_BLEND / LEAGUE_ANCHOR / clamps) to invert stored headline
+ * probabilities back to the pre-anchor scale for training parity.  If any of
+ * these values change, transforms.py MUST change with them — the regression
+ * test in __tests__/audit-v2-regression.test.ts pins this object.
+ */
+export const FINAL_BLEND_CONTRACT = {
+  ensembleBlend: ENSEMBLE_BLEND,
+  leagueAnchor:  LEAGUE_ANCHOR,
+  clampMin:      CLAMP_MIN,
+  clampMax:      CLAMP_MAX,
+} as const
+
 // Monthly lambda multiplier: accounts for the cold-weather / heat run-environment
 // cycle that the weather multiplier alone can't capture (historical-sync often
 // lacks real game-time temperatures).  Values derived from 2018–2024 MLB first-
