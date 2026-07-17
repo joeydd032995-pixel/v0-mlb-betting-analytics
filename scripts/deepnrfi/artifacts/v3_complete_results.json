@@ -1,0 +1,16 @@
+{
+  "model_version": "v3_complete",
+  "features": 26,
+  "train_size": 7287,
+  "test_size": 1445,
+  "train_brier": 0.24546762726605018,
+  "test_brier": 0.24931411714706578,
+  "train_logloss": 0.68405404783012,
+  "test_logloss": 0.6917748637261462,
+  "v1_test_brier": 0.2488,
+  "gate_threshold": 0.2468,
+  "delta": 0.0005141171470657846,
+  "verdict": "\u274c HOLD",
+  "status": "v3 COMPLETE fails gate (needs < 0.2468)",
+  "timestamp": "2026-07-17T15:17:21.177568"
+}

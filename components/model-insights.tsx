@@ -3,7 +3,13 @@
 import { useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database, Download } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database, Download, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ─── Performance API types ────────────────────────────────────────────────────
@@ -185,14 +191,26 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   async function syncAll()    { await runSync(buildAllMonthPairs(), SYNC_ALL) }
   async function runRescore() { await runSync(buildAllMonthPairs(), RESCORE_ALL) }
 
-  async function exportData() {
+  const EXPORT_MODELS = [
+    { key: "all",      label: "All Models" },
+    { key: "poisson",  label: "Poisson" },
+    { key: "zip",      label: "ZIP" },
+    { key: "markov",   label: "Markov" },
+    { key: "ensemble", label: "Ensemble" },
+  ] as const
+
+  async function exportData(modelKey: (typeof EXPORT_MODELS)[number]["key"] = "all") {
     try {
-      const res  = await fetch("/api/export-data")
+      const suffix = modelKey === "all" ? "" : `?model=${modelKey}`
+      const res  = await fetch(`/api/export-data${suffix}`)
+      if (!res.ok) throw new Error(`Export failed with status ${res.status}`)
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement("a")
       a.href     = url
-      a.download = `nrfi-data-${new Date().toISOString().split("T")[0]}.csv`
+      const fileSuffix = modelKey === "all" ? "" : `-${modelKey}`
+      const exportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
+      a.download = `nrfi-data${fileSuffix}-${exportDate}.csv`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -901,14 +919,25 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               </button>
 
               {perfData?.hasData && (
-                <button
-                  disabled={syncYear !== null}
-                  onClick={exportData}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-400 transition-colors hover:bg-sky-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download className="h-3 w-3" />
-                  Export CSV
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      disabled={syncYear !== null}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-400 transition-colors hover:bg-sky-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download className="h-3 w-3" />
+                      Export CSV
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {EXPORT_MODELS.map(({ key, label }) => (
+                      <DropdownMenuItem key={key} onClick={() => exportData(key)}>
+                        {label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           </CardContent>
