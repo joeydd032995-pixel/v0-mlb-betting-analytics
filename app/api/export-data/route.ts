@@ -1,5 +1,5 @@
 /**
- * GET /api/export-data?model=all|poisson|zip|markov|ensemble
+ * GET /api/export-data?model=all|poisson|zip|markov|mapre|logistic_meta|nn_interaction|hierarchical_bayes|ensemble
  *
  * Exports historical NRFI/YRFI data as a CSV download.
  * Combines GameResult (actual outcomes) and ModelPrediction (model calls)
@@ -9,13 +9,16 @@
  *   date, season, homeTeam, awayTeam, homePitcher, awayPitcher,
  *   homeRuns1st, awayRuns1st, nrfi,
  *   modelPrediction, modelNrfiPct, confidence, confidenceScore,
- *   poissonNrfi, zipNrfi, markovNrfi, ensembleNrfi,
+ *   poissonNrfi, zipNrfi, markovNrfi, mapreNrfi, logisticMetaNrfi,
+ *   nnInteractionNrfi, hierarchicalBayesNrfi, ensembleNrfi,
  *   correct, backtested
  *
- * `model=poisson|zip|markov|ensemble` scopes the CSV to that single model's
- * probability column plus a `modelCorrect` column computed from that
- * model's own P(NRFI) vs the 0.5 threshold (independent of the headline
+ * `model=<single model>` scopes the CSV to that single model's probability
+ * column plus a `modelCorrect` column computed from that model's own
+ * P(NRFI) vs the 0.5 threshold (independent of the headline
  * `prediction`/`correct` fields, which reflect the blended ensemble call).
+ * mapre/logistic_meta/nn_interaction/hierarchical_bayes are nullable —
+ * absent on rows written before these columns existed.
  */
 
 import { NextResponse } from "next/server"
@@ -25,15 +28,22 @@ import { prisma } from "@/lib/prisma"
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
-const MODEL_KEYS = ["poisson", "zip", "markov", "ensemble"] as const
+const MODEL_KEYS = [
+  "poisson", "zip", "markov", "mapre",
+  "logistic_meta", "nn_interaction", "hierarchical_bayes", "ensemble",
+] as const
 type ModelKey = (typeof MODEL_KEYS)[number]
 
-const MODEL_COLUMN: Record<ModelKey, "poissonNrfi" | "zipNrfi" | "markovNrfi" | "ensembleNrfi"> = {
-  poisson:  "poissonNrfi",
-  zip:      "zipNrfi",
-  markov:   "markovNrfi",
-  ensemble: "ensembleNrfi",
-}
+const MODEL_COLUMN = {
+  poisson:            "poissonNrfi",
+  zip:                "zipNrfi",
+  markov:             "markovNrfi",
+  mapre:              "mapreNrfi",
+  logistic_meta:      "logisticMetaNrfi",
+  nn_interaction:     "nnInteractionNrfi",
+  hierarchical_bayes: "hierarchicalBayesNrfi",
+  ensemble:           "ensembleNrfi",
+} as const satisfies Record<ModelKey, string>
 
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return ""
@@ -45,6 +55,10 @@ function csvEscape(v: unknown): string {
 
 function row(fields: unknown[]): string {
   return fields.map(csvEscape).join(",")
+}
+
+function pct(v: number | null | undefined): string {
+  return typeof v === "number" ? (v * 100).toFixed(2) : ""
 }
 
 export async function GET(request: Request) {
@@ -82,6 +96,10 @@ export async function GET(request: Request) {
           poissonNrfi:     true,
           zipNrfi:         true,
           markovNrfi:      true,
+          mapreNrfi:              true,
+          logisticMetaNrfi:       true,
+          nnInteractionNrfi:      true,
+          hierarchicalBayesNrfi:  true,
           ensembleNrfi:    true,
           correct:         true,
           backtested:      true,
@@ -101,7 +119,8 @@ export async function GET(request: Request) {
         "homePitcher", "awayPitcher",
         "homeRuns1st", "awayRuns1st", "nrfi",
         "modelPrediction", "modelNrfiPct", "confidence", "confidenceScore",
-        "poissonNrfi", "zipNrfi", "markovNrfi", "ensembleNrfi",
+        "poissonNrfi", "zipNrfi", "markovNrfi", "mapreNrfi",
+        "logisticMetaNrfi", "nnInteractionNrfi", "hierarchicalBayesNrfi", "ensembleNrfi",
         "correct", "backtested",
       ])
 
@@ -121,10 +140,14 @@ export async function GET(request: Request) {
           p ? (p.nrfiProbability * 100).toFixed(2) : "",
           p?.confidence   ?? "",
           p ? p.confidenceScore.toFixed(1) : "",
-          p ? (p.poissonNrfi  * 100).toFixed(2) : "",
-          p ? (p.zipNrfi      * 100).toFixed(2) : "",
-          p ? (p.markovNrfi   * 100).toFixed(2) : "",
-          p ? (p.ensembleNrfi * 100).toFixed(2) : "",
+          pct(p?.poissonNrfi),
+          pct(p?.zipNrfi),
+          pct(p?.markovNrfi),
+          pct(p?.mapreNrfi),
+          pct(p?.logisticMetaNrfi),
+          pct(p?.nnInteractionNrfi),
+          pct(p?.hierarchicalBayesNrfi),
+          pct(p?.ensembleNrfi),
           p?.correct   === true  ? "true"
             : p?.correct === false ? "false"
             : "",
@@ -133,7 +156,7 @@ export async function GET(request: Request) {
       })
     } else {
       const col = MODEL_COLUMN[model]
-      const modelLabel = `${model}Nrfi`
+      const modelLabel = col
 
       header = row([
         "date", "season", "homeTeam", "awayTeam",

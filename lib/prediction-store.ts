@@ -52,6 +52,8 @@ export interface TrackedPrediction {
   zipNrfi: number
   /** Markov Chain P(NRFI) */
   markovNrfi: number
+  /** MAPRE game-level P(NRFI) — optional; absent on predictions saved before this field existed */
+  mapreNrfi?: number
   /** Final headline ensemble P(NRFI) (base-4 blend: Poisson 12%, ZIP 30%, Markov 48%, MAPRE 10%) */
   ensembleNrfi: number
   /** 0–1 model agreement score */
@@ -99,7 +101,7 @@ export interface TrackedPrediction {
 // ─── PerModelAccuracy ─────────────────────────────────────────────────────────
 
 export interface PerModelAccuracy {
-  model: "Poisson" | "ZIP" | "Markov" | "Ensemble" | "Logistic Stack" | "NN Interaction" | "Hierarchical Bayes"
+  model: "Poisson" | "ZIP" | "Markov" | "MAPRE" | "Ensemble" | "Logistic Stack" | "NN Interaction" | "Hierarchical Bayes"
   totalPredictions: number
   correct: number
   accuracy: number
@@ -289,6 +291,7 @@ export function buildTrackedPrediction(
     poissonNrfi:      Math.max(0.05, Math.min(0.95, poissonNrfi)),
     zipNrfi:          Math.max(0.05, Math.min(0.95, zipNrfi)),
     markovNrfi:       Math.max(0.05, Math.min(0.95, markovNrfi)),
+    mapreNrfi:        bd?.mapreNrfi != null ? Math.max(0.05, Math.min(0.95, bd.mapreNrfi)) : undefined,
     ensembleNrfi:     pred.nrfiProbability,
     modelConsensus:   bd?.modelConsensus ?? 0.5,
 
@@ -576,6 +579,7 @@ export function computeExtendedAccuracy(
   // Each meta-model is gated on its own field so a missing value in one model
   // never causes a non-null assertion failure in another.
   function buildCandidatesForSubset(subset: TrackedPrediction[]): PerModelAccuracy[] {
+    const withMapre     = subset.filter((p): p is TrackedPrediction & { mapreNrfi: number }             => p.mapreNrfi             != null)
     const withLogistic = subset.filter((p): p is TrackedPrediction & { logisticMetaNrfi: number }      => p.logisticMetaNrfi      != null)
     const withNn       = subset.filter((p): p is TrackedPrediction & { nnInteractionNrfi: number }     => p.nnInteractionNrfi     != null)
     const withHier     = subset.filter((p): p is TrackedPrediction & { hierarchicalBayesNrfi: number } => p.hierarchicalBayesNrfi != null)
@@ -584,6 +588,7 @@ export function computeExtendedAccuracy(
       modelAccuracyForModel(subset, (p) => p.zipNrfi,      "ZIP"),
       modelAccuracyForModel(subset, (p) => p.markovNrfi,   "Markov"),
       modelAccuracyForModel(subset, (p) => p.ensembleNrfi, "Ensemble"),
+      ...(withMapre.length    > 0 ? [modelAccuracyForModel(withMapre,    (p) => p.mapreNrfi!,             "MAPRE"             )] : []),
       ...(withLogistic.length > 0 ? [modelAccuracyForModel(withLogistic, (p) => p.logisticMetaNrfi!,      "Logistic Stack"    )] : []),
       ...(withNn.length       > 0 ? [modelAccuracyForModel(withNn,       (p) => p.nnInteractionNrfi!,     "NN Interaction"    )] : []),
       ...(withHier.length     > 0 ? [modelAccuracyForModel(withHier,     (p) => p.hierarchicalBayesNrfi!, "Hierarchical Bayes")] : []),

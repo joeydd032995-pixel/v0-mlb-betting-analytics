@@ -160,6 +160,13 @@ model ModelPrediction {
   zipNrfi         Float
   markovNrfi      Float
   ensembleNrfi    Float
+  // Remaining 3 of the 7-model ensemble, nullable — absent on rows written
+  // before these columns existed, and on historical-sync rows built from a
+  // degraded (no-lineup) recompute where a meta-model input was missing.
+  mapreNrfi              Float?
+  logisticMetaNrfi       Float?
+  nnInteractionNrfi      Float?
+  hierarchicalBayesNrfi  Float?
   // American odds snapshot at prediction time (null when no odds were available
   // — e.g. historical backfill).  Lets backtests price each side at its real
   // line instead of a synthetic -110 (AUDIT_REPORT.md P1-3/P1-7).

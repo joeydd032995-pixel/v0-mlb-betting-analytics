@@ -81,6 +81,10 @@ interface Persisted {
   zipNrfi:         number
   markovNrfi:      number
   ensembleNrfi:    number
+  mapreNrfi:              number | null
+  logisticMetaNrfi:       number | null
+  nnInteractionNrfi:      number | null
+  hierarchicalBayesNrfi:  number | null
   modelBreakdown:  Json
   modelConsensus:  number
   ensembleVersion: "v1.7models" | "v2.9models"
@@ -117,6 +121,10 @@ function buildRow(
     zipNrfi:         tracked.zipNrfi,
     markovNrfi:      tracked.markovNrfi,
     ensembleNrfi:    tracked.ensembleNrfi,
+    mapreNrfi:             tracked.mapreNrfi ?? null,
+    logisticMetaNrfi:      tracked.logisticMetaNrfi ?? null,
+    nnInteractionNrfi:     tracked.nnInteractionNrfi ?? null,
+    hierarchicalBayesNrfi: tracked.hierarchicalBayesNrfi ?? null,
     modelBreakdown:  (pred.modelBreakdown ?? Prisma.JsonNull) as Json,
     modelConsensus:  tracked.modelConsensus,
     ensembleVersion: pred.ensembleVersion ?? "v1.7models",
@@ -142,6 +150,10 @@ async function upsertPrediction(row: Persisted): Promise<void> {
       zipNrfi:         row.zipNrfi,
       markovNrfi:      row.markovNrfi,
       ensembleNrfi:    row.ensembleNrfi,
+      mapreNrfi:             row.mapreNrfi,
+      logisticMetaNrfi:      row.logisticMetaNrfi,
+      nnInteractionNrfi:     row.nnInteractionNrfi,
+      hierarchicalBayesNrfi: row.hierarchicalBayesNrfi,
       modelBreakdown:  row.modelBreakdown,
       modelConsensus:  row.modelConsensus,
       ensembleVersion: row.ensembleVersion,

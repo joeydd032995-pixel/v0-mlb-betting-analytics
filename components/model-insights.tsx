@@ -192,11 +192,15 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   async function runRescore() { await runSync(buildAllMonthPairs(), RESCORE_ALL) }
 
   const EXPORT_MODELS = [
-    { key: "all",      label: "All Models" },
-    { key: "poisson",  label: "Poisson" },
-    { key: "zip",      label: "ZIP" },
-    { key: "markov",   label: "Markov" },
-    { key: "ensemble", label: "Ensemble" },
+    { key: "all",                 label: "All Models" },
+    { key: "poisson",             label: "Poisson" },
+    { key: "zip",                 label: "ZIP" },
+    { key: "markov",              label: "Markov" },
+    { key: "mapre",               label: "MAPRE" },
+    { key: "logistic_meta",       label: "Logistic Stack" },
+    { key: "nn_interaction",      label: "NN Interaction" },
+    { key: "hierarchical_bayes",  label: "Hierarchical Bayes" },
+    { key: "ensemble",            label: "Ensemble" },
   ] as const
 
   async function exportData(modelKey: (typeof EXPORT_MODELS)[number]["key"] = "all") {
