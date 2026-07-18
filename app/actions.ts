@@ -394,10 +394,14 @@ export async function savePredictionsToDBAction(
               zipNrfi:         p.zipNrfi,
               markovNrfi:      p.markovNrfi,
               ensembleNrfi:    p.ensembleNrfi,
-              mapreNrfi:             p.mapreNrfi ?? null,
-              logisticMetaNrfi:      p.logisticMetaNrfi ?? null,
-              nnInteractionNrfi:     p.nnInteractionNrfi ?? null,
-              hierarchicalBayesNrfi: p.hierarchicalBayesNrfi ?? null,
+              // Omit (rather than null) when the incoming payload lacks these —
+              // a stale client-side TrackedPrediction saved before these fields
+              // existed means "not present in this save," not "clear the value
+              // historical-sync or the prediction agent already persisted."
+              ...(p.mapreNrfi              != null ? { mapreNrfi:              p.mapreNrfi              } : {}),
+              ...(p.logisticMetaNrfi       != null ? { logisticMetaNrfi:       p.logisticMetaNrfi       } : {}),
+              ...(p.nnInteractionNrfi      != null ? { nnInteractionNrfi:      p.nnInteractionNrfi      } : {}),
+              ...(p.hierarchicalBayesNrfi  != null ? { hierarchicalBayesNrfi:  p.hierarchicalBayesNrfi  } : {}),
               modelConsensus:  p.modelConsensus,
               modelBreakdown,
               actualResult:    p.actualResult ?? null,
