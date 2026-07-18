@@ -369,6 +369,8 @@ export interface ModelBreakdown {
   ensembleNrfi: number
   /** Ensemble P(YRFI) = 1 − ensembleNrfi */
   ensembleYrfi: number
+  /** MAPRE game-level P(NRFI) — via combineMAPREHalves (cross-half ρ + NegBin overdispersion; NOT a simple product of the two halves) */
+  mapreNrfi?: number
   /** Half-inning breakdown: home team at bat (vs away pitcher) */
   homeHalfInning: HalfInningModelBreakdown
   /** Half-inning breakdown: away team at bat (vs home pitcher) */

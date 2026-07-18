@@ -38,16 +38,22 @@ export default async function AccuracyPage() {
       poissonNrfi:    r.poissonNrfi,
       zipNrfi:        r.zipNrfi,
       markovNrfi:     r.markovNrfi,
+      mapreNrfi:      r.mapreNrfi ?? undefined,
       ensembleNrfi:   r.ensembleNrfi,
       modelConsensus: r.modelConsensus,
-      // ZIP / Bayesian diagnostics from modelBreakdown blob (may be absent for older rows)
+      // ZIP / Bayesian diagnostics still come from the modelBreakdown blob (no flat
+      // columns for these yet; may be absent for older rows).
       homeZipOmega:       (r.modelBreakdown as Record<string, number> | null)?.homeZipOmega ?? 0,
       awayZipOmega:       (r.modelBreakdown as Record<string, number> | null)?.awayZipOmega ?? 0,
       homeBayesianWeight: (r.modelBreakdown as Record<string, number> | null)?.homeBayesianWeight ?? 0,
       awayBayesianWeight: (r.modelBreakdown as Record<string, number> | null)?.awayBayesianWeight ?? 0,
-      logisticMetaNrfi:     (r.modelBreakdown as Record<string, number> | null)?.logisticMetaNrfi,
-      nnInteractionNrfi:    (r.modelBreakdown as Record<string, number> | null)?.nnInteractionNrfi,
-      hierarchicalBayesNrfi: (r.modelBreakdown as Record<string, number> | null)?.hierarchicalBayesNrfi,
+      // Read from the flat columns, not modelBreakdown — that blob's shape varies
+      // by write path (historical-sync never sets it; the prediction agent stores
+      // nrfi-engine's raw nested homeHalfInning/awayHalfInning shape, not these
+      // flat keys), so the flat columns are the only reliable source here.
+      logisticMetaNrfi:      r.logisticMetaNrfi      ?? undefined,
+      nnInteractionNrfi:     r.nnInteractionNrfi     ?? undefined,
+      hierarchicalBayesNrfi: r.hierarchicalBayesNrfi ?? undefined,
       modelInputs: (r.modelBreakdown as { modelInputs?: TrackedPrediction["modelInputs"] } | null)?.modelInputs ?? {
         homePitcherNrfiRate: 0, awayPitcherNrfiRate: 0,
         homeOffenseFactor: 1,   awayOffenseFactor: 1,

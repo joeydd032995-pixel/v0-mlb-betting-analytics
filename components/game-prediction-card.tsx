@@ -335,7 +335,10 @@ function ModelBreakdownPanel({ bd, awayAbbr, homeAbbr }: { bd: ModelBreakdown; a
     { name: "Poisson", p: hh.poissonNrfi * ah.poissonNrfi, detail: "Bayesian-shrunk λ via e^(−λ)" },
     { name: "ZIP",     p: hh.zipNrfi * ah.zipNrfi, detail: `ω ${(hh.zipOmega * 100).toFixed(0)}% / ${(ah.zipOmega * 100).toFixed(0)}% lockdown` },
     { name: "Markov",  p: hh.markovNrfi * ah.markovNrfi, detail: "24-state base-out chain · handedness" },
-    { name: "MAPRE",   p: hh.mapreNrfi * ah.mapreNrfi, detail: "sOPS+, BAbip, HR/PA, HFA, rest" },
+    // bd.mapreNrfi is the corrected game-level value (combineMAPREHalves applies a
+    // cross-half ρ + NegBin overdispersion correction — NOT a simple product of
+    // the two halves); fall back to the product only if it's somehow absent.
+    { name: "MAPRE",   p: bd.mapreNrfi ?? hh.mapreNrfi * ah.mapreNrfi, detail: "sOPS+, BAbip, HR/PA, HFA, rest" },
   ]
   const metaModels = [
     ...(hh.logisticMetaNrfi != null && ah.logisticMetaNrfi != null

@@ -710,6 +710,7 @@ export function computeNRFIPrediction(
   const modelBreakdown: ModelBreakdown = {
     ensembleNrfi:   nrfiProb,
     ensembleYrfi:   yrfiProb,
+    mapreNrfi:      mapreGameLevel,
     homeHalfInning: homeHalfUI,
     awayHalfInning: awayHalfUI,
     modelConsensus:  consensus,
