@@ -262,6 +262,10 @@ def combo_hit_rate(df: pd.DataFrame, constraints: list[Constraint], rule: Litera
 
     weights = np.array([ENSEMBLE_WEIGHTS[m] for m in models])
     prob_matrix = df[models].to_numpy(dtype=float)
+    # Mirror to the combo's predicted side so mean_weighted_prob reflects
+    # predicted-direction confidence, not always the raw NRFI probability.
+    if combo_side == "YRFI":
+        prob_matrix = 1.0 - prob_matrix
 
     Qsub = Q[applicable].astype(float)
     # NaN entries where Q is False don't matter for the sums below (they're

@@ -18,10 +18,16 @@ import argparse
 import sys
 from pathlib import Path
 
+try:
+    import numpy as np
+except ImportError as e:
+    print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
+    raise SystemExit(1) from e
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (  # noqa: E402
-    BUCKET_LABELS, MODEL_COLUMNS, TRAIN_SEASONS,
-    bucket_for, bucket_side_value, load_games, load_manifest, save_manifest, utcnow_iso,
+    BUCKET_EDGES, BUCKET_LABELS, MODEL_COLUMNS, TRAIN_SEASONS,
+    load_games, load_manifest, save_manifest, utcnow_iso,
     add_data_source_args,
 )
 
@@ -51,20 +57,17 @@ def compute_bucket_cells(df) -> tuple[list[dict], dict]:
         n_usable = n_total - n_null
         null_summary[model] = {"n_total": n_total, "n_null": n_null, "n_usable": n_usable}
 
-        usable = train[col.notna()]
-        for idx in usable.index:
-            prob = usable.loc[idx, model]
-            side = "NRFI" if prob >= 0.5 else "YRFI"
-            val = bucket_side_value(prob, side)
-            bucket = bucket_for(val)
-            if bucket is None:
-                continue
-            cell = cells[(model, side, bucket)]
-            cell["n"] += 1
-            is_nrfi = bool(usable.loc[idx, "nrfi_is_nrfi"])
-            predicted_is_nrfi = side == "NRFI"
-            if predicted_is_nrfi == is_nrfi:
-                cell["wins"] += 1
+        prob = col.to_numpy(dtype=float)
+        is_nrfi_actual = train["nrfi_is_nrfi"].to_numpy(dtype=bool)
+        valid = ~np.isnan(prob)
+        for side in ("NRFI", "YRFI"):
+            side_mask = valid & ((prob >= 0.5) if side == "NRFI" else (prob < 0.5))
+            val = np.where(prob >= 0.5, prob * 100.0, 100.0 - prob * 100.0)
+            for lo, hi, label in zip(BUCKET_EDGES[:-1], BUCKET_EDGES[1:], BUCKET_LABELS):
+                in_bucket = side_mask & (val >= lo) & (val <= hi if hi >= 100 else val < hi)
+                cell = cells[(model, side, label)]
+                cell["n"] = int(in_bucket.sum())
+                cell["wins"] = int((is_nrfi_actual[in_bucket] == (side == "NRFI")).sum())
 
     cell_rows = list(cells.values())
     for c in cell_rows:
