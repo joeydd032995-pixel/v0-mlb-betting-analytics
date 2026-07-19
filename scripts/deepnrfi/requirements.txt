@@ -8,5 +8,6 @@ pybaseball>=2.2.7
 psycopg[binary]>=3.1
 requests>=2.28
 pyarrow>=14.0
-# Used by confidence_blend_discovery/ (Wilson CI; pulls scipy transitively):
+# Used by confidence_blend_discovery/ (Wilson CI, exact binomial tests):
 statsmodels>=0.14
+scipy>=1.10

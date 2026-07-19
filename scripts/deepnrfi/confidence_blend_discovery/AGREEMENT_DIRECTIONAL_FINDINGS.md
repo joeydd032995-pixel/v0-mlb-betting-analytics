@@ -86,6 +86,35 @@ This is the mechanism flagged before building this script: pooling produces a nu
 the (inflated) train-period figure than to the honest fresh-data figure, because most of the
 pooled sample is still the train-period games.
 
+## Follow-up: does the C1/C2 breakeven result hold up? (2026-07-19, `05_dig_deeper_c1_c2.py`)
+
+**No.** Digging into the "2 of 3 combos clear breakeven" result above overturns it:
+
+1. **C1 and C2 are not independent findings.** Every one of C1's 120 holdout-qualifying games
+   (100%) also qualifies for C2. Every one of both combos' qualifying games (100%) also
+   independently satisfies a plain `Ensemble+MAPRE ≥60%` blend with no agreement requirement at
+   all. On the 120 games C1 and C2 share, they agree on the win/loss outcome 100% of the time.
+   This is nesting (`C1 ⊆ C2 ⊆ Ensemble+MAPRE-alone`), not two independent confirmations of the
+   same underlying edge — "2 of 3 clear breakeven" is really one signal counted twice.
+2. **Neither survives a corrected significance test.** An exact one-sided binomial test of
+   holdout hit rate against the 52.4% breakeven gives p=0.057 (C1) and p=0.049 (C2) — both
+   already marginal uncorrected. After Bonferroni correction across the pre-registered 3-combo
+   family (α=0.0167) or Benjamini-Hochberg, **both fail**.
+3. **The Agreement mechanism adds no filtering power here.** Plain `Ensemble+MAPRE` alone
+   qualifies *more* holdout games (179 vs. 120/164) at comparable (still-failing) significance
+   (p=0.040) — the "other side" in both Agreement combos never once overrides Ensemble+MAPRE's
+   own direction when both clear threshold. This empirically confirms the correlation-matrix
+   argument from the initial review of the source document: an "Agreement" built from models
+   correlated 0.97+ with each other isn't independent confirmation.
+4. **Stability by month** (the one mild positive): win rate ranges 50-73% across March-July with
+   no single month driving the whole effect, though monthly samples (6-70 games) are too small
+   to be conclusive either way.
+
+**Revised bottom line:** the encouraging combo-level result does not hold up under closer
+scrutiny. Once redundancy and multiple-comparison correction are accounted for, none of the 3
+pre-registered combos from the source document show a holdout edge distinguishable from
+breakeven — consistent with this session's own from-scratch bucket-combo search (clean negative).
+
 ## Methodology notes
 
 - **Ensemble treated as an 8th model**, exactly matching the source document's own definitions —
