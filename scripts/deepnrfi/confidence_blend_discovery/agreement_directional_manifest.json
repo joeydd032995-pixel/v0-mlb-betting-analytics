@@ -1,0 +1,324 @@
+{
+  "combos": [
+    {
+      "id": "C1_max_pooled",
+      "label": "Logistic Meta+Poisson vs Ensemble+MAPRE",
+      "category": "Agreement(2-set)",
+      "setA": [
+        "logisticMetaNrfi",
+        "poissonNrfi"
+      ],
+      "setB": [
+        "ensembleNrfi",
+        "mapreNrfi"
+      ],
+      "threshold": 0.6,
+      "alternative": "two-sided",
+      "source": "Master Documentation: 'Maximum pooled win rate' recommendation (62.70%, 370 games pooled)",
+      "views": {
+        "train": {
+          "n": 370,
+          "wins": 232,
+          "hit_rate": 0.6270270270270271,
+          "wilson_lower": 0.5766829167898737,
+          "wilson_upper": 0.6747605702340878,
+          "NRFI": {
+            "n": 193,
+            "wins": 120,
+            "hit_rate": 0.6217616580310881,
+            "wilson_lower": 0.5515976187581136,
+            "wilson_upper": 0.68717321885701,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 177,
+            "wins": 112,
+            "hit_rate": 0.632768361581921,
+            "wilson_lower": 0.5596341852705398,
+            "wilson_upper": 0.7002619707685516,
+            "meets_min_n": true
+          },
+          "directional_test": {
+            "alternative": "two-sided",
+            "z": -0.21869551852366587,
+            "p_value": 0.8268872401899873,
+            "insufficient_sample": false
+          }
+        },
+        "holdout": {
+          "n": 120,
+          "wins": 72,
+          "hit_rate": 0.6,
+          "wilson_lower": 0.5105602479246307,
+          "wilson_upper": 0.6832359187916286,
+          "NRFI": {
+            "n": 105,
+            "wins": 62,
+            "hit_rate": 0.5904761904761905,
+            "wilson_lower": 0.4948448240745815,
+            "wilson_upper": 0.6797210096239605,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 15,
+            "wins": 10,
+            "hit_rate": 0.6666666666666666,
+            "wilson_lower": 0.41713547738519763,
+            "wilson_upper": 0.8482367556028527,
+            "meets_min_n": false
+          },
+          "directional_test": {
+            "alternative": "two-sided",
+            "z": null,
+            "p_value": null,
+            "insufficient_sample": true
+          }
+        },
+        "pooled": {
+          "n": 490,
+          "wins": 304,
+          "hit_rate": 0.6204081632653061,
+          "wilson_lower": 0.576660531788262,
+          "wilson_upper": 0.6622825498270137,
+          "NRFI": {
+            "n": 298,
+            "wins": 182,
+            "hit_rate": 0.610738255033557,
+            "wilson_lower": 0.5543052450952403,
+            "wilson_upper": 0.6643525902394566,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 192,
+            "wins": 122,
+            "hit_rate": 0.6354166666666666,
+            "wilson_lower": 0.5652982679889763,
+            "wilson_upper": 0.7002226299512778,
+            "meets_min_n": true
+          },
+          "directional_test": {
+            "alternative": "two-sided",
+            "z": -0.5495164863010733,
+            "p_value": 0.5826510537678213,
+            "insufficient_sample": false
+          }
+        }
+      }
+    },
+    {
+      "id": "C2_max_stability",
+      "label": "Markov+Hierarchical Bayes+NN Interaction+Poisson+ZIP vs Ensemble+MAPRE",
+      "category": "5vX Agreement",
+      "setA": [
+        "markovNrfi",
+        "hierarchicalBayesNrfi",
+        "nnInteractionNrfi",
+        "poissonNrfi",
+        "zipNrfi"
+      ],
+      "setB": [
+        "ensembleNrfi",
+        "mapreNrfi"
+      ],
+      "threshold": 0.6,
+      "alternative": "two-sided",
+      "source": "Master Documentation: 'Maximum stability/consistency' recommendation (61.06%, 452 games pooled)",
+      "views": {
+        "train": {
+          "n": 452,
+          "wins": 276,
+          "hit_rate": 0.6106194690265486,
+          "wilson_lower": 0.5649151262923249,
+          "wilson_upper": 0.6544593910205796,
+          "NRFI": {
+            "n": 219,
+            "wins": 137,
+            "hit_rate": 0.6255707762557078,
+            "wilson_lower": 0.559825460441672,
+            "wilson_upper": 0.6869867812797165,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 233,
+            "wins": 139,
+            "hit_rate": 0.5965665236051502,
+            "wilson_lower": 0.5325015492963144,
+            "wilson_upper": 0.6574989692956107,
+            "meets_min_n": true
+          },
+          "directional_test": {
+            "alternative": "two-sided",
+            "z": 0.6320043099012853,
+            "p_value": 0.5273840609623223,
+            "insufficient_sample": false
+          }
+        },
+        "holdout": {
+          "n": 164,
+          "wins": 97,
+          "hit_rate": 0.5914634146341463,
+          "wilson_lower": 0.5149740015895365,
+          "wilson_upper": 0.6637661035715436,
+          "NRFI": {
+            "n": 145,
+            "wins": 83,
+            "hit_rate": 0.5724137931034483,
+            "wilson_lower": 0.49104377547186506,
+            "wilson_upper": 0.6500459462117838,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 19,
+            "wins": 14,
+            "hit_rate": 0.7368421052631579,
+            "wilson_lower": 0.5120844910218488,
+            "wilson_upper": 0.8819358765321749,
+            "meets_min_n": false
+          },
+          "directional_test": {
+            "alternative": "two-sided",
+            "z": null,
+            "p_value": null,
+            "insufficient_sample": true
+          }
+        },
+        "pooled": {
+          "n": 616,
+          "wins": 373,
+          "hit_rate": 0.6055194805194806,
+          "wilson_lower": 0.5663844369896088,
+          "wilson_upper": 0.6433466130233044,
+          "NRFI": {
+            "n": 364,
+            "wins": 220,
+            "hit_rate": 0.6043956043956044,
+            "wilson_lower": 0.5533235290063707,
+            "wilson_upper": 0.6532872218417181,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 252,
+            "wins": 153,
+            "hit_rate": 0.6071428571428571,
+            "wilson_lower": 0.5456678283816333,
+            "wilson_upper": 0.6654003864765604,
+            "meets_min_n": true
+          },
+          "directional_test": {
+            "alternative": "two-sided",
+            "z": -0.06859340816283596,
+            "p_value": 0.9453132660337866,
+            "insufficient_sample": false
+          }
+        }
+      }
+    },
+    {
+      "id": "C3_yrfi_specific",
+      "label": "Poisson+MAPRE vs Hierarchical Bayes+Ensemble+NN Interaction",
+      "category": "Agreement(2-set)",
+      "setA": [
+        "poissonNrfi",
+        "mapreNrfi"
+      ],
+      "setB": [
+        "hierarchicalBayesNrfi",
+        "ensembleNrfi",
+        "nnInteractionNrfi"
+      ],
+      "threshold": 0.6,
+      "alternative": "larger",
+      "source": "Master Documentation: 'Best YRFI-specific edge' recommendation",
+      "views": {
+        "train": {
+          "n": 299,
+          "wins": 182,
+          "hit_rate": 0.6086956521739131,
+          "wilson_lower": 0.5523331165764681,
+          "wilson_upper": 0.66230064015261,
+          "NRFI": {
+            "n": 247,
+            "wins": 143,
+            "hit_rate": 0.5789473684210527,
+            "wilson_lower": 0.5166270942178272,
+            "wilson_upper": 0.6388495968497284,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 52,
+            "wins": 39,
+            "hit_rate": 0.75,
+            "wilson_lower": 0.6179354205740265,
+            "wilson_upper": 0.8476684613640423,
+            "meets_min_n": false
+          },
+          "directional_test": {
+            "alternative": "larger",
+            "z": null,
+            "p_value": null,
+            "insufficient_sample": true
+          }
+        },
+        "holdout": {
+          "n": 101,
+          "wins": 56,
+          "hit_rate": 0.5544554455445545,
+          "wilson_lower": 0.45729983104573313,
+          "wilson_upper": 0.6476204945938867,
+          "NRFI": {
+            "n": 99,
+            "wins": 55,
+            "hit_rate": 0.5555555555555556,
+            "wilson_lower": 0.4574214280657185,
+            "wilson_upper": 0.6495393261489675,
+            "meets_min_n": false
+          },
+          "YRFI": {
+            "n": 2,
+            "wins": 1,
+            "hit_rate": 0.5,
+            "wilson_lower": 0.09453120573423068,
+            "wilson_upper": 0.9054687942657693,
+            "meets_min_n": false
+          },
+          "directional_test": {
+            "alternative": "larger",
+            "z": null,
+            "p_value": null,
+            "insufficient_sample": true
+          }
+        },
+        "pooled": {
+          "n": 400,
+          "wins": 238,
+          "hit_rate": 0.595,
+          "wilson_lower": 0.5462106166004184,
+          "wilson_upper": 0.6419820474760654,
+          "NRFI": {
+            "n": 346,
+            "wins": 198,
+            "hit_rate": 0.5722543352601156,
+            "wilson_lower": 0.5196107151246987,
+            "wilson_upper": 0.6233111677434686,
+            "meets_min_n": true
+          },
+          "YRFI": {
+            "n": 54,
+            "wins": 40,
+            "hit_rate": 0.7407407407407407,
+            "wilson_lower": 0.6106910949571831,
+            "wilson_upper": 0.8388134737397925,
+            "meets_min_n": false
+          },
+          "directional_test": {
+            "alternative": "larger",
+            "z": null,
+            "p_value": null,
+            "insufficient_sample": true
+          }
+        }
+      }
+    }
+  ],
+  "holdout_correction": null
+}
