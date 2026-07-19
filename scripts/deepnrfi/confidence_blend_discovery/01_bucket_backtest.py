@@ -49,6 +49,8 @@ def compute_bucket_cells(df) -> tuple[list[dict], dict]:
             for label in BUCKET_LABELS:
                 cells[(model, side, label)] = {"model": model, "side": side, "bucket": label, "n": 0, "wins": 0}
 
+    is_nrfi_actual = train["nrfi_is_nrfi"].to_numpy(dtype=bool)
+
     null_summary = {}
     for model in MODEL_COLUMNS:
         col = train[model]
@@ -58,12 +60,11 @@ def compute_bucket_cells(df) -> tuple[list[dict], dict]:
         null_summary[model] = {"n_total": n_total, "n_null": n_null, "n_usable": n_usable}
 
         prob = col.to_numpy(dtype=float)
-        is_nrfi_actual = train["nrfi_is_nrfi"].to_numpy(dtype=bool)
         valid = ~np.isnan(prob)
+        val = np.where(prob >= 0.5, prob * 100.0, 100.0 - prob * 100.0)  # invariant across sides
         for side in ("NRFI", "YRFI"):
             side_mask = valid & ((prob >= 0.5) if side == "NRFI" else (prob < 0.5))
-            val = np.where(prob >= 0.5, prob * 100.0, 100.0 - prob * 100.0)
-            for lo, hi, label in zip(BUCKET_EDGES[:-1], BUCKET_EDGES[1:], BUCKET_LABELS):
+            for lo, hi, label in zip(BUCKET_EDGES[:-1], BUCKET_EDGES[1:], BUCKET_LABELS, strict=True):
                 in_bucket = side_mask & (val >= lo) & (val <= hi if hi >= 100 else val < hi)
                 cell = cells[(model, side, label)]
                 cell["n"] = int(in_bucket.sum())

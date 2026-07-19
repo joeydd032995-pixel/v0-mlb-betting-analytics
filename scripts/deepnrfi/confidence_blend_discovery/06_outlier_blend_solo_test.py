@@ -42,43 +42,24 @@ try:
     import numpy as np
     import pandas as pd
     from scipy.stats import binomtest
-    from statsmodels.stats.proportion import proportion_confint
 except ImportError as e:
     print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
-ALL8_COLUMNS = [
-    "poissonNrfi", "zipNrfi", "markovNrfi", "mapreNrfi",
-    "logisticMetaNrfi", "nnInteractionNrfi", "hierarchicalBayesNrfi", "ensembleNrfi",
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common8 import ALL8_COLUMNS, load_8model_csv, wilson, bonferroni, benjamini_hochberg  # noqa: E402
+
 TRAIN_SEASONS = (2023, 2024, 2025)
 HOLDOUT_SEASON = 2026
 BREAKEVEN = 0.524
 THRESHOLD = 0.60
+MIN_HOLDOUT_N = 150
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--csv", required=True)
     return p.parse_args()
-
-
-def load_8model_csv(csv_path: str) -> pd.DataFrame:
-    raw = pd.read_csv(csv_path)
-    df = pd.DataFrame()
-    for col in ALL8_COLUMNS:
-        df[col] = pd.to_numeric(raw[col], errors="coerce") / 100.0
-    df["nrfi_is_nrfi"] = raw["nrfi"].astype(str).str.upper().eq("NRFI")
-    df["season"] = pd.to_numeric(raw["season"], errors="coerce").astype("Int64")
-    df["date"] = pd.to_datetime(raw["date"])
-    return df
-
-
-def wilson(wins: int, n: int) -> tuple[float, float]:
-    if n == 0:
-        return (float("nan"), float("nan"))
-    lo, hi = proportion_confint(wins, n, alpha=0.05, method="wilson")
-    return float(lo), float(hi)
 
 
 # ─── Candidate definitions ────────────────────────────────────────────────
@@ -140,25 +121,6 @@ def evaluate(df: pd.DataFrame, cid: str) -> tuple[np.ndarray, np.ndarray]:
     return qualifies, is_win
 
 
-def bonferroni(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    corrected = alpha / len(pvalues)
-    return [p < corrected for p in pvalues]
-
-
-def benjamini_hochberg(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    m = len(pvalues)
-    order = sorted(range(m), key=lambda i: pvalues[i])
-    reject = [False] * m
-    max_k = -1
-    for rank, idx in enumerate(order, start=1):
-        if pvalues[idx] <= (rank / m) * alpha:
-            max_k = rank
-    for rank, idx in enumerate(order, start=1):
-        if rank <= max_k:
-            reject[idx] = True
-    return reject
-
-
 LABELS = {
     "D1_median": "Median-of-8 blend (>=60% symmetric confidence)",
     "D2_trim2": "Trim-2 blend: drop 2 highest/2 lowest of 8, avg remaining 4 (>=60%)",
@@ -180,9 +142,10 @@ def analyze_view(df: pd.DataFrame, cid: str) -> dict:
 
 def print_view(name: str, r: dict, confirmatory: bool) -> None:
     tag = "[CONFIRMATORY]" if confirmatory else "[descriptive]"
+    floor_tag = "" if not confirmatory or r["n"] >= MIN_HOLDOUT_N else f"  [BELOW MIN N={MIN_HOLDOUT_N}]"
     if r["n"]:
         print(f"    {name:8s} {tag}: n={r['n']:5d} wins={r['wins']:5d} hit_rate={r['hit_rate']:.4f} "
-              f"wilson=({r['wilson_lower']:.4f},{r['wilson_upper']:.4f}) p(vs 52.4%)={r['p_vs_breakeven']:.4f}")
+              f"wilson=({r['wilson_lower']:.4f},{r['wilson_upper']:.4f}) p(vs 52.4%)={r['p_vs_breakeven']:.4f}{floor_tag}")
     else:
         print(f"    {name:8s} {tag}: n=0")
 
@@ -195,7 +158,8 @@ def main() -> int:
     pooled = df
 
     print("=== Outlier-Filtered Blend + Solo ZIP holdout validation ===")
-    print(f"Train: n={len(train)}   Holdout: n={len(holdout)}   Pooled: n={len(pooled)}\n")
+    print(f"Train: n={len(train)}   Holdout: n={len(holdout)}   Pooled: n={len(pooled)}")
+    print(f"Holdout date watermark: max(date)={holdout['date'].max()}\n")
     print("CUMULATIVE-LOOK CAVEAT: this is the 3rd distinct methodology tested against this same")
     print("2026 holdout snapshot this session -- see module docstring.\n")
 
@@ -216,7 +180,7 @@ def main() -> int:
     print("=== Multiple-comparison correction across the 4-candidate HOLDOUT family ===")
     bonf = bonferroni(holdout_pvals)
     bh = benjamini_hochberg(holdout_pvals)
-    for cid, p, b, h in zip(holdout_ids, holdout_pvals, bonf, bh):
+    for cid, p, b, h in zip(holdout_ids, holdout_pvals, bonf, bh, strict=True):
         print(f"  {cid}: raw p={p:.4f}  Bonferroni(4)={'SURVIVES' if b else 'fails'}  "
               f"BH(4)={'SURVIVES' if h else 'fails'}")
     return 0

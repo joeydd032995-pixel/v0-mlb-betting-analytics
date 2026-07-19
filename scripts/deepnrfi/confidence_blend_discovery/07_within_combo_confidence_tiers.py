@@ -25,19 +25,18 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 try:
     import numpy as np
     import pandas as pd
-    from statsmodels.stats.proportion import proportion_confint
 except ImportError as e:
     print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
-ALL8_COLUMNS = [
-    "poissonNrfi", "zipNrfi", "markovNrfi", "mapreNrfi",
-    "logisticMetaNrfi", "nnInteractionNrfi", "hierarchicalBayesNrfi", "ensembleNrfi",
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common8 import ALL8_COLUMNS, load_8model_csv, wilson  # noqa: E402
+
 HOLDOUT_SEASON = 2026
 TIER_EDGES = [0.60, 0.65, 0.70, 0.75, 0.80, 1.01]  # last tier is 80%+ (closed)
 TIER_LABELS = ["[60,65)", "[65,70)", "[70,75)", "[75,80)", "[80,100]"]
@@ -47,23 +46,6 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--csv", required=True)
     return p.parse_args()
-
-
-def load_8model_csv(csv_path: str) -> pd.DataFrame:
-    raw = pd.read_csv(csv_path)
-    df = pd.DataFrame()
-    for col in ALL8_COLUMNS:
-        df[col] = pd.to_numeric(raw[col], errors="coerce") / 100.0
-    df["nrfi_is_nrfi"] = raw["nrfi"].astype(str).str.upper().eq("NRFI")
-    df["season"] = pd.to_numeric(raw["season"], errors="coerce").astype("Int64")
-    return df
-
-
-def wilson(wins: int, n: int) -> tuple[float, float]:
-    if n == 0:
-        return (float("nan"), float("nan"))
-    lo, hi = proportion_confint(wins, n, alpha=0.05, method="wilson")
-    return float(lo), float(hi)
 
 
 # ─── Candidate confidence/side computation (mirrors 04/06's own definitions) ──
@@ -152,7 +134,7 @@ def main() -> int:
             direction = "increasing" if slope > 0.01 else ("decreasing" if slope < -0.01 else "flat/noisy")
             print(f"    trend across tiers (n>=10 only): {direction} (slope={slope:+.4f} per tier)")
         else:
-            print(f"    trend across tiers: insufficient tiers with n>=10 to assess")
+            print("    trend across tiers: insufficient tiers with n>=10 to assess")
         print()
 
     return 0

@@ -43,15 +43,16 @@ try:
     import numpy as np
     import pandas as pd
     from scipy.stats import binomtest
-    from statsmodels.stats.proportion import proportion_confint
 except ImportError as e:
     print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
-ALL8_COLUMNS = [
-    "poissonNrfi", "zipNrfi", "markovNrfi", "mapreNrfi",
-    "logisticMetaNrfi", "nnInteractionNrfi", "hierarchicalBayesNrfi", "ensembleNrfi",
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common8 import (  # noqa: E402
+    load_8model_csv, wilson, evaluate_combo as _evaluate_combo_sets,
+    bonferroni, benjamini_hochberg,
+)
+
 HOLDOUT_SEASON = 2026
 BREAKEVEN = 0.524
 
@@ -73,55 +74,19 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_8model_csv(csv_path: str) -> pd.DataFrame:
-    raw = pd.read_csv(csv_path)
-    df = pd.DataFrame()
-    for col in ALL8_COLUMNS:
-        df[col] = pd.to_numeric(raw[col], errors="coerce") / 100.0
-    df["nrfi_is_nrfi"] = raw["nrfi"].astype(str).str.upper().eq("NRFI")
-    df["season"] = pd.to_numeric(raw["season"], errors="coerce").astype("Int64")
-    df["date"] = pd.to_datetime(raw["date"])
-    return df
-
-
 def evaluate_combo(df: pd.DataFrame, combo: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    avgA = df[combo["setA"]].mean(axis=1).to_numpy()
-    avgB = df[combo["setB"]].mean(axis=1).to_numpy()
-    side_a_nrfi = avgA >= 0.5
-    conf_a = np.where(side_a_nrfi, avgA, 1.0 - avgA)
-    side_b_nrfi = avgB >= 0.5
-    conf_b = np.where(side_b_nrfi, avgB, 1.0 - avgB)
-    thr = combo["threshold"]
-    qualifies = (conf_a >= thr) & (conf_b >= thr) & (side_a_nrfi == side_b_nrfi)
-    predicted_is_nrfi = side_a_nrfi
-    is_win = predicted_is_nrfi == df["nrfi_is_nrfi"].to_numpy()
-    return qualifies, predicted_is_nrfi, is_win
+    return _evaluate_combo_sets(df, combo["setA"], combo["setB"], combo["threshold"])
 
 
-def wilson(wins: int, n: int) -> tuple[float, float]:
-    if n == 0:
-        return (float("nan"), float("nan"))
-    lo, hi = proportion_confint(wins, n, alpha=0.05, method="wilson")
-    return float(lo), float(hi)
+def safe_ratio_pct(num: int, den: int) -> str:
+    """'{:.1%}'-style formatting that degrades gracefully instead of raising
+    ZeroDivisionError when den == 0 -- this is a repeatable diagnostic meant to
+    be rerun on future data pulls where a combo qualifying 0 games is plausible."""
+    return f"{num/den:.1%}" if den else "n/a (den=0)"
 
 
-def bonferroni(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    corrected = alpha / len(pvalues)
-    return [p < corrected for p in pvalues]
-
-
-def benjamini_hochberg(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    m = len(pvalues)
-    order = sorted(range(m), key=lambda i: pvalues[i])
-    reject = [False] * m
-    max_k = -1
-    for rank, idx in enumerate(order, start=1):
-        if pvalues[idx] <= (rank / m) * alpha:
-            max_k = rank
-    for rank, idx in enumerate(order, start=1):
-        if rank <= max_k:
-            reject[idx] = True
-    return reject
+def safe_fmt4(x: float | None) -> str:
+    return f"{x:.4f}" if x is not None else "n/a (n=0)"
 
 
 def main() -> int:
@@ -149,12 +114,12 @@ def main() -> int:
     print(f"  Games qualifying for BOTH: {nboth}")
     print(f"  Games qualifying for EITHER: {neither_or}")
     print(f"  Jaccard overlap (both / either): {jaccard:.3f}")
-    print(f"  Of C1's {n1} games, {nboth} ({nboth/n1:.1%}) also qualify for C2")
-    print(f"  Of C2's {n2} games, {nboth} ({nboth/n2:.1%}) also qualify for C1")
+    print(f"  Of C1's {n1} games, {nboth} ({safe_ratio_pct(nboth, n1)}) also qualify for C2")
+    print(f"  Of C2's {n2} games, {nboth} ({safe_ratio_pct(nboth, n2)}) also qualify for C1")
     if nboth > 0:
         win_agree = int((wins_arr['C1'][both] == wins_arr['C2'][both]).sum())
         print(f"  On the {nboth} shared games, C1 and C2 give the identical win/loss outcome "
-              f"{win_agree}/{nboth} times ({win_agree/nboth:.1%}) -- expected if they're mostly "
+              f"{win_agree}/{nboth} times ({safe_ratio_pct(win_agree, nboth)}) -- expected if they're mostly "
               f"scoring the same underlying prediction on the same games.")
     print()
 
@@ -171,17 +136,20 @@ def main() -> int:
         p_vs_coinflip = binomtest(wins, n, 0.50, alternative="greater").pvalue if n else None
         results[cid] = {"n": n, "wins": wins, "hit_rate": hit_rate, "wilson": (lo, hi),
                          "p_vs_breakeven": p_vs_breakeven, "p_vs_coinflip": p_vs_coinflip}
-        print(f"  {cid} ({combo['label']}): n={n} wins={wins} hit_rate={hit_rate:.4f} "
+        print(f"  {cid} ({combo['label']}): n={n} wins={wins} hit_rate={safe_fmt4(hit_rate)} "
               f"wilson=({lo:.4f},{hi:.4f})")
-        print(f"      p(vs 52.4% breakeven, one-sided exact) = {p_vs_breakeven:.4f}")
-        print(f"      p(vs 50% coinflip, one-sided exact)    = {p_vs_coinflip:.4f}")
+        print(f"      p(vs 52.4% breakeven, one-sided exact) = {safe_fmt4(p_vs_breakeven)}")
+        print(f"      p(vs 50% coinflip, one-sided exact)    = {safe_fmt4(p_vs_coinflip)}")
 
     pvals_breakeven = [results[c]["p_vs_breakeven"] for c in ("C1", "C2", "C3")]
-    bonf = bonferroni(pvals_breakeven)
-    bh = benjamini_hochberg(pvals_breakeven)
-    print(f"\n  Bonferroni-corrected alpha = {0.05/3:.4f}  (vs breakeven, family of 3)")
-    for cid, p, b, h in zip(("C1", "C2", "C3"), pvals_breakeven, bonf, bh):
-        print(f"    {cid}: raw p={p:.4f}  Bonferroni={'SURVIVES' if b else 'fails'}  BH={'SURVIVES' if h else 'fails'}")
+    if any(p is None for p in pvals_breakeven):
+        print("\n  One or more combos qualified 0 holdout games -- skipping multiple-comparison correction.")
+    else:
+        bonf = bonferroni(pvals_breakeven)
+        bh = benjamini_hochberg(pvals_breakeven)
+        print(f"\n  Bonferroni-corrected alpha = {0.05/3:.4f}  (vs breakeven, family of 3)")
+        for cid, p, b, h in zip(("C1", "C2", "C3"), pvals_breakeven, bonf, bh, strict=True):
+            print(f"    {cid}: raw p={p:.4f}  Bonferroni={'SURVIVES' if b else 'fails'}  BH={'SURVIVES' if h else 'fails'}")
     print()
 
     # ── 3. Does plain Ensemble+MAPRE alone (no agreement) capture the same edge? ──
@@ -197,14 +165,14 @@ def main() -> int:
     lo_b, hi_b = wilson(wins_b, n_b)
     p_b = binomtest(wins_b, n_b, BREAKEVEN, alternative="greater").pvalue if n_b else None
     print(f"  Ensemble+MAPRE alone (>=60% symmetric confidence): n={n_b} wins={wins_b} "
-          f"hit_rate={hit_rate_b:.4f} wilson=({lo_b:.4f},{hi_b:.4f}) p(vs breakeven)={p_b:.4f}")
+          f"hit_rate={safe_fmt4(hit_rate_b)} wilson=({lo_b:.4f},{hi_b:.4f}) p(vs breakeven)={safe_fmt4(p_b)}")
     overlap_with_c1 = int((blend_qualifies & qualifies["C1"]).sum())
     overlap_with_c2 = int((blend_qualifies & qualifies["C2"]).sum())
-    print(f"  Of Ensemble+MAPRE's {n_b} qualifying games, {overlap_with_c1} ({overlap_with_c1/n_b:.1%}) "
-          f"also qualify for C1, {overlap_with_c2} ({overlap_with_c2/n_b:.1%}) also qualify for C2")
-    print(f"  Of C1's {n1} qualifying games, {overlap_with_c1} ({overlap_with_c1/n1:.1%}) also satisfy "
+    print(f"  Of Ensemble+MAPRE's {n_b} qualifying games, {overlap_with_c1} ({safe_ratio_pct(overlap_with_c1, n_b)}) "
+          f"also qualify for C1, {overlap_with_c2} ({safe_ratio_pct(overlap_with_c2, n_b)}) also qualify for C2")
+    print(f"  Of C1's {n1} qualifying games, {overlap_with_c1} ({safe_ratio_pct(overlap_with_c1, n1)}) also satisfy "
           f"Ensemble+MAPRE>=60% on their own")
-    print(f"  Of C2's {n2} qualifying games, {overlap_with_c2} ({overlap_with_c2/n2:.1%}) also satisfy "
+    print(f"  Of C2's {n2} qualifying games, {overlap_with_c2} ({safe_ratio_pct(overlap_with_c2, n2)}) also satisfy "
           f"Ensemble+MAPRE>=60% on their own")
     print()
 

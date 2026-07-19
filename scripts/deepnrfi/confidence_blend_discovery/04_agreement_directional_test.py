@@ -54,17 +54,18 @@ import sys
 from pathlib import Path
 
 try:
-    import numpy as np
     import pandas as pd
-    from statsmodels.stats.proportion import proportion_confint, proportions_ztest
+    from statsmodels.stats.proportion import proportions_ztest
 except ImportError as e:
     print(f"Missing dep: {e}.  pip install -r scripts/deepnrfi/requirements.txt", file=sys.stderr)
     raise SystemExit(1) from e
 
-ALL8_COLUMNS = [
-    "poissonNrfi", "zipNrfi", "markovNrfi", "mapreNrfi",
-    "logisticMetaNrfi", "nnInteractionNrfi", "hierarchicalBayesNrfi", "ensembleNrfi",
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common8 import (  # noqa: E402
+    load_8model_csv, wilson, evaluate_combo as _evaluate_combo_sets,
+    bonferroni, benjamini_hochberg,
+)
+
 TRAIN_SEASONS = (2023, 2024, 2025)
 HOLDOUT_SEASON = 2026
 MIN_DIRECTIONAL_N = 100
@@ -115,53 +116,9 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_8model_csv(csv_path: str) -> pd.DataFrame:
-    raw = pd.read_csv(csv_path)
-    required = {"date", "season", "nrfi", *ALL8_COLUMNS}
-    missing = required - set(raw.columns)
-    if missing:
-        raise ValueError(f"CSV missing expected columns: {sorted(missing)}")
-
-    df = pd.DataFrame()
-    for col in ALL8_COLUMNS:
-        df[col] = pd.to_numeric(raw[col], errors="coerce") / 100.0
-    n_null = int(df[ALL8_COLUMNS].isna().any(axis=1).sum())
-    if n_null:
-        print(f"WARNING: {n_null} rows have a null model column; Set averages for those rows "
-              f"silently drop the null model(s) rather than excluding the row -- "
-              f"this deviates from a strict 'average of all N models' definition.", file=sys.stderr)
-    df["nrfi_is_nrfi"] = raw["nrfi"].astype(str).str.upper().eq("NRFI")
-    df["season"] = pd.to_numeric(raw["season"], errors="coerce").astype("Int64")
-    df["date"] = raw["date"]
-    return df
-
-
-def wilson(wins: int, n: int) -> tuple[float, float]:
-    if n == 0:
-        return (float("nan"), float("nan"))
-    lo, hi = proportion_confint(wins, n, alpha=0.05, method="wilson")
-    return float(lo), float(hi)
-
-
-def evaluate_combo(df: pd.DataFrame, combo: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Returns (qualifies, predicted_side, is_win) arrays aligned to df's rows."""
-    avgA = df[combo["setA"]].mean(axis=1).to_numpy()
-    avgB = df[combo["setB"]].mean(axis=1).to_numpy()
-
-    side_a_nrfi = avgA >= 0.5
-    conf_a = np.where(side_a_nrfi, avgA, 1.0 - avgA)
-    side_b_nrfi = avgB >= 0.5
-    conf_b = np.where(side_b_nrfi, avgB, 1.0 - avgB)
-
-    thr = combo["threshold"]
-    qualifies = (conf_a >= thr) & (conf_b >= thr) & (side_a_nrfi == side_b_nrfi)
-    predicted_is_nrfi = side_a_nrfi  # == side_b_nrfi wherever qualifies is True
-    is_win = predicted_is_nrfi == df["nrfi_is_nrfi"].to_numpy()
-    return qualifies, predicted_is_nrfi, is_win
-
-
 def analyze_view(df: pd.DataFrame, combo: dict) -> dict:
-    qualifies, predicted_is_nrfi, is_win = evaluate_combo(df, combo)
+    qualifies, predicted_is_nrfi, is_win = _evaluate_combo_sets(
+        df, combo["setA"], combo["setB"], combo["threshold"])
     n = int(qualifies.sum())
     wins = int(is_win[qualifies].sum())
     lo, hi = wilson(wins, n)
@@ -208,31 +165,12 @@ def analyze_view(df: pd.DataFrame, combo: dict) -> dict:
     return result
 
 
-def bonferroni(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    corrected_alpha = alpha / len(pvalues)
-    return [p < corrected_alpha for p in pvalues]
-
-
-def benjamini_hochberg(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    m = len(pvalues)
-    order = sorted(range(m), key=lambda i: pvalues[i])
-    reject = [False] * m
-    max_k = -1
-    for rank, idx in enumerate(order, start=1):
-        if pvalues[idx] <= (rank / m) * alpha:
-            max_k = rank
-    for rank, idx in enumerate(order, start=1):
-        if rank <= max_k:
-            reject[idx] = True
-    return reject
-
-
 def print_view(label: str, result: dict, confirmatory: bool) -> None:
     tag = "[CONFIRMATORY]" if confirmatory else "[descriptive only, not confirmatory]"
     print(f"  {label} {tag}")
     print(f"    pooled:  n={result['n']:5d} wins={result['wins']:5d} "
           f"hit_rate={result['hit_rate']:.4f} wilson=({result['wilson_lower']:.4f},{result['wilson_upper']:.4f})"
-          if result["n"] else f"    pooled:  n=0")
+          if result["n"] else "    pooled:  n=0")
     for side in ("NRFI", "YRFI"):
         s = result[side]
         if s["n"]:
@@ -243,7 +181,7 @@ def print_view(label: str, result: dict, confirmatory: bool) -> None:
             print(f"    {side}:     n=0")
     dt = result["directional_test"]
     if dt["insufficient_sample"]:
-        print(f"    directional test: SKIPPED (insufficient sample on one or both sides)")
+        print("    directional test: SKIPPED (insufficient sample on one or both sides)")
     else:
         print(f"    directional test ({dt['alternative']}): z={dt['z']:.4f} p={dt['p_value']:.6f}")
 
@@ -256,10 +194,10 @@ def main() -> int:
     holdout = df[df["season"] == HOLDOUT_SEASON]
     pooled = df
 
-    print(f"=== Directional Agreement-Combo Validation ===")
+    print("=== Directional Agreement-Combo Validation ===")
     print(f"Train: n={len(train)} (seasons {TRAIN_SEASONS})   "
           f"Holdout: n={len(holdout)} (season {HOLDOUT_SEASON})   Pooled: n={len(pooled)}")
-    print(f"Pre-registered from: uploaded Master Documentation's Consolidated Recommendations\n")
+    print("Pre-registered from: uploaded Master Documentation's Consolidated Recommendations\n")
 
     manifest = {"combos": []}
     holdout_pvalues = []
@@ -287,14 +225,14 @@ def main() -> int:
     if holdout_pvalues:
         bonf = bonferroni(holdout_pvalues)
         bh = benjamini_hochberg(holdout_pvalues)
-        for cid, p, b, h in zip(holdout_combo_ids, holdout_pvalues, bonf, bh):
+        for cid, p, b, h in zip(holdout_combo_ids, holdout_pvalues, bonf, bh, strict=True):
             print(f"  {cid}: raw p={p:.6f}  Bonferroni({len(holdout_pvalues)})={'SURVIVES' if b else 'fails'}  "
                   f"BH({len(holdout_pvalues)})={'SURVIVES' if h else 'fails'}")
         manifest["holdout_correction"] = {
             "combo_ids": holdout_combo_ids, "raw_p_values": holdout_pvalues,
             "bonferroni_alpha": 0.05 / len(holdout_pvalues),
-            "bonferroni_survives": dict(zip(holdout_combo_ids, bonf)),
-            "benjamini_hochberg_survives": dict(zip(holdout_combo_ids, bh)),
+            "bonferroni_survives": dict(zip(holdout_combo_ids, bonf, strict=True)),
+            "benjamini_hochberg_survives": dict(zip(holdout_combo_ids, bh, strict=True)),
         }
     else:
         print("  No holdout directional tests had sufficient sample on both sides -- nothing to correct.")
