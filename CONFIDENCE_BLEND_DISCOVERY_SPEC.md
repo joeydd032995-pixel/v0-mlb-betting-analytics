@@ -188,13 +188,28 @@ This is a data-analysis deliverable, not application code — "testing" means:
 - [ ] If a combo clears the bar, a Phase 2 spec addendum describes the API route + UI card
       before any code is written for it.
 
-## Open Questions
-1. Is the "simple average of qualifying models" combination rule (Definition #3) the right
-   default, or should qualifying models be weighted (e.g., by their existing
-   `ENSEMBLE_WEIGHTS`) rather than averaged equally?
-2. Should the bucket edges (50/60/70/80/90) be treated as fixed, or is a small amount of edge
-   tuning in scope for Phase 1 (which would need its own train/holdout discipline to avoid
-   becoming another overfitting vector)?
-3. Confirm the reused 2023-2025 train / 2026 holdout split is acceptable for this analysis too
-   (same split used throughout `V3_EVALUATION_REPORT.md` and the ensemble weight-optimization
-   report), rather than a fresh split.
+## Open Questions — RESOLVED (2026-07-19, Phase 2 planning)
+1. ~~Is the "simple average of qualifying models" combination rule...~~ **Resolved:** qualifying
+   models are combined via an `ENSEMBLE_WEIGHTS`-weighted average, renormalized to sum to 1 over
+   just the qualifying subset per game — not a simple average. Uses the existing, already-vetted
+   production weights (Poisson .12 / ZIP .30 / Markov .48 / MAPRE .10 / meta-models 0 from
+   `lib/nrfi-models.ts`) rather than inventing new ones.
+2. ~~Should the bucket edges be treated as fixed...~~ **Resolved:** fixed at 50/60/70/80/90, no
+   tuning — keeps the search space at exactly the 70 canonicalized cells and avoids adding a
+   second overfitting vector on top of the combo search itself.
+3. ~~Confirm the reused 2023-2025 train / 2026 holdout split...~~ **Resolved:** yes, reused as-is.
+4. **New, raised during Phase 2 planning (also flagged independently by an automated Codex PR
+   review):** the per-game qualification rule in Definition #3 ("at least one listed model
+   qualifies") is a union/OR rule — a 4-model combo's result could be driven entirely by
+   single-model rows, which doesn't really test cross-model agreement, and doesn't match this
+   spec's own worked example (which reads as all-listed-models-together). **Resolved:** the
+   discovery scripts test **both** semantics and report them separately — AND (every listed model
+   must qualify simultaneously) and OR (at least one qualifies, as originally written) — rather
+   than silently picking one. Both are exploratory unless a candidate under either rule clears the
+   full statistical bar as a pre-registered candidate.
+5. **New, inferred during Phase 2 planning (not re-asked of the user):** combo construction is
+   restricted to same-side constraints only (all constraints in a combo target one direction, NRFI
+   or YRFI) — Definition #3's "ambiguous game" rule only makes sense if a combo's own constraints
+   already share one target side; a combo mixing NRFI and YRFI constraints would make every
+   qualifying game "ambiguous" by construction under either AND or OR, which is degenerate rather
+   than a useful test.
