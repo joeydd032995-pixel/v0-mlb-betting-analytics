@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { getLiveGameSlate } from "@/lib/api/live-data"
-import { computeAllPredictions, computeNRFIPrediction } from "@/lib/nrfi-engine"
+import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { getUserTier } from "@/lib/subscription"
 import { applyTierGating } from "@/lib/tier-gating"
 
 // force-dynamic: tier-gated responses vary per user — cannot be edge-cached globally.
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const { userId } = await auth()
@@ -24,17 +25,19 @@ export async function GET(request: Request) {
       if (!game) {
         return NextResponse.json({ error: "Game not found" }, { status: 404 })
       }
-      const prediction = computeNRFIPrediction(game, pitchers, teams)
-      if (!prediction) {
+      // Gate against the FULL slate (not just this game) so a FREE caller can't
+      // route around the "only the top pick is visible" rule by requesting each
+      // gameId individually — applyTierGating's FREE ranking is only meaningful
+      // when it sees every game to compare confidenceScore against.
+      const rawPredictions = computeAllPredictions(games, pitchers, teams)
+      const { gated } = applyTierGating(rawPredictions, tier)
+      const matched = gated.find((p) => p.gameId === gameId)
+      if (!matched) {
         return NextResponse.json({ error: "Prediction unavailable for this game" }, { status: 422 })
       }
-      // Gate the single-game response the same way as the list — otherwise a
-      // caller could fetch full detail one gameId at a time to route around
-      // the list-level tier gating below.
-      const { gated } = applyTierGating([prediction], tier)
       return NextResponse.json({
         game,
-        prediction: gated[0],
+        prediction: matched,
         pitchersById: Object.fromEntries(pitchers),
         teamsById:    Object.fromEntries(teams),
         date,

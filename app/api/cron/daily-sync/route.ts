@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const cronSecret  = process.env.CRON_SECRET
@@ -89,5 +90,11 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: allOk, ran: new Date().toISOString(), synced: results }, { status: allOk ? 200 : 502 })
+  const ranAtEt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(new Date())
+
+  return NextResponse.json({ ok: allOk, ran: ranAtEt, synced: results }, { status: allOk ? 200 : 502 })
 }

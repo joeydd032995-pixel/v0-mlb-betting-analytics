@@ -30,12 +30,21 @@ export function buildFreeTeaser(pred: NRFIPrediction): TeaseFields {
 }
 
 // PRO strips the ELITE-only fields so the model breakdown tab stays locked.
-export function buildProPrediction(pred: NRFIPrediction): Omit<NRFIPrediction, "modelBreakdown" | "deepNrfi" | "monteCarlo" | "ensembleWeights"> & { _tierLocked: boolean } {
-  const { modelBreakdown: _mb, deepNrfi: _dn, monteCarlo: _mc, ensembleWeights: _ew, ...rest } = pred
-  void _mb; void _dn; void _mc; void _ew
+// features/featurePresence are the raw DeepNRFI/MonteCarlo input vector — since
+// those models themselves are ELITE-only, the inputs that power them must be
+// stripped too, or a PRO subscriber could reconstruct the locked output.
+export function buildProPrediction(pred: NRFIPrediction): Omit<NRFIPrediction, "modelBreakdown" | "deepNrfi" | "monteCarlo" | "ensembleWeights" | "features" | "featurePresence"> & { _tierLocked: boolean } {
+  const { modelBreakdown: _mb, deepNrfi: _dn, monteCarlo: _mc, ensembleWeights: _ew, features: _f, featurePresence: _fp, ...rest } = pred
+  void _mb; void _dn; void _mc; void _ew; void _f; void _fp
   return { ...rest, _tierLocked: false }
 }
 
+// IMPORTANT: always call this with the FULL slate of predictions for the date,
+// never a single-game subset. FREE-tier ranking picks the highest-confidence
+// game as the visible teaser by comparing confidenceScore across `predictions`
+// — passing a one-element array makes that element "top" unconditionally,
+// which lets a caller bypass the one-visible-pick restriction by requesting
+// games one at a time. Gate the full slate, then look up the game you need.
 export function applyTierGating(predictions: NRFIPrediction[], tier: Tier) {
   // Sort by confidenceScore descending so the highest-confidence game is always first
   const sorted = [...predictions].sort((a, b) => b.confidenceScore - a.confidenceScore)
