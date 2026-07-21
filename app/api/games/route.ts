@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server"
+import { auth } from "@clerk/nextjs/server"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions, computeNRFIPrediction } from "@/lib/nrfi-engine"
+import { getUserTier } from "@/lib/subscription"
+import { applyTierGating } from "@/lib/tier-gating"
 
-export const revalidate = 300 // 5-minute cache
+// force-dynamic: tier-gated responses vary per user — cannot be edge-cached globally.
+export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
+  const { userId } = await auth()
+  const tier = await getUserTier(userId)
+
   try {
     const { searchParams } = new URL(request.url)
     const gameId = searchParams.get("gameId")
@@ -18,30 +25,42 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Game not found" }, { status: 404 })
       }
       const prediction = computeNRFIPrediction(game, pitchers, teams)
+      if (!prediction) {
+        return NextResponse.json({ error: "Prediction unavailable for this game" }, { status: 422 })
+      }
+      // Gate the single-game response the same way as the list — otherwise a
+      // caller could fetch full detail one gameId at a time to route around
+      // the list-level tier gating below.
+      const { gated } = applyTierGating([prediction], tier)
       return NextResponse.json({
         game,
-        prediction,
+        prediction: gated[0],
         pitchersById: Object.fromEntries(pitchers),
         teamsById:    Object.fromEntries(teams),
         date,
+        tier,
       })
     }
 
     // Without gameId: return enriched game list with all predictions
     if (games.length === 0) {
       return NextResponse.json({
-        predictions: [], games: [], pitchersById: {}, teamsById: {}, date, gameCount: 0,
+        predictions: [], games: [], pitchersById: {}, teamsById: {}, date, gameCount: 0, tier,
       })
     }
 
-    const predictions = computeAllPredictions(games, pitchers, teams)
+    const rawPredictions = computeAllPredictions(games, pitchers, teams)
+    const { gated, lockedCount } = applyTierGating(rawPredictions, tier)
+
     return NextResponse.json({
-      predictions,
+      predictions: gated,
       games,
       pitchersById: Object.fromEntries(pitchers),
       teamsById:    Object.fromEntries(teams),
       date,
       gameCount: games.length,
+      tier,
+      lockedCount,
     })
   } catch (err) {
     console.error("[/api/games]", err instanceof Error ? err.message : err)
