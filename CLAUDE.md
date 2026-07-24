@@ -74,6 +74,16 @@ Key tables in `prisma/schema.prisma`:
 
 MLB Stats API is always available and free; all other external data falls back to mock data in `lib/mock-data.ts` when keys are absent.
 
+### AI Chat Assistant
+
+`POST /api/chat` (auth-gated, `app/api/chat/route.ts`) powers a chat widget at `/assistant` (`app/assistant/page.tsx` + `components/assistant/ChatWidget.tsx`) that answers general baseball questions from model knowledge and pulls real-time data via tool-calling — no chat history is persisted server-side (client holds the transcript).
+
+- **Model:** `claude-haiku-4-5` (cheapest current Claude model), configured via `CONFIG.chat` in `lib/config.ts`. Static system prompt (`lib/ai/chat-system-prompt.ts`) is prompt-cached (`cache_control: ephemeral`) — never interpolate per-request data into it.
+- **Tools:** `lib/ai/chat-tools.ts` wraps existing `lib/api/mlb-stats.ts` / `lib/api/live-data.ts` functions (today's slate, linescore, pitcher/team stats, first-inning splits, active starters) — no new data-fetching logic. A manual tool-call loop in the route (capped at `CONFIG.chat.maxToolIterations`) drives multi-step tool use.
+- **Cost controls:** per-user Upstash rate limit (`lib/ai/chat-rate-limit.ts`, separate from the IP-based limiter in `lib/rate-limit.ts`) plus a per-user daily message cap (Upstash counter keyed by ET date). Both no-op (allow everything) when Upstash isn't configured, matching existing app behavior.
+- **Auth:** `/api/chat` and `/assistant` are both in `middleware.ts`'s `isProtectedRoute` — cost control is the reason, not just personalization.
+- Do not add a second LLM integration path (e.g. Vercel AI SDK) without folding it into this one — `lib/ai/anthropic-client.ts` is the single Anthropic client singleton.
+
 ### Key Source Files
 
 | File | Purpose |
@@ -106,6 +116,7 @@ MLB Stats API is always available and free; all other external data falls back t
 - `GET /api/db-status` — deployment diagnostic: DB connectivity check + env var presence report
 - `GET /api/debug` — deployment diagnostic: MLB Stats API connectivity + today's schedule
 - `POST /api/contact` — stub enterprise inquiry handler (logs only, no CRM wired yet)
+- `POST /api/chat` — AI chat assistant (auth required); see "AI Chat Assistant" above
 
 ### Environment Variables
 
@@ -114,6 +125,7 @@ See `.env.example` for full documentation. Required for full functionality:
 - `DATABASE_URL` — Neon PostgreSQL connection string (pooled)
 - `THE_ODDS_API_KEY` — live odds
 - `OPENWEATHER_API_KEY` — stadium weather
+- `ANTHROPIC_API_KEY` — AI chat assistant at `/assistant`
 
 ## Important Patterns
 

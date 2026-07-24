@@ -24,6 +24,8 @@ const isProtectedRoute = createRouteMatcher([
   "/api/premium(.*)",    // future: gated prediction data
   "/api/admin(.*)",      // future: admin dashboard
   "/account(.*)",        // subscription management
+  "/api/chat(.*)",       // AI chat assistant — per-user LLM spend, must be authenticated
+  "/assistant(.*)",      // AI chat assistant page
 ])
 
 // ---------------------------------------------------------------------------

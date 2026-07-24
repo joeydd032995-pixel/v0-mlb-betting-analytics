@@ -145,6 +145,15 @@ export const CONFIG = {
     extremeEdgeWarning: 0.15, // 15% edge triggers warning
   },
 
+  // AI chat assistant — model, tool-loop, and cost-control caps.
+  chat: {
+    model: "claude-haiku-4-5",
+    maxTokens: 1024,
+    maxToolIterations: 4,
+    dailyMessageLimit: 40,
+    rateLimitPerMinute: 10,
+  },
+
   // League averages (2024 MLB — pitch clock era; update annually)
   league: {
     ERA: 4.12,       // 2024 MLB ERA (slight improvement from pitch clock pace)
