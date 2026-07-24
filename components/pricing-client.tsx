@@ -14,29 +14,29 @@ const PRICES = {
   pro: {
     monthly: {
       id: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID ?? "",
-      amount: "$19.99",
+      amount: "$13.99",
       period: "/mo",
       subtext: "",
     },
     annual: {
       id: process.env.NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID ?? "",
-      amount: "$149",
+      amount: "$100",
       period: "/yr",
-      subtext: "$12.42 / mo — save $91",
+      subtext: "$8.33 / mo — save $68 (40% off)",
     },
   },
   elite: {
     monthly: {
       id: process.env.NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID ?? "",
-      amount: "$39.99",
+      amount: "$22.99",
       period: "/mo",
       subtext: "",
     },
     annual: {
       id: process.env.NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID ?? "",
-      amount: "$299",
+      amount: "$150",
       period: "/yr",
-      subtext: "$24.92 / mo — save $181",
+      subtext: "$12.50 / mo — save $126 (46% off)",
     },
   },
 }
@@ -178,7 +178,7 @@ export function PricingClient() {
               className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
               style={{ background: "rgba(0,230,118,0.15)", color: "#00e676" }}
             >
-              Save 20%
+              Save up to 46%
             </span>
           </button>
         </div>

@@ -12,12 +12,12 @@ import { cn } from "@/lib/utils"
 
 const PRICES = {
   pro: {
-    monthly: { id: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID ?? "", amount: "$19.99", period: "/mo" },
-    annual:  { id: process.env.NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID  ?? "", amount: "$149",   period: "/yr" },
+    monthly: { id: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID ?? "", amount: "$13.99", period: "/mo" },
+    annual:  { id: process.env.NEXT_PUBLIC_STRIPE_PRO_ANNUAL_PRICE_ID  ?? "", amount: "$100",   period: "/yr" },
   },
   elite: {
-    monthly: { id: process.env.NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID ?? "", amount: "$39.99", period: "/mo" },
-    annual:  { id: process.env.NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID  ?? "", amount: "$299",   period: "/yr" },
+    monthly: { id: process.env.NEXT_PUBLIC_STRIPE_ELITE_MONTHLY_PRICE_ID ?? "", amount: "$22.99", period: "/mo" },
+    annual:  { id: process.env.NEXT_PUBLIC_STRIPE_ELITE_ANNUAL_PRICE_ID  ?? "", amount: "$150",   period: "/yr" },
   },
 }
 
@@ -37,10 +37,10 @@ const FEATURES: Feature[] = [
   { label: "Value analysis + edge",         free: false,     pro: true,  elite: true  },
   { label: "Key factors list",              free: false,     pro: true,  elite: true  },
   { label: "Live odds integration",         free: false,     pro: true,  elite: true  },
+  { label: "Pitcher deep-dive stats",       free: false,     pro: true,  elite: true  },
   { label: "7-model breakdown panel",       free: false,     pro: false, elite: true  },
   { label: "Monte Carlo simulations",       free: false,     pro: false, elite: true  },
   { label: "DeepNRFI (LightGBM layer)",     free: false,     pro: false, elite: true  },
-  { label: "Pitcher deep-dive stats",       free: false,     pro: true,  elite: true  },
   { label: "Ensemble weights breakdown",    free: false,     pro: false, elite: true  },
   { label: "API access",                    free: false,     pro: false, elite: true  },
 ]
@@ -152,7 +152,7 @@ export function PricingModal({ open, onClose }: Props) {
                 className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
                 style={{ background: "rgba(0,230,118,0.15)", color: "#00e676" }}
               >
-                Save 20%
+                Save up to 46%
               </span>
             </button>
           </div>
@@ -194,7 +194,7 @@ export function PricingModal({ open, onClose }: Props) {
                 <span className="text-2xl font-bold text-white">{PRICES.pro[billing].amount}</span>
                 <span className="text-[10px] text-white/30">{PRICES.pro[billing].period}</span>
               </div>
-              {billing === "annual" && <p className="text-[10px] text-white/30">$12.42 / mo billed annually</p>}
+              {billing === "annual" && <p className="text-[10px] text-white/30">$8.33 / mo billed annually</p>}
             </div>
             {currentTier === "PRO" ? (
               <div
@@ -231,7 +231,7 @@ export function PricingModal({ open, onClose }: Props) {
                 <span className="text-2xl font-bold text-white">{PRICES.elite[billing].amount}</span>
                 <span className="text-[10px] text-white/30">{PRICES.elite[billing].period}</span>
               </div>
-              {billing === "annual" && <p className="text-[10px] text-white/30">$24.92 / mo billed annually</p>}
+              {billing === "annual" && <p className="text-[10px] text-white/30">$12.50 / mo billed annually</p>}
             </div>
             {currentTier === "ELITE" ? (
               <div
