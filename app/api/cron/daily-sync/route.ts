@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const cronSecret  = process.env.CRON_SECRET
@@ -64,19 +65,36 @@ export async function GET(request: Request) {
       : (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000")
 
   const results: Array<{ year: number; month: number; result: unknown }> = []
+  let allOk = true
 
   for (const { year: y, month: m } of monthsToSync) {
     try {
       const res = await fetch(
         `${baseUrl}/api/historical-sync?year=${y}&month=${m}`,
-        { headers: { "Content-Type": "application/json" } }
+        {
+          headers: {
+            "Content-Type": "application/json",
+            // historical-sync requires either a Clerk session (not available
+            // server-to-server) or this bearer token — without it every
+            // invocation 401s and the sync silently never runs.
+            "Authorization": `Bearer ${process.env.RECOMPUTE_TOKEN ?? ""}`,
+          },
+        }
       )
       const data: unknown = await res.json()
-      results.push({ year: y, month: m, result: data })
+      if (!res.ok) allOk = false
+      results.push({ year: y, month: m, result: res.ok ? data : { error: `historical-sync returned ${res.status}`, body: data } })
     } catch (err) {
+      allOk = false
       results.push({ year: y, month: m, result: { error: String(err) } })
     }
   }
 
-  return NextResponse.json({ ok: true, ran: new Date().toISOString(), synced: results })
+  const ranAtEt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(new Date())
+
+  return NextResponse.json({ ok: allOk, ran: ranAtEt, synced: results }, { status: allOk ? 200 : 502 })
 }
