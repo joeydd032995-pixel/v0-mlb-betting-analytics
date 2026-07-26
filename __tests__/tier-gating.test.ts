@@ -203,6 +203,74 @@ describe("resolveUserTier", () => {
     spy.mockRestore()
   })
 
+  it("does not retry a successful lookup", async () => {
+    const { resolveUserTierWithRetry } = await import("@/lib/subscription")
+    findUnique.mockResolvedValue({ tier: "PRO", status: "active", currentPeriodEnd: null })
+
+    await expect(resolveUserTierWithRetry("user_1")).resolves.toEqual({ tier: "PRO", resolved: true })
+    expect(findUnique).toHaveBeenCalledTimes(1)
+  })
+
+  // A hung query would otherwise hold the request open for the route's full
+  // maxDuration (300s on /api/predictions).
+  it("times out a stalled query instead of hanging", async () => {
+    const { resolveUserTier } = await import("@/lib/subscription")
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    findUnique.mockReturnValue(new Promise(() => {})) // never settles
+
+    vi.useFakeTimers()
+    const pending = resolveUserTier("user_1")
+    await vi.advanceTimersByTimeAsync(3_100)
+    await expect(pending).resolves.toEqual({ tier: "FREE", resolved: false })
+    vi.useRealTimers()
+    spy.mockRestore()
+  })
+})
+
+describe("getUserTierInfo", () => {
+  beforeEach(() => {
+    findUnique.mockReset()
+    delete process.env.ADMIN_USER_IDS
+  })
+
+  it("marks a successful lookup resolved", async () => {
+    const { getUserTierInfo } = await import("@/lib/subscription")
+    findUnique.mockResolvedValue({
+      tier: "elite",
+      status: "active",
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      stripeCustomerId: "cus_1",
+      stripeSubscriptionId: "sub_1",
+    })
+
+    const info = await getUserTierInfo("user_1")
+    expect(info.tier).toBe("ELITE")
+    expect(info.resolved).toBe(true)
+  })
+
+  // This endpoint is what the client cross-checks a suspicious FREE against, so
+  // a failed lookup must not be laundered into a confident "FREE".
+  it("marks a failed lookup unresolved rather than reporting FREE", async () => {
+    const { getUserTierInfo } = await import("@/lib/subscription")
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    findUnique.mockRejectedValue(new Error("connection timeout"))
+
+    const info = await getUserTierInfo("user_1")
+    expect(info.resolved).toBe(false)
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it("treats a missing subscription row as a resolved FREE", async () => {
+    const { getUserTierInfo } = await import("@/lib/subscription")
+    findUnique.mockResolvedValue(null)
+
+    const info = await getUserTierInfo("user_1")
+    expect(info.tier).toBe("FREE")
+    expect(info.resolved).toBe(true)
+  })
+
   it("honours the ADMIN_USER_IDS override without touching the DB", async () => {
     const { resolveUserTier } = await import("@/lib/subscription")
     process.env.ADMIN_USER_IDS = "user_admin, user_other"

@@ -7,6 +7,7 @@ import { redirect } from "next/navigation"
 import { getUserTierInfo } from "@/lib/subscription"
 import { prisma } from "@/lib/prisma"
 import { AccountClient } from "@/components/account-client"
+import { TierUnresolvedNotice } from "@/components/tier-gate-notice"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
@@ -25,7 +26,11 @@ export default async function AccountPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--hm-abyss)" }}>
       <main className="mx-auto max-w-2xl px-4 sm:px-6 py-12 sm:py-16">
-        <AccountClient tierInfo={tierInfo} userId={userId} apiKeyInfo={apiKeyRow} />
+        {/* Telling a paying subscriber "You're on the free plan" because the
+            lookup failed is worse than telling them we couldn't check. */}
+        {tierInfo.resolved
+          ? <AccountClient tierInfo={tierInfo} userId={userId} apiKeyInfo={apiKeyRow} />
+          : <TierUnresolvedNotice />}
       </main>
     </div>
   )

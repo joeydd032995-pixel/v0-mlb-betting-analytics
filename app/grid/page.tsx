@@ -1,9 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useAuth } from "@clerk/nextjs"
 import { GridView } from "@/components/grid-view"
-import type { Tier } from "@/lib/subscription"
-import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
+import {
+  fetchGatedPredictions,
+  TierUnresolvedError,
+  type PredictionsPayload,
+} from "@/lib/api/gated-predictions"
+import type { Tier } from "@/lib/tiers"
+import type { FilterOptions, NRFIPrediction } from "@/lib/types"
 import { useSortableRows, type SortableItem } from "@/lib/utils/sorting"
 import { SlidersHorizontal, X, RefreshCw } from "lucide-react"
 
@@ -137,34 +143,36 @@ function FilterBar({
 
 export default function GridPage() {
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
-  const [liveData, setLiveData] = useState<{
-    // Predictions arrive tier-gated: locked entries carry only
-    // { gameId, _tierLocked } and must be filtered out before rendering.
-    predictions: (Partial<NRFIPrediction> & { gameId: string; _tierLocked?: boolean })[]
-    games: Game[]
-    pitchersById: Record<string, Pitcher>
-    teamsById: Record<string, Team>
-    tier?: Tier
-    lockedCount?: number
-  } | null>(null)
+  const [liveData, setLiveData] = useState<PredictionsPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [tierUnresolved, setTierUnresolved] = useState(false)
+  const { isLoaded: authLoaded, isSignedIn } = useAuth()
 
   useEffect(() => {
+    // Wait for Clerk: fetchGatedPredictions needs to know whether we're signed
+    // in to decide if a FREE verdict is worth double-checking against the
+    // subscription record (see lib/api/gated-predictions.ts).
+    if (!authLoaded) return
+
+    let cancelled = false
     const fetchData = async () => {
+      setTierUnresolved(false)
       try {
-        const res = await fetch("/api/predictions")
-        if (!res.ok) throw new Error("Failed to fetch predictions")
-        const data = await res.json()
-        setLiveData(data)
+        const data = await fetchGatedPredictions({ isSignedIn: !!isSignedIn })
+        if (!cancelled) setLiveData(data)
       } catch (err) {
-        console.error("Failed to load predictions:", err)
+        if (cancelled) return
+        // Never fall through to the FREE view when the tier is simply unknown.
+        if (err instanceof TierUnresolvedError) setTierUnresolved(true)
+        else console.error("Failed to load predictions:", err)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchData()
-  }, [])
+    return () => { cancelled = true }
+  }, [authLoaded, isSignedIn])
 
   const teamMap = new Map(
     liveData ? Object.entries(liveData.teamsById) : []
@@ -211,6 +219,13 @@ export default function GridPage() {
               <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
               <p className="text-sm text-muted-foreground">Loading games...</p>
             </div>
+          </div>
+        ) : tierUnresolved ? (
+          <div className="rounded-lg border border-border/30 bg-card/50 p-8 text-center space-y-2">
+            <p className="text-sm font-semibold text-foreground">Couldn&apos;t verify your subscription</p>
+            <p className="text-xs text-muted-foreground">
+              Your access hasn&apos;t changed — this is usually temporary. Reload the page to try again.
+            </p>
           </div>
         ) : (
           <>

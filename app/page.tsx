@@ -29,32 +29,17 @@ import { KpiCard } from "@/components/diamond/KpiCard"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 import { savePredictionsToDBAction } from "@/app/actions"
+import {
+  fetchGatedPredictions,
+  TierUnresolvedError,
+  type PredictionsPayload,
+} from "@/lib/api/gated-predictions"
 import { MLB_SEASON_START } from "@/lib/config"
 
 // Lazy-load onboarding modal to avoid SSR issues
 const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((m) => ({ default: m.OnboardingModal })), {
   ssr: false,
 })
-
-// Shape of the /api/predictions response. Predictions are Partial because the
-// server strips fields per tier (see lib/tier-gating.ts) — locked entries carry
-// only gameId + _tierLocked.
-type GatedPrediction = Partial<NRFIPrediction> & {
-  gameId: string
-  nrfiProbability: number
-  _tierLocked?: boolean
-}
-
-interface LiveDataPayload {
-  predictions: GatedPrediction[]
-  games: Game[]
-  pitchersById: Record<string, Pitcher>
-  teamsById: Record<string, Team>
-  date: string
-  noGames?: boolean
-  tier?: Tier
-  lockedCount?: number
-}
 
 // ─── Filter controls ──────────────────────────────────────────────────────────
 
@@ -288,7 +273,7 @@ export default function HomePage() {
   }, [])
 
   // ── Live data state ──────────────────────────────────────────────────────────
-  const [liveData, setLiveData] = useState<LiveDataPayload | null>(null)
+  const [liveData, setLiveData] = useState<PredictionsPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // Server couldn't determine our tier — distinct from a generic fetch failure,
@@ -382,7 +367,7 @@ export default function HomePage() {
   // Use gameId lookup instead of index position so prediction → game mapping
   // is correct even if order ever diverges.
   // Only track predictions that are NOT tier-locked (free users only see 1 real prediction).
-  const ingestPredictions = useCallback((d: LiveDataPayload) => {
+  const ingestPredictions = useCallback((d: PredictionsPayload) => {
     if (d.noGames || !d.games?.length || !d.predictions?.length) return
 
     const fetchPitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
@@ -408,63 +393,33 @@ export default function HomePage() {
     }
   }, [])
 
-  const loadPredictions = useCallback(async (opts?: { noStore?: boolean }) => {
+  // fetchGatedPredictions handles the stale-cache tier cross-check; see
+  // lib/api/gated-predictions.ts.
+  const loadPredictions = useCallback(async () => {
     setLoading(true)
     setError(null)
     setTierUnresolved(false)
     try {
-      const res = await fetch("/api/predictions", opts?.noStore ? { cache: "no-store" } : undefined)
-      const d = await res.json()
-
-      // The server could not determine our subscription tier. Showing the FREE
-      // paywall here would silently downgrade a paying subscriber, so surface a
-      // retry instead.
-      if (res.status === 503 && d?.error === "tier_unresolved") {
-        setTierUnresolved(true)
-        return
-      }
-      if (!res.ok) throw new Error(d?.error ?? `API returned ${res.status}`)
-
+      const d = await fetchGatedPredictions({ isSignedIn: !!isSignedInRef.current })
       setLiveData(d)
       ingestPredictions(d)
     } catch (e) {
-      setError((e as Error).message)
+      // The server could not determine our subscription tier. Showing the FREE
+      // paywall here would silently downgrade a paying subscriber, so surface a
+      // retry instead of a generic error.
+      if (e instanceof TierUnresolvedError) setTierUnresolved(true)
+      else setError((e as Error).message)
     } finally {
       setLoading(false)
     }
   }, [ingestPredictions])
 
+  // Wait for Clerk before the first fetch — loadPredictions needs to know
+  // whether we're signed in to decide if a FREE verdict is worth double-checking.
   useEffect(() => {
+    if (!authLoaded) return
     loadPredictions()
-  }, [loadPredictions])
-
-  // Safety net against a stale cached payload. Any cache between us and the
-  // route (CDN, proxy, browser) can hand a signed-in user a body that was
-  // generated for a signed-out visitor, which renders the full FREE paywall to
-  // a PRO/ELITE subscriber. Before trusting a FREE verdict for someone who is
-  // signed in, confirm it against /api/subscription/me and refetch once if the
-  // two disagree.
-  const [tierCrossChecked, setTierCrossChecked] = useState(false)
-  useEffect(() => {
-    if (!authLoaded || !isSignedIn || tierCrossChecked) return
-    if (!liveData || (liveData.tier ?? "FREE") !== "FREE") return
-
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch("/api/subscription/me")
-        if (!res.ok) return
-        const info = await res.json()
-        if (cancelled || !info?.tier || info.tier === "FREE") return
-        // Set the guard before refetching so a still-FREE response can't loop.
-        setTierCrossChecked(true)
-        await loadPredictions({ noStore: true })
-      } catch {
-        // Network failure — keep the payload we already have.
-      }
-    })()
-    return () => { cancelled = true }
-  }, [authLoaded, isSignedIn, liveData, tierCrossChecked, loadPredictions])
+  }, [authLoaded, loadPredictions])
 
   const pitcherMap = useMemo(
     () => new Map(Object.entries(liveData?.pitchersById ?? {})),
@@ -718,7 +673,7 @@ export default function HomePage() {
                   Your access hasn&apos;t changed — this is usually temporary.
                 </p>
                 <button
-                  onClick={() => loadPredictions({ noStore: true })}
+                  onClick={() => loadPredictions()}
                   className="mt-1 rounded-md px-4 py-1.5 text-xs font-semibold"
                   style={{
                     background: "linear-gradient(135deg, rgba(0,229,255,0.18), rgba(0,230,118,0.12))",

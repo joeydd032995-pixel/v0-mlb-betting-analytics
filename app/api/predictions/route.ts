@@ -4,20 +4,12 @@ import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { resolveUserTierWithRetry } from "@/lib/subscription"
 import { applyTierGating } from "@/lib/tier-gating"
+import { PRIVATE_NO_STORE_HEADERS as CACHE_HEADERS } from "@/lib/cache-headers"
 
 // force-dynamic: tier-gated responses vary per user — cannot be edge-cached globally.
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
-// The response body embeds per-user state (tier, lockedCount, and predictions
-// already field-stripped by applyTierGating). It must NEVER be stored in a
-// shared cache: cookies are not part of a CDN cache key, so a `public` response
-// generated for a signed-out visitor gets replayed to signed-in PRO/ELITE users,
-// locking them out of the slate they paid for.
-const CACHE_HEADERS = {
-  "Cache-Control": "private, no-store",
-  Vary: "Cookie",
-} as const
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 

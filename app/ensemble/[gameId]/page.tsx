@@ -143,29 +143,20 @@ export default async function EnsemblePage({ params }: PageProps) {
   const teamsRecord = Object.fromEntries(teams)
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
-      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
-        <Link
-          href="/"
-          className="font-jet text-[11px] uppercase tracking-[0.2em] text-ds-muted hover:text-ds-cy transition-colors"
-        >
-          ← Today&apos;s Games
-        </Link>
+    <Shell>
+      <SectionLabel index="01">
+        Ensemble Deep Dive · {awayLabel} @ {homeLabel} · {game.venue}
+      </SectionLabel>
 
-        <SectionLabel index="01">
-          Ensemble Deep Dive · {awayLabel} @ {homeLabel} · {game.venue}
-        </SectionLabel>
-
-        <EnsembleDeepDive
-          initialPrediction={prediction}
-          initialSnapshot={markovSnapshot}
-          game={game}
-          pitchersRecord={pitchersRecord}
-          teamsRecord={teamsRecord}
-          homeLabel={homeLabel}
-          awayLabel={awayLabel}
-        />
-      </main>
-    </div>
+      <EnsembleDeepDive
+        initialPrediction={prediction}
+        initialSnapshot={markovSnapshot}
+        game={game}
+        pitchersRecord={pitchersRecord}
+        teamsRecord={teamsRecord}
+        homeLabel={homeLabel}
+        awayLabel={awayLabel}
+      />
+    </Shell>
   )
 }

@@ -5,15 +5,10 @@
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { getUserTierInfo } from "@/lib/subscription"
+import { PRIVATE_NO_STORE_HEADERS as CACHE_HEADERS } from "@/lib/cache-headers"
 
 export const dynamic = "force-dynamic"
 
-// Per-user response, and the authority the home page cross-checks a FREE
-// verdict against — never let it land in a shared cache.
-const CACHE_HEADERS = {
-  "Cache-Control": "private, no-store",
-  Vary: "Cookie",
-} as const
 
 export async function GET() {
   const { userId } = await auth()
@@ -33,5 +28,12 @@ export async function GET() {
   }
 
   const info = await getUserTierInfo(userId)
+  // Callers treat this endpoint as the authority on a user's tier — the home
+  // page cross-checks a suspicious FREE against it. Answering "FREE" when we
+  // simply could not reach the DB would launder a failure into a verdict.
+  if (!info.resolved) {
+    return NextResponse.json({ error: "tier_unresolved" }, { status: 503, headers: CACHE_HEADERS })
+  }
+
   return NextResponse.json(info, { headers: CACHE_HEADERS })
 }

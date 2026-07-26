@@ -9,6 +9,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { resolveUserTierWithRetry, type TierResolution } from "@/lib/subscription"
 import { hasAccess, FEATURE_MIN_TIER, type Feature, type Tier } from "@/lib/tiers"
+import { PRIVATE_NO_STORE_HEADERS as CACHE_HEADERS } from "@/lib/cache-headers"
 
 // Tier of the current request's user, for server components. Pages using this
 // read cookies and therefore must be dynamic (`export const dynamic = "force-dynamic"`).
@@ -24,22 +25,29 @@ export type TierGuardResult =
 export async function requireFeature(feature: Feature): Promise<TierGuardResult> {
   const { userId } = await auth()
   if (!userId) {
-    return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: CACHE_HEADERS }),
+    }
   }
 
   const { tier, resolved } = await resolveUserTierWithRetry(userId)
   // Failing closed here would lock a paying subscriber out of a feature they
   // bought, so say so explicitly and let the caller retry.
   if (!resolved) {
-    return { ok: false, response: NextResponse.json({ error: "tier_unresolved" }, { status: 503 }) }
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "tier_unresolved" }, { status: 503, headers: CACHE_HEADERS }),
+    }
   }
 
   if (!hasAccess(tier, feature)) {
     return {
       ok: false,
+      // Body carries the caller's own tier — per-user, never shared-cacheable.
       response: NextResponse.json(
         { error: "upgrade_required", feature, requiredTier: FEATURE_MIN_TIER[feature], tier },
-        { status: 403 }
+        { status: 403, headers: CACHE_HEADERS }
       ),
     }
   }
