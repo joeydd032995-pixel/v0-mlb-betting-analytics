@@ -1,30 +1,21 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Search, Menu, X } from "lucide-react"
 import dynamic from "next/dynamic"
 import { GlobalSearch } from "@/components/global-search"
+import { HEADER_NAV_LINKS } from "@/lib/constants/nav-links"
 
 const AuthNav = dynamic(
   () => import("@/components/auth-nav").then((m) => ({ default: m.AuthNav })),
   { ssr: false }
 )
 
-const NAV_LINKS = [
-  { href: "/",          label: "DASHBOARD" },
-  { href: "/grid",      label: "GRID" },
-  { href: "/pitcher",   label: "PITCHERS" },
-  { href: "/staff",     label: "STAFF" },
-  { href: "/ensemble",  label: "ENSEMBLE" },
-  { href: "/history",   label: "HISTORY" },
-  { href: "/accuracy",  label: "ACCURACY" },
-  { href: "/insights",  label: "INSIGHTS" },
-  { href: "/odds",      label: "ODDS" },
-  { href: "/weather",   label: "WEATHER" },
-  { href: "/resources", label: "RESOURCES" },
-  { href: "/pricing",   label: "PRICING" },
-]
+const NavDrawer = dynamic(
+  () => import("@/components/nav-drawer").then((m) => ({ default: m.NavDrawer })),
+  { ssr: false }
+)
 
 const DIAMOND_SVG = (
   <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -68,7 +59,6 @@ export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false)
   const [drawerOpen, setDrawer] = useState(false)
   const [dateStr, setDateStr] = useState("")
-  const drawerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setDateStr(
@@ -89,18 +79,6 @@ export function SiteHeader() {
   useEffect(() => {
     document.body.style.overflow = drawerOpen ? "hidden" : ""
     return () => { document.body.style.overflow = "" }
-  }, [drawerOpen])
-
-  // Close drawer on outside click
-  useEffect(() => {
-    if (!drawerOpen) return
-    const onDown = (e: MouseEvent) => {
-      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
-        setDrawer(false)
-      }
-    }
-    document.addEventListener("mousedown", onDown)
-    return () => document.removeEventListener("mousedown", onDown)
   }, [drawerOpen])
 
   const openSearch = () => {
@@ -155,7 +133,7 @@ export function SiteHeader() {
 
           {/* ── Desktop nav (lg+) ── */}
           <nav className="hidden lg:flex items-center gap-0.5">
-            {NAV_LINKS.map((link) => (
+            {HEADER_NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -251,9 +229,9 @@ export function SiteHeader() {
 
             <AuthNav />
 
-            {/* Hamburger (below lg) */}
+            {/* Hamburger — the single nav menu, at every breakpoint */}
             <button
-              className="flex lg:hidden items-center justify-center w-8 h-8 rounded-[3px] transition-colors"
+              className="flex items-center justify-center w-8 h-8 rounded-[3px] transition-colors"
               style={{
                 background: "rgba(0,0,0,0.4)",
                 border: "1px solid var(--hm-fence)",
@@ -261,6 +239,8 @@ export function SiteHeader() {
               }}
               onClick={() => setDrawer((v) => !v)}
               aria-label={drawerOpen ? "Close menu" : "Open menu"}
+              aria-expanded={drawerOpen}
+              aria-controls="hm-nav-drawer"
             >
               {drawerOpen ? <X size={16} /> : <Menu size={16} />}
             </button>
@@ -268,81 +248,8 @@ export function SiteHeader() {
         </div>
       </header>
 
-      {/* ── Mobile nav drawer ── */}
-      {drawerOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
-        >
-          <div
-            ref={drawerRef}
-            className="absolute right-0 top-0 bottom-0 w-full sm:w-[280px] flex flex-col"
-            style={{
-              background: "var(--hm-pitch)",
-              borderLeft: "1px solid var(--hm-fence)",
-            }}
-          >
-            {/* Drawer header */}
-            <div
-              className="flex items-center justify-between px-5 h-[52px] sm:h-[56px]"
-              style={{ borderBottom: "1px solid var(--hm-fence)" }}
-            >
-              <span
-                className="font-mono uppercase tracking-[0.2em]"
-                style={{ fontSize: "10px", color: "var(--hm-mist)" }}
-              >
-                NAVIGATION
-              </span>
-              <button
-                onClick={() => setDrawer(false)}
-                style={{ color: "var(--hm-smoke)" }}
-                aria-label="Close menu"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Drawer links */}
-            <nav className="flex-1 overflow-y-auto py-3">
-              {NAV_LINKS.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setDrawer(false)}
-                  className="flex items-center px-5 py-[11px] transition-colors"
-                  style={{ color: "var(--hm-mist)", fontFamily: "var(--font-mono)", fontSize: "12px", letterSpacing: "0.14em" }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "var(--hm-diamond)"
-                    e.currentTarget.style.background = "rgba(0,229,255,0.05)"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = "var(--hm-mist)"
-                    e.currentTarget.style.background = "transparent"
-                  }}
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
-
-            {/* Drawer footer */}
-            <div
-              className="px-5 py-4 hm-safe-bottom"
-              style={{ borderTop: "1px solid var(--hm-fence)" }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="hm-live-dot" />
-                <span
-                  className="font-mono uppercase tracking-[0.14em]"
-                  style={{ fontSize: "9px", color: "var(--hm-smoke)" }}
-                >
-                  LIVE · 2026 MLB
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Nav drawer (single menu, all breakpoints) ── */}
+      <NavDrawer open={drawerOpen} onClose={() => setDrawer(false)} />
 
       <GlobalSearch />
     </>

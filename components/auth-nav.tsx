@@ -1,24 +1,16 @@
 // components/auth-nav.tsx
-// Global navigation + auth controls — rendered in the site header.
-// Hamburger opens a popup with two sections: Navigation (primary routes) + Tools.
+// Auth controls for the site header — Sign In / Sign Up when signed out,
+// the Clerk user button when signed in.
+// Site navigation lives in components/nav-drawer.tsx, opened by the single
+// hamburger in components/site-header.tsx.
 
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs"
 import { dark } from "@clerk/themes"
-import { LogIn, UserPlus, Menu, X } from "lucide-react"
+import { LogIn, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { useState } from "react"
-import { cn } from "@/lib/utils"
 
 const userButtonAppearance = {
   baseTheme: dark,
@@ -46,134 +38,9 @@ const userButtonAppearance = {
   },
 } as const
 
-const PRIMARY_NAV = [
-  { href: "/",         label: "Today" },
-  { href: "/pitcher",  label: "Pitcher" },
-  { href: "/staff",    label: "Staff" },
-  { href: "/ensemble", label: "Ensemble" },
-  { href: "/history",  label: "History" },
-  { href: "/insights", label: "Insights" },
-  { href: "/pricing",  label: "Pricing" },
-  { href: "/account",  label: "Account" },
-]
-
-const TOOLS_NAV = [
-  { href: "/accuracy",     label: "Accuracy" },
-  { href: "/grid",         label: "Grid" },
-  { href: "/odds",         label: "Odds & EV" },
-  { href: "/weather",      label: "Weather" },
-  { href: "/resources",    label: "Resources" },
-  { href: "/community",    label: "Community" },
-  { href: "/weekly-recap", label: "Weekly Recap" },
-  { href: "/glossary",     label: "Glossary" },
-]
-
-function isActive(href: string, pathname: string) {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/")
-}
-
-interface NavSectionProps {
-  label: string
-  items: { href: string; label: string }[]
-  pathname: string
-  onNavigate: () => void
-}
-
-function NavSection({ label, items, pathname, onNavigate }: NavSectionProps) {
-  return (
-    <div>
-      <p className="font-jet text-[10px] uppercase tracking-[0.2em] text-ds-dim px-3 mb-2">
-        {label}
-      </p>
-      <div className="space-y-0.5">
-        {items.map((item) => {
-          const active = isActive(item.href, pathname)
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                "block px-3 py-2 rounded-md text-[13px] font-medium transition-colors",
-                active
-                  ? "bg-[var(--ds-panel-2)] text-ds-cy"
-                  : "text-ds-muted hover:text-ds-ink hover:bg-[var(--ds-panel)]"
-              )}
-            >
-              {item.label}
-            </Link>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export function AuthNav() {
-  const pathname = usePathname()
-  const [open, setOpen] = useState(false)
-
   return (
     <div className="flex items-center gap-2">
-      {/* Hamburger — visible on all screen sizes */}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-10 w-10 px-0 text-ds-muted hover:text-ds-ink hover:bg-[var(--ds-panel)]"
-            aria-label="Open navigation"
-          >
-            <Menu className="h-4 w-4" />
-          </Button>
-        </DialogTrigger>
-
-        <DialogContent
-          className="w-[280px] p-0 border-ds-line"
-          style={{ background: "var(--ds-panel)" }}
-          showCloseButton={false}
-        >
-          {/* Header */}
-          <div
-            className="flex items-center justify-between px-4 py-3"
-            style={{ borderBottom: "1px solid var(--ds-line)" }}
-          >
-            <DialogTitle className="font-jet text-[11px] uppercase tracking-[0.2em] text-ds-muted leading-none">
-              Navigation
-            </DialogTitle>
-            <DialogClose asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-ds-muted hover:text-ds-ink"
-                aria-label="Close navigation"
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </DialogClose>
-          </div>
-
-          {/* Nav sections */}
-          <div className="px-3 py-3 space-y-4">
-            <NavSection
-              label="Main"
-              items={PRIMARY_NAV}
-              pathname={pathname}
-              onNavigate={() => setOpen(false)}
-            />
-            <div style={{ borderTop: "1px solid var(--ds-line-2)" }} className="pt-4">
-              <NavSection
-                label="Tools"
-                items={TOOLS_NAV}
-                pathname={pathname}
-                onNavigate={() => setOpen(false)}
-              />
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Auth controls */}
       <SignedOut>
         <Button
           asChild
