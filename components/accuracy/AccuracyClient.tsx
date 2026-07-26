@@ -22,9 +22,13 @@ interface Props {
   dbTotalAvailable: number
   /** The row cap applied to the DB query. */
   dbCap: number
+  /** Engine output clamp, forwarded to the calibration chart. */
+  clampRange: [number, number]
+  /** League NRFI baseline, forwarded to the per-model chart. */
+  leagueBaseline: number
 }
 
-export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap }: Props) {
+export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap, clampRange, leagueBaseline }: Props) {
   const [predictions, setPredictions] = useState<TrackedPrediction[]>([])
   const [loaded, setLoaded] = useState(false)
   const [selectedDays, setSelectedDays] = useState<number | null>(null)
@@ -141,7 +145,7 @@ export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap }: Props
 
       {/* Charts */}
       <SectionLabel index="02">Model Analytics</SectionLabel>
-      <AccuracyCharts accuracy={accuracy} />
+      <AccuracyCharts accuracy={accuracy} clampRange={clampRange} leagueBaseline={leagueBaseline} />
 
       {/* Detailed breakdown */}
       <SectionLabel index="03">Detailed Breakdown</SectionLabel>

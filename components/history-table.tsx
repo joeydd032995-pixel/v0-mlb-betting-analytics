@@ -737,7 +737,8 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
                   <p
                     className={cn(
                       "text-xs font-medium tabular-nums",
-                      m.roi > 0 ? "text-emerald-400" : "text-rose-400"
+                      // A break-even month is not a loss.
+                      m.roi > 0 ? "text-emerald-400" : m.roi < 0 ? "text-rose-400" : "text-muted-foreground"
                     )}
                     title={`Flat-stake return over the ${m.priced} pick${m.priced === 1 ? "" : "s"} with odds`}
                   >

@@ -26,13 +26,20 @@ export function todayET(now: Date = new Date()): string {
 /**
  * The ET calendar date `days` days before today, as "YYYY-MM-DD".
  *
- * Walks back in whole days from the current instant and re-formats in ET, so
- * the result is a real ET calendar day rather than arithmetic on a date
- * string.  DST transitions shift the underlying instant by an hour, which
- * cannot change which ET *day* a midday reference lands on.
+ * Counts back in *calendar days* from today's ET date rather than subtracting a
+ * fixed 24-hour duration.  Duration arithmetic breaks across the spring-forward
+ * transition: from 2026-03-09T04:15Z (00:15 ET) subtracting 24h lands on
+ * 2026-03-08T04:15Z, which is still 23:15 ET on 2026-03-07 — a day early, which
+ * would pull an extra day into every window spanning the transition.
+ *
+ * Anchoring the ET date at UTC midnight makes the subtraction exact, because
+ * UTC has no offset changes for the arithmetic to trip over.
  */
 export function etDaysAgo(days: number, now: Date = new Date()): string {
-  return ET_FORMATTER.format(new Date(now.getTime() - days * 24 * 60 * 60 * 1000))
+  const [y, m, d] = todayET(now).split("-").map(Number)
+  const anchor = new Date(Date.UTC(y, m - 1, d))
+  anchor.setUTCDate(anchor.getUTCDate() - days)
+  return anchor.toISOString().slice(0, 10)
 }
 
 /** Inclusive ET date window. `null` means "all time". */

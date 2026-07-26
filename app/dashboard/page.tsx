@@ -75,7 +75,7 @@ export default async function DashboardPage() {
           <KpiCard
             metric="Total P/L"
             value={`${record.totalPnL >= 0 ? "+" : ""}${fmtMoney(record.totalPnL)}`}
-            delta={`${record.settled} settled`}
+            delta={`${record.settled - record.unresolved} with recorded P/L`}
             deltaPositive={record.totalPnL >= 0}
             variant={record.totalPnL >= 0 ? "gr" : "cy"}
           />
@@ -104,7 +104,7 @@ export default async function DashboardPage() {
             },
             {
               label: "Total P/L",
-              value: `Sum of profit and loss in dollars across all ${record.settled} settled bets.`,
+              value: `Sum of profit and loss in dollars across the ${record.settled - record.unresolved} settled bet${record.settled - record.unresolved === 1 ? "" : "s"} that have a recorded P/L, out of ${record.settled} settled.`,
             },
             {
               label: "Balance",

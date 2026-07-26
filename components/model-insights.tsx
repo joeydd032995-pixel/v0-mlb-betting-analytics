@@ -1186,7 +1186,9 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   {/* Previously asserted that higher confidence is more accurate
                       regardless of what the bars below actually showed. */}
                   <CardDescription>
-                    Measured accuracy within each stored confidence tier (High ≥62, Medium 45–61, Low &lt;45)
+                    Measured accuracy within each stored confidence tier (High ≥{engineFacts.confidenceHigh},
+                    Medium {engineFacts.confidenceMedium}–{engineFacts.confidenceHigh - 1},
+                    Low &lt;{engineFacts.confidenceMedium})
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -1305,9 +1307,14 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
               <Card>
                 <CardHeader>
                   <CardTitle>Monthly Breakdown</CardTitle>
+                  {/* Range must come from the months actually listed below, which
+                      are keyed off synced games — not from dateSpan, which covers
+                      only settled predictions and can omit months shown here. */}
                   <CardDescription>
                     Actual NRFI rate and model accuracy for every month present in the database
-                    {perfData.dateSpan ? ` (${perfData.dateSpan.from} to ${perfData.dateSpan.to})` : ""}
+                    {perfData.monthly.length > 0
+                      ? ` (${perfData.monthly[0].label} to ${perfData.monthly[perfData.monthly.length - 1].label})`
+                      : ""}
                     {" "}— sync more seasons above to extend this range
                   </CardDescription>
                 </CardHeader>

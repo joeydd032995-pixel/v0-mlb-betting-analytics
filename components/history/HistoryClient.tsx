@@ -33,10 +33,17 @@ export function HistoryClient({ dbPredictions, dbTotalAvailable, dbCap }: Props)
   const [predictions, setPredictions] = useState<TrackedPrediction[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDays, setSelectedDays] = useState<number | null>(90)
+  // Deleting only clears localStorage, but the server-rendered `dbPredictions`
+  // prop still holds the row until the page is re-rendered. Without tracking
+  // the deletion the merge would immediately hand it back.
+  const [deletedIds, setDeletedIds] = useState<ReadonlySet<string>>(() => new Set())
 
   useEffect(() => {
-    setPredictions(mergeTrackedPredictions(dbPredictions, loadTrackedPredictions()))
+    setPredictions(mergeTrackedPredictions(dbPredictions, loadTrackedPredictions(), deletedIds))
     setLoading(false)
+    // `deletedIds` is applied by the handlers below; re-running here on every
+    // deletion would re-read localStorage needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbPredictions])
 
   // The selected window governs every figure on this page. Previously the
@@ -50,12 +57,16 @@ export function HistoryClient({ dbPredictions, dbTotalAvailable, dbCap }: Props)
   const handleRecordResult = (id: string, homeRuns: number, awayRuns: number) => {
     // recordResult returns localStorage only; re-merge so the DB half of the
     // population isn't dropped from view until the next page load.
-    setPredictions(mergeTrackedPredictions(dbPredictions, recordResult(id, homeRuns, awayRuns)))
+    setPredictions(
+      mergeTrackedPredictions(dbPredictions, recordResult(id, homeRuns, awayRuns), deletedIds)
+    )
     if (isSignedIn) recordResultAction(id, homeRuns, awayRuns).catch(console.error)
   }
 
   const handleDelete = (id: string) => {
-    setPredictions(mergeTrackedPredictions(dbPredictions, deletePrediction(id)))
+    const nextDeleted = new Set(deletedIds).add(id)
+    setDeletedIds(nextDeleted)
+    setPredictions(mergeTrackedPredictions(dbPredictions, deletePrediction(id), nextDeleted))
     if (isSignedIn) deletePredictionAction(id).catch(console.error)
   }
 

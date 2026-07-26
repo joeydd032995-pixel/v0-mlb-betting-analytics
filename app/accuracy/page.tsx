@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { AccuracyClient } from "@/components/accuracy/AccuracyClient"
 import { loadDbTrackedPredictions, TRACKED_PREDICTION_CAP } from "@/lib/server/tracked-predictions"
+import { FINAL_BLEND_CONTRACT } from "@/lib/nrfi-engine"
 import type { TrackedPrediction } from "@/lib/prediction-store"
 
 export default async function AccuracyPage() {
@@ -31,6 +32,8 @@ export default async function AccuracyPage() {
           dbPredictions={dbPredictions}
           dbTotalAvailable={totalAvailable}
           dbCap={TRACKED_PREDICTION_CAP}
+          clampRange={[FINAL_BLEND_CONTRACT.clampMin, FINAL_BLEND_CONTRACT.clampMax]}
+          leagueBaseline={FINAL_BLEND_CONTRACT.leagueAnchor}
         />
       </main>
     </div>

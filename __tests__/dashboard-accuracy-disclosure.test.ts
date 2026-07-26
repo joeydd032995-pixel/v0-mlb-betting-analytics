@@ -6,7 +6,11 @@ import {
   filterByPeriod,
   formatETDate,
 } from "@/lib/utils/date-et"
-import { computeExtendedAccuracy, type TrackedPrediction } from "@/lib/prediction-store"
+import {
+  computeExtendedAccuracy,
+  mergeTrackedPredictions,
+  type TrackedPrediction,
+} from "@/lib/prediction-store"
 import { summariseBetRecord } from "@/lib/bet-record"
 import { CALIBRATION_IS_IDENTITY, CALIBRATION_KNOT_COUNT } from "@/lib/calibration"
 import { CONFIDENCE_THRESHOLDS } from "@/lib/nrfi-engine"
@@ -93,6 +97,27 @@ describe("filterByPeriod — ET window", () => {
   it("formats an ET date without shifting the calendar day", () => {
     expect(formatETDate("2026-01-01")).toBe("Jan 1, 2026")
     expect(formatETDate("2026-12-31")).toBe("Dec 31, 2026")
+  })
+
+  it("counts back calendar days across the spring-forward transition", () => {
+    // 2026-03-09T04:15Z is 00:15 ET on the 9th, just after DST began on the
+    // 8th. Subtracting a fixed 24h lands at 23:15 ET on the 7th — a day early,
+    // which would pull an extra day into any window spanning the transition.
+    const justAfterDst = new Date("2026-03-09T04:15:00Z")
+    expect(todayET(justAfterDst)).toBe("2026-03-09")
+    expect(etDaysAgo(1, justAfterDst)).toBe("2026-03-08")
+    expect(etDaysAgo(2, justAfterDst)).toBe("2026-03-07")
+  })
+
+  it("counts back calendar days across the fall-back transition", () => {
+    const justAfterFallback = new Date("2026-11-01T06:30:00Z") // 01:30 ET, Nov 1
+    expect(todayET(justAfterFallback)).toBe("2026-11-01")
+    expect(etDaysAgo(1, justAfterFallback)).toBe("2026-10-31")
+  })
+
+  it("spans exactly N+1 inclusive days for an N-day window", () => {
+    const range = periodRange(30, new Date("2026-03-09T04:15:00Z"))
+    expect(range).toEqual({ from: "2026-02-07", to: "2026-03-09" })
   })
 })
 
@@ -219,6 +244,52 @@ describe("computeExtendedAccuracy — calibration bins", () => {
       makePrediction({ id: "2", nrfiProbability: 0.56, actualResult: "YRFI", prediction: "NRFI", correct: false }),
     ])
     expect(acc.calibrationData[0].actualRate).toBe(0.5)
+  })
+})
+
+// ─── DB / localStorage merge ─────────────────────────────────────────────────
+
+describe("mergeTrackedPredictions", () => {
+  it("keeps DB-only rows so history survives a cleared browser", () => {
+    const merged = mergeTrackedPredictions([makePrediction({ id: "db" })], [])
+    expect(merged.map((p) => p.id)).toEqual(["db"])
+  })
+
+  it("promotes a settled DB result over a locally pending row", () => {
+    const merged = mergeTrackedPredictions(
+      [makePrediction({ id: "1", status: "complete", correct: true })],
+      [makePrediction({ id: "1", status: "pending", actualResult: undefined, correct: undefined })],
+    )
+    expect(merged[0].status).toBe("complete")
+  })
+
+  it("carries DB odds and provenance onto a local row that lacks them", () => {
+    const merged = mergeTrackedPredictions(
+      [makePrediction({ id: "1", nrfiOdds: -120, backtested: true, profitLoss: 0.83 })],
+      [makePrediction({ id: "1", nrfiOdds: undefined, backtested: undefined, profitLoss: undefined })],
+    )
+    expect(merged[0].nrfiOdds).toBe(-120)
+    expect(merged[0].backtested).toBe(true)
+    expect(merged[0].profitLoss).toBe(0.83)
+  })
+
+  it("honours an explicit deletion instead of resurrecting the row from the DB", () => {
+    // Deleting clears localStorage only; the server-rendered DB rows still hold
+    // the record, so absence from localRows cannot be read as "removed".
+    const merged = mergeTrackedPredictions(
+      [makePrediction({ id: "1" }), makePrediction({ id: "2" })],
+      [makePrediction({ id: "2" })],
+      new Set(["1"]),
+    )
+    expect(merged.map((p) => p.id)).toEqual(["2"])
+  })
+
+  it("without a deletion set, a DB row absent locally is retained", () => {
+    const merged = mergeTrackedPredictions(
+      [makePrediction({ id: "1" }), makePrediction({ id: "2" })],
+      [makePrediction({ id: "2" })],
+    )
+    expect(merged.map((p) => p.id).sort()).toEqual(["1", "2"])
   })
 })
 

@@ -376,12 +376,22 @@ export function buildTrackedPrediction(
  */
 export function mergeTrackedPredictions(
   dbRows: TrackedPrediction[],
-  localRows: TrackedPrediction[]
+  localRows: TrackedPrediction[],
+  /**
+   * Ids the user deleted this session.  Deletion has to be expressed
+   * explicitly: absence from `localRows` cannot mean "removed", because a row
+   * present only in the DB is the normal cross-device case.  Without this the
+   * DB baseline would silently resurrect anything just deleted.
+   */
+  deletedIds?: ReadonlySet<string>
 ): TrackedPrediction[] {
-  const dbById = new Map(dbRows.map((p) => [p.id, p]))
+  const dbById = new Map(
+    dbRows.filter((p) => !deletedIds?.has(p.id)).map((p) => [p.id, p])
+  )
   const merged = new Map<string, TrackedPrediction>(dbById)
 
   for (const localRow of localRows) {
+    if (deletedIds?.has(localRow.id)) continue
     const dbRow = dbById.get(localRow.id)
     if (dbRow && dbRow.status === "complete" && localRow.status === "pending") {
       merged.set(localRow.id, dbRow)
@@ -659,7 +669,10 @@ export function computeExtendedAccuracy(
     roi:         d.priced > 0 ? d.pnl / d.priced : 0,
   }))
 
-  // ── Calibration: decile bins by ensemble NRFI probability ────────────────
+  // ── Calibration: decile bins by headline NRFI probability ────────────────
+  // Bins on `nrfiProbability` — the post-blend figure actually shown to the
+  // user — not the pre-blend `ensembleNrfi` column, since calibration asks
+  // whether the displayed probability matched reality.
   // `floor` gives ten equal-width buckets labelled by their lower edge.
   // `round` would have produced eleven, with the 0.0 and 1.0 buckets only half
   // as wide as the rest and therefore not comparable to them.
