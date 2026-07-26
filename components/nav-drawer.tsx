@@ -4,7 +4,7 @@
 
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { SignedIn } from "@clerk/nextjs"
@@ -91,17 +91,60 @@ function DrawerSection({
   )
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+
 export function NavDrawer({ open, onClose }: NavDrawerProps) {
   const pathname = usePathname()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const restoreRef = useRef<HTMLElement | null>(null)
 
+  // Kept in a ref so the focus effect below depends only on `open` — the parent
+  // passes a fresh onClose each render, which would otherwise re-steal focus.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+
+  // aria-modal promises focus stays inside the drawer, so honour it: focus the
+  // close button on open, keep Tab within the panel, restore focus on close.
   useEffect(() => {
     if (!open) return
+
+    restoreRef.current = document.activeElement as HTMLElement | null
+    closeRef.current?.focus()
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
+      if (e.key === "Escape") {
+        onCloseRef.current()
+        return
+      }
+      if (e.key !== "Tab") return
+
+      const panel = panelRef.current
+      if (!panel) return
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+      if (items.length === 0) return
+
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      const inside = active instanceof Node && panel.contains(active)
+
+      if (e.shiftKey && (!inside || active === first)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (!inside || active === last)) {
+        e.preventDefault()
+        first.focus()
+      }
     }
+
     document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      restoreRef.current?.focus()
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -112,6 +155,7 @@ export function NavDrawer({ open, onClose }: NavDrawerProps) {
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         id="hm-nav-drawer"
         role="dialog"
         aria-modal="true"
@@ -135,6 +179,7 @@ export function NavDrawer({ open, onClose }: NavDrawerProps) {
             NAVIGATION
           </span>
           <button
+            ref={closeRef}
             onClick={onClose}
             style={{ color: "var(--hm-smoke)" }}
             aria-label="Close menu"
