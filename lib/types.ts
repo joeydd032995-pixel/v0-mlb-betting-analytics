@@ -1,5 +1,7 @@
 // ─── Core Types for NRFI/YRFI Prediction Engine ───────────────────────────────
 
+import type { Tier } from "@/lib/tiers"
+
 export type EnsembleWeights = {
   poisson:           number
   zip:               number
@@ -625,4 +627,49 @@ export interface MonteCarloResult {
   nSims: number
   /** RNG seed used (deterministic per game). */
   seed: number
+}
+
+// ─── Tier-gated API payloads ──────────────────────────────────────────────────
+// /api/predictions and /api/games strip fields per subscription tier
+// (see lib/tier-gating.ts), so what the client receives is never a plain
+// NRFIPrediction. These types describe what actually comes over the wire.
+
+/**
+ * A game the caller's tier does not unlock. Deliberately carries nothing but an
+ * id — enough to render a blurred placeholder, not enough to reconstruct the
+ * prediction.
+ */
+export interface LockedPrediction {
+  gameId: string
+  _tierLocked: true
+}
+
+/**
+ * A visible prediction. Partial because the FREE teaser keeps only probability
+ * fields and PRO has the ELITE model internals stripped.
+ */
+export type UnlockedPrediction = Partial<NRFIPrediction> & {
+  gameId: string
+  nrfiProbability: number
+  _tierLocked?: false
+}
+
+/** Discriminated on `_tierLocked` — narrow before reading any other field. */
+export type GatedPrediction = UnlockedPrediction | LockedPrediction
+
+/** Narrowing helper for the common "drop the placeholders" filter. */
+export function isUnlockedPrediction(p: GatedPrediction): p is UnlockedPrediction {
+  return !p._tierLocked
+}
+
+/** Response shape of GET /api/predictions. */
+export interface PredictionsPayload {
+  predictions: GatedPrediction[]
+  games: Game[]
+  pitchersById: Record<string, Pitcher>
+  teamsById: Record<string, Team>
+  date: string
+  noGames?: boolean
+  tier?: Tier
+  lockedCount?: number
 }

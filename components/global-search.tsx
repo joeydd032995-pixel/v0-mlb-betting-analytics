@@ -21,7 +21,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { searchGames, searchPitchers, type SearchResult } from "@/lib/search"
-import type { Game, Pitcher, NRFIPrediction } from "@/lib/types"
+import { isUnlockedPrediction, type Game, type Pitcher, type NRFIPrediction } from "@/lib/types"
 import { Loader2, Search } from "lucide-react"
 
 export function GlobalSearch() {
@@ -47,6 +47,14 @@ export function GlobalSearch() {
 
     let cancelled = false
     const fetchData = async () => {
+      // Drop the previous session's results before refetching, so a sign-out
+      // can't leave the old session's games searchable while the replacement
+      // request is in flight (or after it fails).
+      setDataLoaded(false)
+      setGames([])
+      setPredictions([])
+      setPitchers([])
+      setPitchersById(new Map())
       try {
         const data = await fetchGatedPredictions({ isSignedIn: !!isSignedIn })
         if (cancelled) return
@@ -55,7 +63,7 @@ export function GlobalSearch() {
         // Drop tier-locked placeholders — they carry only { gameId, _tierLocked }
         // and would surface as empty search hits.
         setPredictions(
-          (data.predictions || []).filter((p) => !p._tierLocked) as NRFIPrediction[]
+          (data.predictions || []).filter(isUnlockedPrediction) as NRFIPrediction[]
         )
         setPitchers(Object.values(data.pitchersById || []))
         setPitchersById(new Map(Object.entries(data.pitchersById || {})))

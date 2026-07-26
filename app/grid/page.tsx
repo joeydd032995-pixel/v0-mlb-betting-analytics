@@ -9,7 +9,7 @@ import {
   type PredictionsPayload,
 } from "@/lib/api/gated-predictions"
 import type { Tier } from "@/lib/tiers"
-import type { FilterOptions, NRFIPrediction } from "@/lib/types"
+import { isUnlockedPrediction, type FilterOptions, type NRFIPrediction } from "@/lib/types"
 import { useSortableRows, type SortableItem } from "@/lib/utils/sorting"
 import { SlidersHorizontal, X, RefreshCw } from "lucide-react"
 
@@ -156,7 +156,12 @@ export default function GridPage() {
 
     let cancelled = false
     const fetchData = async () => {
+      // Drop the previous session's slate before refetching. Otherwise, after a
+      // sign-out, rows authorized under the old session stay on screen until
+      // the replacement request lands — or indefinitely if it fails.
       setTierUnresolved(false)
+      setLiveData(null)
+      setLoading(true)
       try {
         const data = await fetchGatedPredictions({ isSignedIn: !!isSignedIn })
         if (!cancelled) setLiveData(data)
@@ -184,9 +189,10 @@ export default function GridPage() {
   const userTier: Tier = liveData?.tier ?? "FREE"
 
   // Drop tier-locked placeholders — they carry no data beyond gameId and would
-  // render as rows of undefined.
+  // render as rows of undefined. The remaining entries are still Partial (the
+  // FREE teaser has most fields stripped), which the row builder tolerates.
   const visiblePredictions = useMemo(
-    () => (liveData?.predictions ?? []).filter((p) => !p._tierLocked) as NRFIPrediction[],
+    () => (liveData?.predictions ?? []).filter(isUnlockedPrediction) as NRFIPrediction[],
     [liveData]
   )
 

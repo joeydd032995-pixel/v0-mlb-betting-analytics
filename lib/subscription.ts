@@ -65,6 +65,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * The one place that decides which tier a subscription row grants.
+ *
+ * Both resolveUserTier and getUserTierInfo route through this. Keeping it
+ * single is the point: this whole change exists because parallel tier logic
+ * drifted apart, and a future edit here (a grace period, a new status) must not
+ * be able to land on one path and miss the other.
+ */
+function effectiveTierFor(
+  sub: { tier: string; status: string; currentPeriodEnd: Date | null } | null,
+  isAdmin: boolean
+): Tier {
+  if (isAdmin) return "ELITE"
+  if (!sub) return "FREE"
+  const isActive = sub.status === "active" || sub.status === "trialing"
+  const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
+  return isActive && notExpired ? normaliseTier(sub.tier) : "FREE"
+}
+
 // Resolves the user's active tier, distinguishing "known FREE" from
 // "couldn't tell". Never throws.
 export async function resolveUserTier(userId: string | null | undefined): Promise<TierResolution> {
@@ -78,11 +97,7 @@ export async function resolveUserTier(userId: string | null | undefined): Promis
       }),
       TIER_QUERY_TIMEOUT_MS
     )
-    if (!sub) return { tier: "FREE", resolved: true }
-    const isActive = sub.status === "active" || sub.status === "trialing"
-    const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    if (!isActive || !notExpired) return { tier: "FREE", resolved: true }
-    return { tier: normaliseTier(sub.tier), resolved: true }
+    return { tier: effectiveTierFor(sub, false), resolved: true }
   } catch (err) {
     console.error("[subscription] tier lookup failed", {
       userId,
@@ -141,11 +156,9 @@ export async function getUserTierInfo(userId: string): Promise<UserTierInfo> {
     if (!sub) return isAdmin ? ADMIN_TIER_INFO : { ...EMPTY_TIER_INFO, resolved: true }
 
     const isActive = sub.status === "active" || sub.status === "trialing"
-    const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    const effectiveTier: Tier = isAdmin ? "ELITE" : (isActive && notExpired ? normaliseTier(sub.tier) : "FREE")
 
     return {
-      tier: effectiveTier,
+      tier: effectiveTierFor(sub, isAdmin),
       isActive: isAdmin ? true : isActive,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       currentPeriodEnd: sub.currentPeriodEnd,

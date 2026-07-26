@@ -278,3 +278,107 @@ describe("getUserTierInfo", () => {
     expect(findUnique).not.toHaveBeenCalled()
   })
 })
+
+describe("fetchGatedPredictions", () => {
+  const originalFetch = globalThis.fetch
+
+  function mockRoutes(routes: Record<string, () => Response>) {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString()
+      const key = Object.keys(routes).find((k) => url.startsWith(k))
+      if (!key) throw new Error(`unexpected fetch: ${url}`)
+      return routes[key]()
+    }) as typeof fetch
+  }
+
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it("returns the payload untouched for a signed-out caller", async () => {
+    const { fetchGatedPredictions } = await import("@/lib/api/gated-predictions")
+    mockRoutes({ "/api/predictions": () => json({ tier: "FREE", predictions: [] }) })
+
+    const data = await fetchGatedPredictions({ isSignedIn: false })
+    expect(data.tier).toBe("FREE")
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1) // no cross-check
+  })
+
+  it("skips the cross-check when the payload already says PRO/ELITE", async () => {
+    const { fetchGatedPredictions } = await import("@/lib/api/gated-predictions")
+    mockRoutes({ "/api/predictions": () => json({ tier: "ELITE", predictions: [] }) })
+
+    const data = await fetchGatedPredictions({ isSignedIn: true })
+    expect(data.tier).toBe("ELITE")
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  // The stale-cache case this module exists for.
+  it("refetches uncached when a signed-in user's FREE payload contradicts their subscription", async () => {
+    const { fetchGatedPredictions } = await import("@/lib/api/gated-predictions")
+    let predictionCalls = 0
+    mockRoutes({
+      "/api/predictions": () => {
+        predictionCalls += 1
+        return json({ tier: predictionCalls === 1 ? "FREE" : "ELITE", predictions: [] })
+      },
+      "/api/subscription/me": () => json({ tier: "ELITE" }),
+    })
+
+    const data = await fetchGatedPredictions({ isSignedIn: true })
+    expect(predictionCalls).toBe(2)
+    expect(data.tier).toBe("ELITE")
+  })
+
+  it("accepts a FREE verdict the subscription record agrees with", async () => {
+    const { fetchGatedPredictions } = await import("@/lib/api/gated-predictions")
+    let predictionCalls = 0
+    mockRoutes({
+      "/api/predictions": () => {
+        predictionCalls += 1
+        return json({ tier: "FREE", predictions: [] })
+      },
+      "/api/subscription/me": () => json({ tier: "FREE" }),
+    })
+
+    const data = await fetchGatedPredictions({ isSignedIn: true })
+    expect(predictionCalls).toBe(1)
+    expect(data.tier).toBe("FREE")
+  })
+
+  it("surfaces tier_unresolved from the predictions route", async () => {
+    const { fetchGatedPredictions, TierUnresolvedError } = await import("@/lib/api/gated-predictions")
+    mockRoutes({ "/api/predictions": () => json({ error: "tier_unresolved" }, 503) })
+
+    await expect(fetchGatedPredictions({ isSignedIn: true })).rejects.toBeInstanceOf(TierUnresolvedError)
+  })
+
+  // "The server says it can't tell" must not collapse into "you're FREE".
+  it("surfaces tier_unresolved when the authority endpoint can't determine the tier", async () => {
+    const { fetchGatedPredictions, TierUnresolvedError } = await import("@/lib/api/gated-predictions")
+    mockRoutes({
+      "/api/predictions": () => json({ tier: "FREE", predictions: [] }),
+      "/api/subscription/me": () => json({ error: "tier_unresolved" }, 503),
+    })
+
+    await expect(fetchGatedPredictions({ isSignedIn: true })).rejects.toBeInstanceOf(TierUnresolvedError)
+  })
+
+  // An unreachable auxiliary endpoint is different: the payload we hold came
+  // from a route that refuses to answer when it can't resolve the tier, so its
+  // FREE verdict is server-confirmed and worth keeping.
+  it("keeps the server-confirmed payload when the authority endpoint is unreachable", async () => {
+    const { fetchGatedPredictions } = await import("@/lib/api/gated-predictions")
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString()
+      if (url.startsWith("/api/subscription/me")) throw new TypeError("network error")
+      return json({ tier: "FREE", predictions: [] })
+    }) as typeof fetch
+
+    const data = await fetchGatedPredictions({ isSignedIn: true })
+    expect(data.tier).toBe("FREE")
+  })
+})

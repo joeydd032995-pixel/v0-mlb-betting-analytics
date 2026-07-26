@@ -11,29 +11,12 @@
 // believe a FREE verdict for a signed-in user, we check it against the
 // uncached subscription endpoint first.
 
-import type { NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
+import type { PredictionsPayload } from "@/lib/types"
 import type { Tier } from "@/lib/tiers"
 
-// Predictions are Partial because the server strips fields per tier
-// (see lib/tier-gating.ts) — locked entries carry only gameId + _tierLocked.
-export type GatedPrediction = Partial<NRFIPrediction> & {
-  gameId: string
-  nrfiProbability: number
-  _tierLocked?: boolean
-}
+export type { PredictionsPayload } from "@/lib/types"
 
-export interface PredictionsPayload {
-  predictions: GatedPrediction[]
-  games: Game[]
-  pitchersById: Record<string, Pitcher>
-  teamsById: Record<string, Team>
-  date: string
-  noGames?: boolean
-  tier?: Tier
-  lockedCount?: number
-}
-
-/** The server could not determine the caller's tier — distinct from a fetch failure. */
+/** The tier could not be determined — distinct from a plain fetch failure. */
 export class TierUnresolvedError extends Error {
   constructor() {
     super("tier_unresolved")
@@ -50,14 +33,30 @@ async function fetchPredictionsOnce(noStore: boolean): Promise<PredictionsPayloa
 }
 
 /**
- * The authoritative tier for the current user, or null when it can't be
- * established (signed out, endpoint unreachable, or the server itself couldn't
- * resolve it). Null means "don't act on this" — never "FREE".
+ * The authoritative tier for the current user.
+ *
+ * Throws TierUnresolvedError when the server explicitly reports it cannot
+ * determine the tier — "unknown" must never collapse into "FREE", which is the
+ * whole failure mode this module exists to prevent.
+ *
+ * Returns null only when the endpoint is unreachable (offline, aborted). That
+ * is deliberately different: the payload we already hold came from a route that
+ * refuses to answer when *it* can't resolve the tier, so its FREE verdict is
+ * server-confirmed and worth keeping rather than replacing with an error screen
+ * every time an auxiliary request blips.
  */
 async function fetchAuthoritativeTier(): Promise<Tier | null> {
+  let res: Response
   try {
-    const res = await fetch("/api/subscription/me", { cache: "no-store" })
-    if (!res.ok) return null
+    res = await fetch("/api/subscription/me", { cache: "no-store" })
+  } catch {
+    return null // unreachable — keep the server-confirmed payload
+  }
+
+  if (res.status === 503) throw new TierUnresolvedError()
+  if (!res.ok) return null
+
+  try {
     const info = await res.json()
     return (info?.tier as Tier) ?? null
   } catch {
@@ -70,8 +69,8 @@ async function fetchAuthoritativeTier(): Promise<Tier | null> {
  * verdict is confirmed against /api/subscription/me and refetched uncached on
  * mismatch.
  *
- * Throws TierUnresolvedError when the server couldn't determine the tier —
- * callers must surface a retry rather than falling through to the paywall.
+ * Throws TierUnresolvedError when the tier couldn't be established — callers
+ * must surface a retry rather than falling through to the paywall.
  */
 export async function fetchGatedPredictions(
   { isSignedIn }: { isSignedIn: boolean } = { isSignedIn: false }

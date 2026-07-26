@@ -20,7 +20,7 @@ import {
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
-import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
+import { isUnlockedPrediction, type FilterOptions, type NRFIPrediction, type Game, type Pitcher, type Team } from "@/lib/types"
 import type { Tier } from "@/lib/subscription"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
@@ -374,7 +374,7 @@ export default function HomePage() {
     const fetchTeamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
     const gameById        = new Map<string, Game>(d.games.map((g) => [g.id, g]))
     // Only track predictions that have full data (not locked placeholders)
-    const fullPredictions = d.predictions.filter((p) => !p._tierLocked && p.recommendation && p.confidence)
+    const fullPredictions = d.predictions.filter(isUnlockedPrediction).filter((p) => p.recommendation && p.confidence)
     const incoming = fullPredictions.flatMap((pred) => {
       const game = gameById.get(pred.gameId)
       if (!game) return []
@@ -396,9 +396,12 @@ export default function HomePage() {
   // fetchGatedPredictions handles the stale-cache tier cross-check; see
   // lib/api/gated-predictions.ts.
   const loadPredictions = useCallback(async () => {
+    // Drop the previous session's slate up front so nothing authorized under an
+    // old session can linger if the replacement request is slow or fails.
     setLoading(true)
     setError(null)
     setTierUnresolved(false)
+    setLiveData(null)
     try {
       const d = await fetchGatedPredictions({ isSignedIn: !!isSignedInRef.current })
       setLiveData(d)
@@ -511,7 +514,7 @@ export default function HomePage() {
     // Look up by gameId so prediction → game pairing is correct regardless of order.
     const gameById = new Map<string, Game>(todayGames.map((g) => [g.id, g]))
     // Only process predictions that have full data (not tier-locked ghost cards)
-    const visiblePreds = predictions.filter((p) => !p._tierLocked)
+    const visiblePreds = predictions.filter(isUnlockedPrediction)
     let items = visiblePreds.flatMap((pred) => {
       const game = gameById.get(pred.gameId)
       if (!game) return []
