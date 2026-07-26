@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 import { DensityProvider } from "@/lib/density-context"
 import { TweaksPanel } from "@/components/tweaks-panel"
+import { ChatBubble } from "@/components/assistant/ChatBubble"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -64,6 +65,7 @@ export default function RootLayout({
         </main>
         <SiteFooter />
         <TweaksPanel />
+        <ChatBubble />
 
         <Toaster
           theme="dark"

@@ -62,6 +62,7 @@ Key tables in `prisma/schema.prisma`:
 - `ModelPrediction` — system-wide prediction records with actual results; `backtested=true` for prior seasons
 - `EnsembleDiagnostic` — written only when `ENABLE_DIAGNOSTICS=true`
 - `BacktestRun` — walk-forward validation results
+- `UserApiKey` — per-user Anthropic API key for the chat assistant, encrypted at rest (see "AI Chat Assistant" above)
 
 ### External APIs
 
@@ -76,13 +77,14 @@ MLB Stats API is always available and free; all other external data falls back t
 
 ### AI Chat Assistant
 
-`POST /api/chat` (auth-gated, `app/api/chat/route.ts`) powers a chat widget at `/assistant` (`app/assistant/page.tsx` + `components/assistant/ChatWidget.tsx`) that answers general baseball questions from model knowledge and pulls real-time data via tool-calling — no chat history is persisted server-side (client holds the transcript).
+`POST /api/chat` (auth-gated, `app/api/chat/route.ts`) powers a floating chat bubble (`components/assistant/ChatBubble.tsx`, mounted globally in `app/layout.tsx` next to `TweaksPanel`) that answers general baseball questions from model knowledge and pulls real-time data via tool-calling — no chat history is persisted server-side (client holds the transcript). The bubble renders on every page (including public ones); signed-out users see a sign-in prompt instead of a live chat. `components/assistant/ChatMessages.tsx` holds the shared transcript/input/fetch logic.
 
 - **Model:** `claude-haiku-4-5` (cheapest current Claude model), configured via `CONFIG.chat` in `lib/config.ts`. Static system prompt (`lib/ai/chat-system-prompt.ts`) is prompt-cached (`cache_control: ephemeral`) — never interpolate per-request data into it.
 - **Tools:** `lib/ai/chat-tools.ts` wraps existing `lib/api/mlb-stats.ts` / `lib/api/live-data.ts` functions (today's slate, linescore, pitcher/team stats, first-inning splits, active starters) — no new data-fetching logic. A manual tool-call loop in the route (capped at `CONFIG.chat.maxToolIterations`) drives multi-step tool use.
-- **Cost controls:** per-user Upstash rate limit (`lib/ai/chat-rate-limit.ts`, separate from the IP-based limiter in `lib/rate-limit.ts`) plus a per-user daily message cap (Upstash counter keyed by ET date). Both no-op (allow everything) when Upstash isn't configured, matching existing app behavior.
-- **Auth:** `/api/chat` and `/assistant` are both in `middleware.ts`'s `isProtectedRoute` — cost control is the reason, not just personalization.
-- Do not add a second LLM integration path (e.g. Vercel AI SDK) without folding it into this one — `lib/ai/anthropic-client.ts` is the single Anthropic client singleton.
+- **Cost controls:** per-user Upstash rate limit (`lib/ai/chat-rate-limit.ts`, separate from the IP-based limiter in `lib/rate-limit.ts`) plus a per-user daily message cap (Upstash counter keyed by ET date). Both no-op (allow everything) when Upstash isn't configured, matching existing app behavior. These caps apply identically whether the request uses the shared env key or a user's own key.
+- **Per-user API key:** users can optionally set their own Anthropic API key on `/account` (`components/chat-api-key-form.tsx` → `setChatApiKeyAction`/`clearChatApiKeyAction` in `app/actions.ts`), encrypted at rest via `lib/crypto/api-key-encryption.ts` (AES-256-GCM, keyed by `ENCRYPTION_KEY`) in the `UserApiKey` Prisma model. `app/api/chat/route.ts` decrypts it and passes it to `getAnthropicClient()` (`lib/ai/anthropic-client.ts`), which falls back to the shared `ANTHROPIC_API_KEY` env var when no user key is set. The decrypted key is never sent to the client — only a masked `lastFour` indicator is.
+- **Auth:** `/api/chat` is in `middleware.ts`'s `isProtectedRoute` — cost control is the reason, not just personalization. The bubble itself is unauthenticated UI (renders everywhere) but gates on Clerk's `useAuth()` client-side before calling the API.
+- Do not add a second LLM integration path (e.g. Vercel AI SDK) without folding it into this one — `lib/ai/anthropic-client.ts` is the single Anthropic client factory.
 
 ### Key Source Files
 
@@ -125,7 +127,8 @@ See `.env.example` for full documentation. Required for full functionality:
 - `DATABASE_URL` — Neon PostgreSQL connection string (pooled)
 - `THE_ODDS_API_KEY` — live odds
 - `OPENWEATHER_API_KEY` — stadium weather
-- `ANTHROPIC_API_KEY` — AI chat assistant at `/assistant`
+- `ANTHROPIC_API_KEY` — AI chat assistant (floating bubble, all pages)
+- `ENCRYPTION_KEY` — required only if users are allowed to store their own Anthropic key on `/account`
 
 ## Important Patterns
 
