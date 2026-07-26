@@ -42,15 +42,19 @@ function AccuracyCard({
   )
 }
 
-function SeasonTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
+function OverviewTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
   return (
     <div className="space-y-6">
       {/* Overall stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <AccuracyCard label="Overall Accuracy" value={pct(accuracy.accuracy)} />
-        <AccuracyCard label="Total Predictions" value={accuracy.totalTracked} />
-        <AccuracyCard label="Completed" value={accuracy.totalPredictions} />
-        <AccuracyCard label="Pending" value={accuracy.pendingCount} />
+        <AccuracyCard
+          label="Overall Accuracy"
+          value={accuracy.totalPredictions > 0 ? pct(accuracy.accuracy) : "—"}
+          subtext={`over ${accuracy.totalPredictions} settled`}
+        />
+        <AccuracyCard label="Tracked" value={accuracy.totalTracked} subtext="settled + pending" />
+        <AccuracyCard label="Settled" value={accuracy.totalPredictions} subtext="scored above" />
+        <AccuracyCard label="Pending" value={accuracy.pendingCount} subtext="not yet scored" />
       </div>
 
       {/* NRFI vs YRFI */}
@@ -81,15 +85,25 @@ function SeasonTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
       {/* Confidence breakdown */}
       <div className="rounded-lg border border-border/30 bg-card/50 p-4">
         <h3 className="text-sm font-semibold mb-4">By Confidence Level</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <AccuracyCard
-            label="High Confidence"
-            value={pct(accuracy.highConfAccuracy)}
+            label="High (≥62)"
+            value={accuracy.highConfTotal > 0 ? pct(accuracy.highConfAccuracy) : "—"}
+            subtext={`${accuracy.highConfCorrect}/${accuracy.highConfTotal} correct`}
             variant="positive"
           />
           <AccuracyCard
-            label="Medium Confidence"
-            value={pct(accuracy.medConfAccuracy)}
+            label="Medium (45–61)"
+            value={accuracy.medConfTotal > 0 ? pct(accuracy.medConfAccuracy) : "—"}
+            subtext={`${accuracy.medConfCorrect}/${accuracy.medConfTotal} correct`}
+            variant="default"
+          />
+          {/* The Low tier was previously computed but never rendered, hiding the
+              worst-performing bucket from the breakdown entirely. */}
+          <AccuracyCard
+            label="Low (<45)"
+            value={accuracy.lowConfTotal > 0 ? pct(accuracy.lowConfCorrect / accuracy.lowConfTotal) : "—"}
+            subtext={`${accuracy.lowConfCorrect}/${accuracy.lowConfTotal} correct`}
             variant="default"
           />
         </div>
@@ -99,17 +113,34 @@ function SeasonTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
       <div className="rounded-lg border border-border/30 bg-card/50 p-4">
         <h3 className="text-sm font-semibold mb-4">Financial Performance</h3>
         <div className="grid grid-cols-2 gap-4">
+          {/* Both figures cover only predictions that stored odds. Rendering a
+              confident 0.00% when nothing is priced would imply a break-even
+              result rather than an absent sample. */}
           <AccuracyCard
-            label="ROI (All Bets)"
-            value={`${(accuracy.roi * 100).toFixed(2)}%`}
+            label="ROI (priced bets)"
+            value={accuracy.pricedCount > 0 ? `${(accuracy.roi * 100).toFixed(2)}%` : "—"}
+            subtext={
+              accuracy.pricedCount > 0
+                ? `${accuracy.pricedCount} of ${accuracy.totalPredictions} settled had odds`
+                : "No settled predictions carried odds"
+            }
             variant={accuracy.roi > 0 ? "positive" : accuracy.roi < 0 ? "negative" : "default"}
           />
           <AccuracyCard
             label="High Conf P/L"
-            value={`${accuracy.highConfPnL > 0 ? "+" : ""}${accuracy.highConfPnL.toFixed(2)}u`}
+            value={
+              accuracy.highConfPricedCount > 0
+                ? `${accuracy.highConfPnL > 0 ? "+" : ""}${accuracy.highConfPnL.toFixed(2)}u`
+                : "—"
+            }
+            subtext={`${accuracy.highConfPricedCount} of ${accuracy.highConfTotal} high-conf had odds`}
             variant={accuracy.highConfPnL > 0 ? "positive" : accuracy.highConfPnL < 0 ? "negative" : "default"}
           />
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Flat 1-unit stake. Backfilled predictions store no odds, so they are excluded from
+          both figures — accuracy above is measured over a larger sample than these are.
+        </p>
       </div>
 
       {/* Monthly trend */}
@@ -127,7 +158,9 @@ function SeasonTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
                   <div className="text-right">
                     <p className="text-foreground font-semibold">{pct(m.accuracy)}</p>
                     <p className="text-muted-foreground text-[10px]">
-                      {m.roi > 0 ? "+" : ""}{(m.roi * 100).toFixed(1)}% ROI
+                      {m.priced > 0
+                        ? `${m.roi > 0 ? "+" : ""}${(m.roi * 100).toFixed(1)}% ROI (${m.priced} priced)`
+                        : "No odds stored"}
                     </p>
                   </div>
                 </div>
@@ -184,11 +217,13 @@ export function AccuracyDashboard({ accuracy }: AccuracyDashboardProps) {
   }
 
   return (
-    <Tabs defaultValue="season" className="w-full">
+    <Tabs defaultValue="overview" className="w-full">
       <TabsList className="grid w-full grid-cols-4">
-        <TabsTrigger value="season" className="gap-1.5">
+        {/* Labelled "Season" until this audit, though it applies no season
+            filter — the population spans every season that has been synced. */}
+        <TabsTrigger value="overview" className="gap-1.5">
           <BarChart3 className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Season</span>
+          <span className="hidden sm:inline">Overview</span>
         </TabsTrigger>
         <TabsTrigger value="pitcher" className="gap-1.5">
           <TrendingUp className="h-3.5 w-3.5" />
@@ -204,8 +239,8 @@ export function AccuracyDashboard({ accuracy }: AccuracyDashboardProps) {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="season" className="mt-6">
-        <SeasonTab accuracy={accuracy} />
+      <TabsContent value="overview" className="mt-6">
+        <OverviewTab accuracy={accuracy} />
       </TabsContent>
 
       <TabsContent value="pitcher" className="mt-6">

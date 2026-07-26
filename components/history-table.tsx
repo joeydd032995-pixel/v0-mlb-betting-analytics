@@ -12,7 +12,12 @@ interface Props {
   accuracy: ExtendedModelAccuracy
   onRecordResult: (id: string, homeRuns: number, awayRuns: number) => void
   onDelete: (id: string) => void
-  dateRange?: { from: Date; to: Date }
+  /**
+   * Human-readable window the caller has already applied to `predictions` and
+   * `accuracy`. Display only — filtering happens upstream so the tables and the
+   * summary statistics can never disagree about which rows they cover.
+   */
+  periodLabel?: string
   onExportCSV?: () => void
 }
 
@@ -622,15 +627,12 @@ function CompletedPanel({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, dateRange, onExportCSV }: Props) {
-  // Filter by date range if provided
-  const filtered = dateRange
-    ? predictions.filter((p) => {
-        const pDate = new Date(p.date)
-        return pDate >= dateRange.from && pDate <= dateRange.to
-      })
-    : predictions
-
+export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, periodLabel, onExportCSV }: Props) {
+  // `predictions` and `accuracy` arrive already scoped to the selected period.
+  // This component used to re-filter here with its own Date arithmetic, which
+  // both duplicated the window logic and left the summary cards below showing
+  // all-time numbers under a "Filtered by date" header.
+  const filtered  = predictions
   const pending   = filtered.filter((p) => p.status === "pending")
   const completed = filtered.filter((p) => p.status === "complete")
 
@@ -640,7 +642,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       {onExportCSV && (
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            {dateRange && `Filtered by date: ${dateRange.from.toLocaleDateString()} — ${dateRange.to.toLocaleDateString()}`}
+            {periodLabel && `Showing ${periodLabel} — all statistics below cover this window`}
           </p>
           <button
             onClick={() => {
@@ -731,17 +733,30 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
                   {pct(m.accuracy)}
                 </p>
                 <p className="text-xs text-muted-foreground">{m.predictions} picks</p>
-                <p
-                  className={cn(
-                    "text-xs font-medium tabular-nums",
-                    m.roi > 0 ? "text-emerald-400" : "text-rose-400"
-                  )}
-                >
-                  {m.roi > 0 ? "+" : ""}{pct(m.roi)} ROI
-                </p>
+                {m.priced > 0 ? (
+                  <p
+                    className={cn(
+                      "text-xs font-medium tabular-nums",
+                      // A break-even month is not a loss.
+                      m.roi > 0 ? "text-emerald-400" : m.roi < 0 ? "text-rose-400" : "text-muted-foreground"
+                    )}
+                    title={`Flat-stake return over the ${m.priced} pick${m.priced === 1 ? "" : "s"} with odds`}
+                  >
+                    {m.roi > 0 ? "+" : ""}{pct(m.roi)} ROI ({m.priced})
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground/70" title="No picks this month carried an odds snapshot">
+                    No odds
+                  </p>
+                )}
               </div>
             ))}
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Accuracy is over all settled picks that month. ROI is a flat 1-unit stake over
+            only the picks that carried an odds snapshot — the count in parentheses — so the
+            two figures have different denominators.
+          </p>
         </div>
       )}
 
@@ -749,8 +764,8 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       {pending.length > 0 && (
         <p className="text-xs text-muted-foreground">
           Results for pending games are fetched automatically from the MLB Stats API once
-          each game ends — use the <strong className="text-foreground">Sync Results</strong> button
-          above to refresh, or enter runs manually below.
+          each game ends — reload this page to pick up newly settled games, or enter runs
+          manually below.
         </p>
       )}
       <PendingSection pending={pending} onRecordResult={onRecordResult} onDelete={onDelete} />
@@ -772,7 +787,9 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       </div>
 
       <p className="text-xs text-muted-foreground">
-        * P/L shown as flat-stake units on the recommended bet. Click any row to see the full
+        * P/L shown as flat-stake units on the recommended bet, over the {accuracy.pricedCount} settled
+        prediction{accuracy.pricedCount === 1 ? "" : "s"} that stored odds (of {accuracy.totalPredictions} settled).
+        Accuracy percentages use all settled predictions. Click any row to see the full
         per-model breakdown (Poisson / ZIP / Markov / Ensemble). High-confidence bets are
         predictions with a confidence score ≥ 62. ZIP ω = lockdown probability;
         high ω means the model expects a dominant 1-2-3 inning.

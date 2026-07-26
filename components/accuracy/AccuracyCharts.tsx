@@ -10,6 +10,14 @@ import type { ExtendedModelAccuracy } from "@/lib/prediction-store"
 
 interface Props {
   accuracy: ExtendedModelAccuracy
+  /**
+   * Engine output clamp, passed down from the Server Component so the caption
+   * cannot drift from the constant. Importing the engine here would pull the
+   * whole model stack into the client bundle.
+   */
+  clampRange: [number, number]
+  /** League NRFI baseline the models are judged against. */
+  leagueBaseline: number
 }
 
 const MODEL_COLORS: Record<string, string> = {
@@ -22,7 +30,7 @@ const MODEL_COLORS: Record<string, string> = {
   "Hierarchical Bayes": "#8b5cf6",
 }
 
-export function AccuracyCharts({ accuracy }: Props) {
+export function AccuracyCharts({ accuracy, clampRange, leagueBaseline }: Props) {
   const perModelData = useMemo(() => accuracy.perModelAccuracy.map(m => ({
     name: m.model === "Logistic Stack" ? "LogMeta" : m.model === "Hierarchical Bayes" ? "HierBayes" : m.model === "NN Interaction" ? "NN Cross" : m.model,
     accuracy: m.accuracy,
@@ -35,14 +43,17 @@ export function AccuracyCharts({ accuracy }: Props) {
   // Real reliability diagram: predicted-probability bin vs observed NRFI rate,
   // computed prediction-by-prediction in computeExtendedAccuracy. Bins with
   // fewer than 5 settled predictions are dropped (too noisy to plot).
+  // `predictedBin` is the bin's LOWER EDGE (bins are floor-based deciles), so
+  // the perfect-calibration reference is the bin midpoint. Using the edge would
+  // put the diagonal a systematic 5 points below where it belongs.
   const perfectCal = useMemo(() =>
     accuracy.calibrationData
       .filter(d => d.count >= 5)
       .map(d => ({
-        bucket:    `${(d.predictedBin * 100).toFixed(0)}%`,
-        predicted: d.predictedBin,
+        bucket:    `${(d.predictedBin * 100).toFixed(0)}–${((d.predictedBin + 0.1) * 100).toFixed(0)}%`,
+        predicted: d.predictedBin + 0.05,
         actual:    d.actualRate,
-        perfect:   d.predictedBin,
+        perfect:   d.predictedBin + 0.05,
         count:     d.count,
       })),
     [accuracy.calibrationData])
@@ -74,7 +85,7 @@ export function AccuracyCharts({ accuracy }: Props) {
                     tickLine={false}
                     domain={[0.4, 1]}
                   />
-                  <ReferenceLine y={0.516} stroke="var(--ds-warn)" strokeDasharray="4 3" strokeWidth={1.5} />
+                  <ReferenceLine y={leagueBaseline} stroke="var(--ds-warn)" strokeDasharray="4 3" strokeWidth={1.5} />
                   <Tooltip
                     formatter={(v: number, name: string) => [
                       name === "accuracy" ? `${(v * 100).toFixed(1)}%` : v.toFixed(4),
@@ -92,7 +103,7 @@ export function AccuracyCharts({ accuracy }: Props) {
               </ResponsiveContainer>
             </div>
             <p className="font-jet text-[9px] text-ds-dim mt-2">
-              Dashed line = league NRFI baseline (51.6%). Models above baseline add value.
+              Dashed line = league NRFI baseline ({(leagueBaseline * 100).toFixed(1)}%). Models above baseline add value.
             </p>
             {/* Table mirrors the chart so tooltip and table always agree */}
             <div className="mt-3 overflow-hidden rounded border border-ds-line">
@@ -182,7 +193,10 @@ export function AccuracyCharts({ accuracy }: Props) {
         </div>
         )}
         <p className="font-jet text-[9px] text-ds-dim mt-2">
-          Observed first-inning NRFI rate per predicted-probability bin (≥ 5 settled predictions each). A well-calibrated model tracks the dashed diagonal.
+          Observed first-inning NRFI rate per predicted-probability decile (≥ 5 settled predictions each).
+          A well-calibrated model tracks the dashed diagonal. Engine output is clamped to{" "}
+          {(clampRange[0] * 100).toFixed(0)}–{(clampRange[1] * 100).toFixed(0)}%, so bins outside that
+          range can never populate — the curve is truncated by design, not by sample size.
         </p>
       </Panel>
     </div>

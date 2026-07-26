@@ -118,6 +118,27 @@ export const FINAL_BLEND_CONTRACT = {
   clampMax:      CLAMP_MAX,
 } as const
 
+/**
+ * Probability at or above which the engine calls NRFI.
+ *
+ * Deliberately not part of FINAL_BLEND_CONTRACT — that object is the
+ * cross-language contract with transforms.py and is exact-matched by
+ * __tests__/audit-v2-regression.test.ts.
+ */
+export const NRFI_CALL_THRESHOLD_PUBLIC = NRFI_CALL_THRESHOLD
+
+/**
+ * Confidence-score cutoffs for the three reliability tiers.
+ *
+ * Exported so the UI can render the real numbers instead of restating them —
+ * the Insights "How It Works" tab previously advertised ≥68 for High while the
+ * engine used ≥62, and contradicted its own Performance tab in the process.
+ */
+export const CONFIDENCE_THRESHOLDS = {
+  high:   62,
+  medium: 45,
+} as const
+
 // Monthly lambda multiplier: accounts for the cold-weather / heat run-environment
 // cycle that the weather multiplier alone can't capture (historical-sync often
 // lacks real game-time temperatures).  Values derived from 2018–2024 MLB first-
@@ -414,7 +435,10 @@ function computeConfidence(
   }
 
   score = Math.max(10, Math.min(98, Math.round(score)))
-  const level: ConfidenceLevel = score >= 62 ? "High" : score >= 45 ? "Medium" : "Low"
+  const level: ConfidenceLevel =
+    score >= CONFIDENCE_THRESHOLDS.high   ? "High"
+    : score >= CONFIDENCE_THRESHOLDS.medium ? "Medium"
+    : "Low"
 
   // ── Conviction (strength of the prediction, separate from reliability) ────
   // 0.0 = coin-flip, 1.0 = maximum certainty.

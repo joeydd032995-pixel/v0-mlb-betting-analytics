@@ -42,6 +42,27 @@ const CALIBRATION_KNOTS: [number, number][] = [
 ]
 
 /**
+ * Whether the knot table is currently the identity mapping, i.e. calibration is
+ * a no-op pending an out-of-sample refit.
+ *
+ * Derived from the table rather than hard-coded so UI copy describing the
+ * calibration stage can never drift from reality — the Insights tab used to
+ * claim the spline was "fitted to 2024–2025 backtest data" while this table sat
+ * at identity.
+ */
+export const CALIBRATION_IS_IDENTITY: boolean =
+  CALIBRATION_KNOTS.every(([raw, calibrated]) => raw === calibrated)
+
+/** Number of knots in the calibration table. */
+export const CALIBRATION_KNOT_COUNT = CALIBRATION_KNOTS.length
+
+/** Domain covered by the knot table, as [lowest raw, highest raw]. */
+export const CALIBRATION_DOMAIN: readonly [number, number] = [
+  CALIBRATION_KNOTS[0][0],
+  CALIBRATION_KNOTS[CALIBRATION_KNOTS.length - 1][0],
+]
+
+/**
  * Calibrate a raw ensemble probability using monotone linear interpolation over
  * the fitted knots. Values outside [first knot, last knot] are clamped
  * to the corresponding boundary calibrated value.

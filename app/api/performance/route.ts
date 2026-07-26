@@ -56,8 +56,15 @@ export async function GET() {
         poissonNrfi:     true,
         zipNrfi:         true,
         markovNrfi:      true,
+        mapreNrfi:       true,
         ensembleNrfi:    true,
         deepNrfi:        true,
+        // The three meta-models. These columns are populated by both write
+        // paths but were never selected, so the UI rows for them could never
+        // fill in regardless of how much data was synced.
+        logisticMetaNrfi:      true,
+        nnInteractionNrfi:     true,
+        hierarchicalBayesNrfi: true,
         ensembleVersion: true,
         prediction:      true,
         actualResult:    true,
@@ -81,6 +88,21 @@ export async function GET() {
     // intentionally different views: "what the model saw" vs "what actually happened".
     const nrfiInPredicted = withResult.filter((p) => p.actualResult === "NRFI").length
     const yrfiInPredicted = withResult.length - nrfiInPredicted
+
+    // ── 3c. Backtest contamination of the headline accuracy ─────────────────
+    // Backfilled rows are scored from point-in-time stats but neutral, month-
+    // average weather and no odds, which drags their accuracy toward the raw
+    // NRFI base rate.  The monthly table already asterisks this per month; the
+    // headline number needs it too, since that is what most readers act on.
+    const backtestedCount = withResult.filter((p) => p.backtested).length
+    const backtestedShare = withResult.length > 0 ? backtestedCount / withResult.length : 0
+
+    // Earliest and latest game date actually represented, so the UI can state
+    // the real window instead of implying the whole 2024–present range.
+    const scoredDates = withResult.map((p) => p.date).sort()
+    const dateSpan = scoredDates.length > 0
+      ? { from: scoredDates[0], to: scoredDates[scoredDates.length - 1] }
+      : null
 
     // ── 4. By confidence level ─────────────────────────────────────────────
     const confGroup = (label: string) => {
@@ -128,11 +150,18 @@ export async function GET() {
         correct,
       }
     }
+    // Nullable columns map to 0 so the `prob > 0` guard in modelStats excludes
+    // them, which is what makes each model report its own valid sample size
+    // rather than being scored on rows where it never ran.
     const perModel = withResult.length > 0 ? {
       Poisson:  modelStats((p) => p.poissonNrfi),
       ZIP:      modelStats((p) => p.zipNrfi),
       Markov:   modelStats((p) => p.markovNrfi),
+      MAPRE:    modelStats((p) => p.mapreNrfi ?? 0),
       Ensemble: modelStats((p) => p.ensembleNrfi),
+      "Logistic Stack":     modelStats((p) => p.logisticMetaNrfi      ?? 0),
+      "NN Interaction":     modelStats((p) => p.nnInteractionNrfi     ?? 0),
+      "Hierarchical Bayes": modelStats((p) => p.hierarchicalBayesNrfi ?? 0),
     } : null
 
     // ── 5b. Ensemble diversity ─────────────────────────────────────────────
@@ -277,6 +306,9 @@ export async function GET() {
       totalPredictions: withResult.length,
       totalCorrect,
       accuracy,
+      backtestedCount,
+      backtestedShare,
+      dateSpan,
       byConfidence,
       perModel,
       diversity,
