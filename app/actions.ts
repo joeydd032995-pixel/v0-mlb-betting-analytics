@@ -6,6 +6,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { z } from "zod"
 import type { TrackedPrediction } from "@/lib/prediction-store"
+import { encryptApiKey } from "@/lib/crypto/api-key-encryption"
 
 // ─── Shared result type ────────────────────────────────────────────────────────
 
@@ -35,6 +36,10 @@ const AdjustBankrollSchema = z.object({
 
 const InitBankrollSchema = z.object({
   startingBalance: z.number().positive(),
+})
+
+const SetChatApiKeySchema = z.object({
+  apiKey: z.string().min(20).max(200), // Anthropic keys are sk-ant-... ~100+ chars; loose bound
 })
 
 // ─── Bets ─────────────────────────────────────────────────────────────────────
@@ -460,5 +465,50 @@ export async function deletePredictionAction(id: string): Promise<ActionResult> 
   await prisma.modelPrediction.deleteMany({ where: { id, userId } })
 
   revalidatePath("/history")
+  return { ok: true }
+}
+
+// ─── Chat assistant API key ───────────────────────────────────────────────────
+
+export async function setChatApiKeyAction(
+  input: z.infer<typeof SetChatApiKeySchema>
+): Promise<ActionResult> {
+  const { userId } = await auth()
+  if (!userId) return { ok: false, error: "Unauthorized" }
+
+  const parsed = SetChatApiKeySchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: "Enter a valid Anthropic API key" }
+
+  const { apiKey } = parsed.data
+  const encryptedKey = encryptApiKey(apiKey)
+  const lastFour = apiKey.slice(-4)
+
+  try {
+    await prisma.userApiKey.upsert({
+      where: { userId },
+      update: { encryptedKey, lastFour },
+      create: { userId, encryptedKey, lastFour },
+    })
+  } catch (err) {
+    console.error("[setChatApiKeyAction]", err)
+    return { ok: false, error: "Failed to save API key" }
+  }
+
+  revalidatePath("/account")
+  return { ok: true }
+}
+
+export async function clearChatApiKeyAction(): Promise<ActionResult> {
+  const { userId } = await auth()
+  if (!userId) return { ok: false, error: "Unauthorized" }
+
+  try {
+    await prisma.userApiKey.deleteMany({ where: { userId } })
+  } catch (err) {
+    console.error("[clearChatApiKeyAction]", err)
+    return { ok: false, error: "Failed to remove API key" }
+  }
+
+  revalidatePath("/account")
   return { ok: true }
 }

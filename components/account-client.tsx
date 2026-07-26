@@ -6,10 +6,12 @@ import { toast } from "sonner"
 import { Crown, Zap, Star, CreditCard, ExternalLink, Copy, Check } from "lucide-react"
 import type { UserTierInfo } from "@/lib/subscription"
 import { cn } from "@/lib/utils"
+import { ChatApiKeyForm } from "@/components/chat-api-key-form"
 
 interface Props {
   tierInfo: UserTierInfo
   userId: string
+  apiKeyInfo: { lastFour: string; updatedAt: Date } | null
 }
 
 const TIER_CONFIG = {
@@ -33,7 +35,7 @@ const TIER_CONFIG = {
   },
 }
 
-export function AccountClient({ tierInfo, userId }: Props) {
+export function AccountClient({ tierInfo, userId, apiKeyInfo }: Props) {
   const [managingBilling, setManagingBilling] = useState(false)
   const [copied, setCopied] = useState(false)
   const router = useRouter()
@@ -208,6 +210,8 @@ export function AccountClient({ tierInfo, userId }: Props) {
           </button>
         </div>
       </div>
+
+      <ChatApiKeyForm apiKeyInfo={apiKeyInfo} />
     </div>
   )
 }

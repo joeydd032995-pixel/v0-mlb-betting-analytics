@@ -1,10 +1,12 @@
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { anthropic } from "@/lib/ai/anthropic-client"
+import { getAnthropicClient } from "@/lib/ai/anthropic-client"
 import { SYSTEM_PROMPT } from "@/lib/ai/chat-system-prompt"
 import { CHAT_TOOLS, runTool } from "@/lib/ai/chat-tools"
 import { getChatRateLimiter, checkDailyChatCap } from "@/lib/ai/chat-rate-limit"
+import { decryptApiKey } from "@/lib/crypto/api-key-encryption"
+import { prisma } from "@/lib/prisma"
 import { CONFIG } from "@/lib/config"
 import type Anthropic from "@anthropic-ai/sdk"
 
@@ -48,10 +50,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const userKeyRow = await prisma.userApiKey.findUnique({ where: { userId } })
+  let userApiKey: string | null = null
+  if (userKeyRow) {
+    try {
+      userApiKey = decryptApiKey(userKeyRow.encryptedKey)
+    } catch (err) {
+      console.error("[/api/chat] failed to decrypt stored key, falling back to env", err)
+    }
+  }
+
+  if (!userApiKey && !process.env.ANTHROPIC_API_KEY) {
     console.error("[/api/chat] ANTHROPIC_API_KEY is not configured")
     return NextResponse.json({ error: "Chat assistant is not configured" }, { status: 500 })
   }
+
+  const client = getAnthropicClient(userApiKey)
 
   try {
     const messages: Anthropic.MessageParam[] = body.messages.map((m) => ({
@@ -62,7 +76,7 @@ export async function POST(request: Request) {
     const toolCallLog: { name: string; input: unknown }[] = []
 
     for (let iteration = 0; iteration < CONFIG.chat.maxToolIterations; iteration++) {
-      const response = await anthropic.messages.create({
+      const response = await client.messages.create({
         model: CONFIG.chat.model,
         max_tokens: CONFIG.chat.maxTokens,
         system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],

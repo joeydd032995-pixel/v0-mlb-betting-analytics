@@ -26,8 +26,28 @@ model User {
   backtestRuns         BacktestRun[]
   modelPredictions     ModelPrediction[]
   subscription         Subscription?
+  apiKey               UserApiKey?
 
   @@map("users")
+}
+
+// ─── UserApiKey (user-supplied Anthropic key, encrypted at rest) ────────────
+// One row per Clerk userId, created/updated when the user sets a key on
+// /account. encryptedKey is never selected into any broad User query — only
+// read and decrypted inside app/api/chat/route.ts immediately before
+// constructing the per-request Anthropic client.
+model UserApiKey {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  encryptedKey String   // AES-256-GCM ciphertext, base64: iv:authTag:ciphertext
+  lastFour     String   // last 4 chars of the plaintext key, for the masked UI indicator
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("user_api_keys")
 }
 
 // ─── Subscription (Stripe-backed tier management) ────────────────────────────

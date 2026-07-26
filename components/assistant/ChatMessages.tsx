@@ -5,7 +5,12 @@ import { toast } from "sonner"
 
 type ChatMessage = { role: "user" | "assistant"; content: string }
 
-export function ChatWidget() {
+interface Props {
+  /** Tailwind height class for the scrollable transcript area, e.g. "h-[600px]" or "h-[380px]". */
+  heightClassName?: string
+}
+
+export function ChatMessages({ heightClassName = "h-[600px]" }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [isPending, setIsPending] = useState(false)
@@ -57,7 +62,7 @@ export function ChatWidget() {
   }
 
   return (
-    <div className="flex flex-col h-[600px] border rounded-lg" style={{ borderColor: "var(--ds-border)" }}>
+    <div className={`flex flex-col ${heightClassName} border rounded-lg`} style={{ borderColor: "var(--ds-border)" }}>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 && (
           <p className="text-sm opacity-60">
