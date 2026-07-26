@@ -2,16 +2,28 @@ import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
-import { getUserTier } from "@/lib/subscription"
+import { resolveUserTierWithRetry } from "@/lib/subscription"
 import { applyTierGating } from "@/lib/tier-gating"
 
 // force-dynamic: tier-gated responses vary per user — cannot be edge-cached globally.
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
+// Per-user body — must never land in a shared cache. See /api/predictions.
+const CACHE_HEADERS = {
+  "Cache-Control": "private, no-store",
+  Vary: "Cookie",
+} as const
+
 export async function GET(request: Request) {
   const { userId } = await auth()
-  const tier = await getUserTier(userId)
+  const { tier, resolved } = await resolveUserTierWithRetry(userId)
+  if (!resolved) {
+    return NextResponse.json(
+      { error: "tier_unresolved" },
+      { status: 503, headers: CACHE_HEADERS }
+    )
+  }
 
   try {
     const { searchParams } = new URL(request.url)
@@ -23,7 +35,7 @@ export async function GET(request: Request) {
     if (gameId) {
       const game = games.find(g => g.id === gameId)
       if (!game) {
-        return NextResponse.json({ error: "Game not found" }, { status: 404 })
+        return NextResponse.json({ error: "Game not found" }, { status: 404, headers: CACHE_HEADERS })
       }
       // Gate against the FULL slate (not just this game) so a FREE caller can't
       // route around the "only the top pick is visible" rule by requesting each
@@ -33,7 +45,7 @@ export async function GET(request: Request) {
       const { gated } = applyTierGating(rawPredictions, tier)
       const matched = gated.find((p) => p.gameId === gameId)
       if (!matched) {
-        return NextResponse.json({ error: "Prediction unavailable for this game" }, { status: 422 })
+        return NextResponse.json({ error: "Prediction unavailable for this game" }, { status: 422, headers: CACHE_HEADERS })
       }
       return NextResponse.json({
         game,
@@ -42,14 +54,14 @@ export async function GET(request: Request) {
         teamsById:    Object.fromEntries(teams),
         date,
         tier,
-      })
+      }, { headers: CACHE_HEADERS })
     }
 
     // Without gameId: return enriched game list with all predictions
     if (games.length === 0) {
       return NextResponse.json({
         predictions: [], games: [], pitchersById: {}, teamsById: {}, date, gameCount: 0, tier,
-      })
+      }, { headers: CACHE_HEADERS })
     }
 
     const rawPredictions = computeAllPredictions(games, pitchers, teams)
@@ -64,9 +76,9 @@ export async function GET(request: Request) {
       gameCount: games.length,
       tier,
       lockedCount,
-    })
+    }, { headers: CACHE_HEADERS })
   } catch (err) {
     console.error("[/api/games]", err instanceof Error ? err.message : err)
-    return NextResponse.json({ error: "Failed to load game data" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to load game data" }, { status: 500, headers: CACHE_HEADERS })
   }
 }

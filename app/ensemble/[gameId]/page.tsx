@@ -8,6 +8,9 @@ import { computeMarkovStateSnapshot } from "@/lib/nrfi-models"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { mockGames, mockTeams, mockPitchers } from "@/lib/mock-data"
 import Link from "next/link"
+import { getPageTier } from "@/lib/require-tier"
+import { hasAccess } from "@/lib/tiers"
+import { TierGateNotice, TierUnresolvedNotice } from "@/components/tier-gate-notice"
 
 // React cache deduplicates getLiveGameSlate calls within the same render pass
 // (e.g. multiple /ensemble/[gameId] segments rendered concurrently).
@@ -19,10 +22,36 @@ interface PageProps {
   params: Promise<{ gameId: string }>
 }
 
-export const revalidate = 300
+// Reads the session cookie to resolve the caller's tier, so this page cannot be
+// statically revalidated — the response differs per user.
+export const dynamic = "force-dynamic"
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
+      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
+        <Link
+          href="/"
+          className="font-jet text-[11px] uppercase tracking-[0.2em] text-ds-muted hover:text-ds-cy transition-colors"
+        >
+          ← Today&apos;s Games
+        </Link>
+        {children}
+      </main>
+    </div>
+  )
+}
 
 export default async function EnsemblePage({ params }: PageProps) {
   const { gameId } = await params
+
+  // This whole page is the 7-model / DeepNRFI / Monte Carlo breakdown, which is
+  // an ELITE feature. Gate before doing any of the expensive computation.
+  const { tier, resolved } = await getPageTier()
+  if (!resolved) return <Shell><TierUnresolvedNotice /></Shell>
+  if (!hasAccess(tier, "model_breakdown")) {
+    return <Shell><TierGateNotice requiredTier="ELITE" feature="The ensemble deep dive" /></Shell>
+  }
 
   // 1. Try mock data first (dev / fallback)
   let game = mockGames.find(g => g.id === gameId)

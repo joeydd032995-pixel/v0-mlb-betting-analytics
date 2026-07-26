@@ -22,7 +22,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { requireFeature } from "@/lib/require-tier"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -62,8 +62,9 @@ function pct(v: number | null | undefined): string {
 }
 
 export async function GET(request: Request) {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Full-history CSV export is the "api_access" ELITE feature.
+  const guard = await requireFeature("api_access")
+  if (!guard.ok) return guard.response
 
   const modelParam = new URL(request.url).searchParams.get("model")
   const model: ModelKey | "all" =

@@ -1,10 +1,14 @@
 // lib/subscription.ts
-// Central authority for subscription tier checks.
-// Server-only — never import directly in client components.
+// Central authority for subscription tier LOOKUPS (who is on which tier).
+// Server-only — never import directly in client components; the tier *rules*
+// (Tier, Feature, hasAccess) live in the client-safe lib/tiers.ts and are
+// re-exported here so existing server-side imports keep working.
 
 import { prisma } from "@/lib/prisma"
+import { normaliseTier, type Tier } from "@/lib/tiers"
 
-export type Tier = "FREE" | "PRO" | "ELITE"
+export type { Tier, Feature } from "@/lib/tiers"
+export { hasAccess, FEATURE_MIN_TIER } from "@/lib/tiers"
 
 export interface UserTierInfo {
   tier: Tier
@@ -30,27 +34,59 @@ function getAdminUserIds(): Set<string> {
   return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))
 }
 
-// Returns the user's active tier. Falls back to "FREE" for missing/expired
-// subscriptions. Never throws — designed to be called in API routes without
-// try/catch at the call site.
-export async function getUserTier(userId: string | null | undefined): Promise<Tier> {
-  if (!userId) return "FREE"
-  if (getAdminUserIds().has(userId)) return "ELITE"
+export interface TierResolution {
+  tier: Tier
+  /**
+   * false ONLY when the tier could not be determined (DB error/timeout).
+   * A signed-out user, or a signed-in user with no subscription row, is a
+   * known FREE answer and resolves true. Callers that gate paid content MUST
+   * check this — treating an unresolved lookup as FREE silently downgrades
+   * paying subscribers, which is the failure this flag exists to prevent.
+   */
+  resolved: boolean
+}
+
+// Resolves the user's active tier, distinguishing "known FREE" from
+// "couldn't tell". Never throws.
+export async function resolveUserTier(userId: string | null | undefined): Promise<TierResolution> {
+  if (!userId) return { tier: "FREE", resolved: true }
+  if (getAdminUserIds().has(userId)) return { tier: "ELITE", resolved: true }
   try {
     const sub = await prisma.subscription.findUnique({
       where: { userId },
       select: { tier: true, status: true, currentPeriodEnd: true },
     })
-    if (!sub) return "FREE"
+    if (!sub) return { tier: "FREE", resolved: true }
     const isActive = sub.status === "active" || sub.status === "trialing"
     const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    if (!isActive || !notExpired) return "FREE"
-    const t = sub.tier.toUpperCase() as Tier
-    if (t === "ELITE" || t === "PRO") return t
-    return "FREE"
-  } catch {
-    return "FREE"
+    if (!isActive || !notExpired) return { tier: "FREE", resolved: true }
+    return { tier: normaliseTier(sub.tier), resolved: true }
+  } catch (err) {
+    console.error("[subscription] tier lookup failed", {
+      userId,
+      err: err instanceof Error ? err.message : err,
+    })
+    return { tier: "FREE", resolved: false }
   }
+}
+
+// resolveUserTier + one retry, for routes that serve tier-gated content and
+// would otherwise downgrade a paying user on a single transient DB blip.
+// Callers should refuse to serve gated data when this still returns
+// resolved: false.
+export async function resolveUserTierWithRetry(userId: string | null | undefined): Promise<TierResolution> {
+  const first = await resolveUserTier(userId)
+  if (first.resolved) return first
+  return resolveUserTier(userId)
+}
+
+// Returns the user's active tier. Falls back to "FREE" for missing/expired
+// subscriptions AND for failed lookups. Never throws.
+// Prefer resolveUserTier() anywhere the difference between "known FREE" and
+// "lookup failed" matters — i.e. any route that serves tier-gated content.
+export async function getUserTier(userId: string | null | undefined): Promise<Tier> {
+  const { tier } = await resolveUserTier(userId)
+  return tier
 }
 
 // Full subscription info for the account management page.
@@ -66,7 +102,7 @@ export async function getUserTierInfo(userId: string): Promise<UserTierInfo> {
 
     const isActive = sub.status === "active" || sub.status === "trialing"
     const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    const effectiveTier = isAdmin ? "ELITE" : (isActive && notExpired ? (sub.tier.toUpperCase() as Tier) : "FREE")
+    const effectiveTier: Tier = isAdmin ? "ELITE" : (isActive && notExpired ? normaliseTier(sub.tier) : "FREE")
 
     return {
       tier: effectiveTier,
@@ -81,40 +117,6 @@ export async function getUserTierInfo(userId: string): Promise<UserTierInfo> {
       ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
       : EMPTY_TIER_INFO
   }
-}
-
-// Feature access matrix — single source of truth for what each tier unlocks.
-export type Feature =
-  | "all_games"         // PRO+: see all games (not just the top-1 free teaser)
-  | "recommendation"    // PRO+: recommendation badge (STRONG_NRFI, etc.)
-  | "confidence"        // PRO+: confidence badge / score
-  | "value_analysis"    // PRO+: value analysis panel (edge, Kelly, EV)
-  | "factors"           // PRO+: key factors list
-  | "pitcher_stats"     // PRO+: pitcher deep-dive tab
-  | "model_breakdown"   // ELITE: 7-model breakdown panel
-  | "deepnrfi"          // ELITE: DeepNRFI LightGBM layer
-  | "montecarlo"        // ELITE: Monte Carlo simulations
-  | "ensemble_weights"  // ELITE: ensemble version breakdown
-  | "api_access"        // ELITE: raw API access
-
-const TIER_RANK: Record<Tier, number> = { FREE: 0, PRO: 1, ELITE: 2 }
-
-const FEATURE_MIN_TIER: Record<Feature, Tier> = {
-  all_games:        "PRO",
-  recommendation:   "PRO",
-  confidence:       "PRO",
-  value_analysis:   "PRO",
-  factors:          "PRO",
-  pitcher_stats:    "PRO",
-  model_breakdown:  "ELITE",
-  deepnrfi:         "ELITE",
-  montecarlo:       "ELITE",
-  ensemble_weights: "ELITE",
-  api_access:       "ELITE",
-}
-
-export function hasAccess(tier: Tier, feature: Feature): boolean {
-  return TIER_RANK[tier] >= TIER_RANK[FEATURE_MIN_TIER[feature]]
 }
 
 // Map a Stripe price ID to an internal tier name.

@@ -7,14 +7,39 @@ import { mockGames, mockPitchers, mockTeams } from "@/lib/mock-data"
 import type { Game, Pitcher, Team } from "@/lib/types"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { getPageTier } from "@/lib/require-tier"
+import { hasAccess } from "@/lib/tiers"
+import { TierGateNotice, TierUnresolvedNotice } from "@/components/tier-gate-notice"
 
 const getCachedSlate = cache((date: string) => getLiveGameSlate(date))
 
-export const revalidate = 300
+// Reads the session cookie to resolve the caller's tier, so this page cannot be
+// statically revalidated — the response differs per user.
+export const dynamic = "force-dynamic"
 
 function pct(n: number) { return `${(n * 100).toFixed(1)}%` }
 
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
+      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
+        <SectionLabel index="01">
+          Ensemble Deep Dive · Select a Game
+        </SectionLabel>
+        {children}
+      </main>
+    </div>
+  )
+}
+
 export default async function EnsembleListPage() {
+  // Listing every game with its prediction is the PRO "all_games" feature.
+  const { tier, resolved } = await getPageTier()
+  if (!resolved) return <Shell><TierUnresolvedNotice /></Shell>
+  if (!hasAccess(tier, "all_games")) {
+    return <Shell><TierGateNotice requiredTier="PRO" feature="The full slate" /></Shell>
+  }
+
   let games: Game[]                  = []
   let pitchers: Map<string, Pitcher> = new Map()
   let teams: Map<string, Team>       = new Map()
@@ -37,13 +62,8 @@ export default async function EnsembleListPage() {
   const gameMap     = new Map(games.map(g => [g.id, g]))
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--ds-bg)" }}>
-      <main className="mx-auto max-w-[1480px] px-7 py-7 space-y-6">
-        <SectionLabel index="01">
-          Ensemble Deep Dive · Select a Game
-        </SectionLabel>
-
-        {predictions.length === 0 ? (
+    <Shell>
+      {predictions.length === 0 ? (
           <div className="rounded-xl border border-ds-line bg-[var(--ds-panel)] p-12 text-center space-y-3">
             <p className="font-display text-[18px] font-semibold text-ds-ink">No Games Today</p>
             <p className="font-jet text-[12px] text-ds-muted">Check back later or view a past game from Today&apos;s Games.</p>
@@ -117,7 +137,6 @@ export default async function EnsembleListPage() {
             })}
           </div>
         )}
-      </main>
-    </div>
+    </Shell>
   )
 }

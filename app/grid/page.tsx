@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { GridView } from "@/components/grid-view"
+import type { Tier } from "@/lib/subscription"
 import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
 import { useSortableRows, type SortableItem } from "@/lib/utils/sorting"
 import { SlidersHorizontal, X, RefreshCw } from "lucide-react"
@@ -137,10 +138,14 @@ function FilterBar({
 export default function GridPage() {
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
   const [liveData, setLiveData] = useState<{
-    predictions: NRFIPrediction[]
+    // Predictions arrive tier-gated: locked entries carry only
+    // { gameId, _tierLocked } and must be filtered out before rendering.
+    predictions: (Partial<NRFIPrediction> & { gameId: string; _tierLocked?: boolean })[]
     games: Game[]
     pitchersById: Record<string, Pitcher>
     teamsById: Record<string, Team>
+    tier?: Tier
+    lockedCount?: number
   } | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -168,8 +173,17 @@ export default function GridPage() {
     liveData ? Object.entries(liveData.pitchersById) : []
   )
 
+  const userTier: Tier = liveData?.tier ?? "FREE"
+
+  // Drop tier-locked placeholders — they carry no data beyond gameId and would
+  // render as rows of undefined.
+  const visiblePredictions = useMemo(
+    () => (liveData?.predictions ?? []).filter((p) => !p._tierLocked) as NRFIPrediction[],
+    [liveData]
+  )
+
   const items = useSortableRows(
-    liveData?.predictions ?? [],
+    visiblePredictions,
     liveData?.games ?? [],
     teamMap,
     pitcherMap,
@@ -187,8 +201,8 @@ export default function GridPage() {
           </p>
         </div>
 
-        {/* Filters */}
-        <FilterBar filters={filters} onChange={setFilters} />
+        {/* Filters — only useful to PRO+ users, who see more than one game */}
+        {userTier !== "FREE" && <FilterBar filters={filters} onChange={setFilters} />}
 
         {/* Grid */}
         {loading ? (
@@ -199,11 +213,21 @@ export default function GridPage() {
             </div>
           </div>
         ) : (
-          <GridView
-            items={items}
-            sortBy={filters.sortBy}
-            onSortChange={(newSort) => setFilters({ ...filters, sortBy: newSort as FilterOptions["sortBy"] })}
-          />
+          <>
+            <GridView
+              items={items}
+              sortBy={filters.sortBy}
+              onSortChange={(newSort) => setFilters({ ...filters, sortBy: newSort as FilterOptions["sortBy"] })}
+            />
+            {userTier === "FREE" && (liveData?.lockedCount ?? 0) > 0 && (
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+                {liveData?.lockedCount} more game{liveData?.lockedCount === 1 ? "" : "s"} locked —{" "}
+                <a href="/pricing" className="underline underline-offset-2 text-primary">
+                  Upgrade to Pro
+                </a>
+              </p>
+            )}
+          </>
         )}
       </main>
     </div>

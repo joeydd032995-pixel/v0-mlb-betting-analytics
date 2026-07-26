@@ -16,7 +16,8 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import type { Tier } from "@/lib/subscription"
+import { hasAccess, type Tier } from "@/lib/tiers"
+import { PaywallOverlay } from "@/components/paywall-overlay"
 
 interface Props {
   game: Game
@@ -429,10 +430,11 @@ function LockedBadgeWrapper({
 // ─── Main card ────────────────────────────────────────────────────────────────
 export function GamePredictionCard({
   game, prediction, homeTeam, awayTeam, homePitcher, awayPitcher,
-  tier: _tier = "FREE", isFreeTease = false,
+  tier = "FREE", isFreeTease = false,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
   const router = useRouter()
+  const canSeeModels = hasAccess(tier, "model_breakdown")
   const isNrfiFavored = prediction.nrfiProbability >= 0.5
   const va = prediction.valueAnalysis
   const gaugeId = `gauge-${game.id}`
@@ -696,13 +698,24 @@ export function GamePredictionCard({
                     ))}
                   </ul>
 
-                  {prediction.modelBreakdown && (
-                    <ModelBreakdownPanel bd={prediction.modelBreakdown} awayAbbr={awayTeam.abbreviation} homeAbbr={homeTeam.abbreviation} />
-                  )}
+                  {/* ELITE panels. The server already strips these fields for
+                      lower tiers, so rendering on presence alone silently shows
+                      nothing; gate on tier explicitly and offer the upsell. */}
+                  {canSeeModels ? (
+                    <>
+                      {prediction.modelBreakdown && (
+                        <ModelBreakdownPanel bd={prediction.modelBreakdown} awayAbbr={awayTeam.abbreviation} homeAbbr={homeTeam.abbreviation} />
+                      )}
 
-                  <StackContributionBar ensembleVersion={prediction.ensembleVersion} ensembleWeights={prediction.ensembleWeights} />
-                  <DeepNrfiPanel deepNrfi={prediction.deepNrfi} />
-                  <MonteCarloHistogram mc={prediction.monteCarlo} />
+                      <StackContributionBar ensembleVersion={prediction.ensembleVersion} ensembleWeights={prediction.ensembleWeights} />
+                      <DeepNrfiPanel deepNrfi={prediction.deepNrfi} />
+                      <MonteCarloHistogram mc={prediction.monteCarlo} />
+                    </>
+                  ) : (
+                    <div className="relative min-h-[180px] rounded-[8px] overflow-hidden" style={{ border: "1px solid var(--hm-fence)" }}>
+                      <PaywallOverlay requiredTier="ELITE" />
+                    </div>
+                  )}
 
                   {va && (
                     <div className="rounded-[8px] p-3" style={{ background: "rgba(168,85,247,.05)", border: "1px solid rgba(168,85,247,.2)" }}>

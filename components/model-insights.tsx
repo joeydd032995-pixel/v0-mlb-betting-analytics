@@ -80,6 +80,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   const [syncTotal,    setSyncTotal]    = useState<number>(0)
   const [syncDone,     setSyncDone]     = useState<number>(0)
   const [syncError,    setSyncError]    = useState<string | null>(null)
+  const [exportError,  setExportError]  = useState<string | null>(null)
   const [dbStatus,     setDbStatus]     = useState<{ connected: boolean; error?: string; vars?: Record<string, boolean>; gameCount?: number } | null>(null)
   const [dbChecking,   setDbChecking]   = useState(false)
 
@@ -204,9 +205,15 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
   ] as const
 
   async function exportData(modelKey: (typeof EXPORT_MODELS)[number]["key"] = "all") {
+    setExportError(null)
     try {
       const suffix = modelKey === "all" ? "" : `?model=${modelKey}`
       const res  = await fetch(`/api/export-data${suffix}`)
+      // CSV export is an ELITE feature — say so rather than failing silently.
+      if (res.status === 403) {
+        setExportError("CSV export is an Elite feature. Upgrade on the pricing page to unlock it.")
+        return
+      }
       if (!res.ok) throw new Error(`Export failed with status ${res.status}`)
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
@@ -219,6 +226,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
       URL.revokeObjectURL(url)
     } catch (e) {
       console.error("[ModelInsights] export error:", e)
+      setExportError("Export failed. Please try again.")
     }
   }
 
@@ -944,6 +952,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 </DropdownMenu>
               )}
             </div>
+            {exportError && (
+              <p className="mt-2 text-xs text-amber-400">
+                {exportError}{" "}
+                <a href="/pricing" className="underline underline-offset-2">View plans</a>
+              </p>
+            )}
           </CardContent>
         </Card>
 

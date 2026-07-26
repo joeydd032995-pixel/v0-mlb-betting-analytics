@@ -45,7 +45,12 @@ export function GlobalSearch() {
         const data = await res.json()
 
         setGames(data.games || [])
-        setPredictions(data.predictions || [])
+        // Drop tier-locked placeholders — they carry only { gameId, _tierLocked }
+        // and would surface as empty search hits.
+        setPredictions(
+          ((data.predictions || []) as (NRFIPrediction & { _tierLocked?: boolean })[])
+            .filter((p) => !p._tierLocked)
+        )
         setPitchers(Object.values(data.pitchersById || []))
         setPitchersById(new Map(Object.entries(data.pitchersById || {})))
         setDataLoaded(true)
