@@ -17,6 +17,7 @@
 
 import { NextResponse, type NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireFeature } from "@/lib/require-tier"
 import { getLiveGameSlate } from "@/lib/api/live-data"
 import { simulateGameFirstInning } from "@/lib/monte-carlo"
 import { paProbsFromContext } from "@/lib/monte-carlo-bridge"
@@ -62,6 +63,10 @@ async function readPersisted(gameId: string): Promise<MonteCarloResult | null> {
 }
 
 export async function GET(request: NextRequest) {
+  // Monte Carlo output is an ELITE feature — this route had no auth at all.
+  const guard = await requireFeature("montecarlo")
+  if (!guard.ok) return guard.response
+
   const url = new URL(request.url)
   const gameId = url.searchParams.get("gameId")
   const nSimsRaw = Number.parseInt(url.searchParams.get("nSims") ?? "8000", 10)

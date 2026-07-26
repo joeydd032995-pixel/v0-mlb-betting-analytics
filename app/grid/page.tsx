@@ -1,8 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useAuth } from "@clerk/nextjs"
 import { GridView } from "@/components/grid-view"
-import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
+import {
+  fetchGatedPredictions,
+  TierUnresolvedError,
+  type PredictionsPayload,
+} from "@/lib/api/gated-predictions"
+import type { Tier } from "@/lib/tiers"
+import { isUnlockedPrediction, type FilterOptions, type NRFIPrediction } from "@/lib/types"
 import { useSortableRows, type SortableItem } from "@/lib/utils/sorting"
 import { SlidersHorizontal, X, RefreshCw } from "lucide-react"
 
@@ -136,30 +143,41 @@ function FilterBar({
 
 export default function GridPage() {
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters)
-  const [liveData, setLiveData] = useState<{
-    predictions: NRFIPrediction[]
-    games: Game[]
-    pitchersById: Record<string, Pitcher>
-    teamsById: Record<string, Team>
-  } | null>(null)
+  const [liveData, setLiveData] = useState<PredictionsPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [tierUnresolved, setTierUnresolved] = useState(false)
+  const { isLoaded: authLoaded, isSignedIn } = useAuth()
 
   useEffect(() => {
+    // Wait for Clerk: fetchGatedPredictions needs to know whether we're signed
+    // in to decide if a FREE verdict is worth double-checking against the
+    // subscription record (see lib/api/gated-predictions.ts).
+    if (!authLoaded) return
+
+    let cancelled = false
     const fetchData = async () => {
+      // Drop the previous session's slate before refetching. Otherwise, after a
+      // sign-out, rows authorized under the old session stay on screen until
+      // the replacement request lands — or indefinitely if it fails.
+      setTierUnresolved(false)
+      setLiveData(null)
+      setLoading(true)
       try {
-        const res = await fetch("/api/predictions")
-        if (!res.ok) throw new Error("Failed to fetch predictions")
-        const data = await res.json()
-        setLiveData(data)
+        const data = await fetchGatedPredictions({ isSignedIn: !!isSignedIn })
+        if (!cancelled) setLiveData(data)
       } catch (err) {
-        console.error("Failed to load predictions:", err)
+        if (cancelled) return
+        // Never fall through to the FREE view when the tier is simply unknown.
+        if (err instanceof TierUnresolvedError) setTierUnresolved(true)
+        else console.error("Failed to load predictions:", err)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchData()
-  }, [])
+    return () => { cancelled = true }
+  }, [authLoaded, isSignedIn])
 
   const teamMap = new Map(
     liveData ? Object.entries(liveData.teamsById) : []
@@ -168,8 +186,18 @@ export default function GridPage() {
     liveData ? Object.entries(liveData.pitchersById) : []
   )
 
+  const userTier: Tier = liveData?.tier ?? "FREE"
+
+  // Drop tier-locked placeholders — they carry no data beyond gameId and would
+  // render as rows of undefined. The remaining entries are still Partial (the
+  // FREE teaser has most fields stripped), which the row builder tolerates.
+  const visiblePredictions = useMemo(
+    () => (liveData?.predictions ?? []).filter(isUnlockedPrediction) as NRFIPrediction[],
+    [liveData]
+  )
+
   const items = useSortableRows(
-    liveData?.predictions ?? [],
+    visiblePredictions,
     liveData?.games ?? [],
     teamMap,
     pitcherMap,
@@ -187,8 +215,8 @@ export default function GridPage() {
           </p>
         </div>
 
-        {/* Filters */}
-        <FilterBar filters={filters} onChange={setFilters} />
+        {/* Filters — only useful to PRO+ users, who see more than one game */}
+        {userTier !== "FREE" && <FilterBar filters={filters} onChange={setFilters} />}
 
         {/* Grid */}
         {loading ? (
@@ -198,12 +226,29 @@ export default function GridPage() {
               <p className="text-sm text-muted-foreground">Loading games...</p>
             </div>
           </div>
+        ) : tierUnresolved ? (
+          <div className="rounded-lg border border-border/30 bg-card/50 p-8 text-center space-y-2">
+            <p className="text-sm font-semibold text-foreground">Couldn&apos;t verify your subscription</p>
+            <p className="text-xs text-muted-foreground">
+              Your access hasn&apos;t changed — this is usually temporary. Reload the page to try again.
+            </p>
+          </div>
         ) : (
-          <GridView
-            items={items}
-            sortBy={filters.sortBy}
-            onSortChange={(newSort) => setFilters({ ...filters, sortBy: newSort as FilterOptions["sortBy"] })}
-          />
+          <>
+            <GridView
+              items={items}
+              sortBy={filters.sortBy}
+              onSortChange={(newSort) => setFilters({ ...filters, sortBy: newSort as FilterOptions["sortBy"] })}
+            />
+            {userTier === "FREE" && (liveData?.lockedCount ?? 0) > 0 && (
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+                {liveData?.lockedCount} more game{liveData?.lockedCount === 1 ? "" : "s"} locked —{" "}
+                <a href="/pricing" className="underline underline-offset-2 text-primary">
+                  Upgrade to Pro
+                </a>
+              </p>
+            )}
+          </>
         )}
       </main>
     </div>

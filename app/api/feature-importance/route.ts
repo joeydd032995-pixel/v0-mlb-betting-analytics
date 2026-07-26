@@ -12,7 +12,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { requireFeature } from "@/lib/require-tier"
 import { promises as fs } from "node:fs"
 import path from "node:path"
 import { prisma } from "@/lib/prisma"
@@ -44,8 +44,10 @@ async function readGlobalImportance(): Promise<
 }
 
 export async function GET(request: NextRequest) {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // DeepNRFI feature importance / SHAP is ELITE-only; a signed-in check alone
+  // let any FREE account read it.
+  const guard = await requireFeature("deepnrfi")
+  if (!guard.ok) return guard.response
 
   const url = new URL(request.url)
   const gameId = url.searchParams.get("gameId")

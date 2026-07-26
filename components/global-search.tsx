@@ -6,6 +6,8 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@clerk/nextjs"
+import { fetchGatedPredictions } from "@/lib/api/gated-predictions"
 import {
   Dialog,
   DialogContent,
@@ -19,7 +21,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { searchGames, searchPitchers, type SearchResult } from "@/lib/search"
-import type { Game, Pitcher, NRFIPrediction } from "@/lib/types"
+import { isUnlockedPrediction, type Game, type Pitcher, type NRFIPrediction } from "@/lib/types"
 import { Loader2, Search } from "lucide-react"
 
 export function GlobalSearch() {
@@ -35,27 +37,45 @@ export function GlobalSearch() {
   const [pitchersById, setPitchersById] = useState<Map<string, Pitcher>>(new Map())
 
   const router = useRouter()
+  const { isLoaded: authLoaded, isSignedIn } = useAuth()
 
-  // Fetch live data once
+  // Fetch live data once. fetchGatedPredictions cross-checks a FREE verdict for
+  // signed-in users, so a stale cached payload can't quietly shrink a paying
+  // subscriber's search index to the single free teaser.
   useEffect(() => {
+    if (!authLoaded) return
+
+    let cancelled = false
     const fetchData = async () => {
+      // Drop the previous session's results before refetching, so a sign-out
+      // can't leave the old session's games searchable while the replacement
+      // request is in flight (or after it fails).
+      setDataLoaded(false)
+      setGames([])
+      setPredictions([])
+      setPitchers([])
+      setPitchersById(new Map())
       try {
-        const res = await fetch("/api/predictions")
-        if (!res.ok) return
-        const data = await res.json()
+        const data = await fetchGatedPredictions({ isSignedIn: !!isSignedIn })
+        if (cancelled) return
 
         setGames(data.games || [])
-        setPredictions(data.predictions || [])
+        // Drop tier-locked placeholders — they carry only { gameId, _tierLocked }
+        // and would surface as empty search hits.
+        setPredictions(
+          (data.predictions || []).filter(isUnlockedPrediction) as NRFIPrediction[]
+        )
         setPitchers(Object.values(data.pitchersById || []))
         setPitchersById(new Map(Object.entries(data.pitchersById || {})))
         setDataLoaded(true)
       } catch {
-        // Silently fail if data unavailable
+        // Silently fail if data unavailable — search just stays empty.
       }
     }
 
     fetchData()
-  }, [])
+    return () => { cancelled = true }
+  }, [authLoaded, isSignedIn])
 
   // Listen for Cmd+K or Ctrl+K
   useEffect(() => {

@@ -1,10 +1,14 @@
 // lib/subscription.ts
-// Central authority for subscription tier checks.
-// Server-only — never import directly in client components.
+// Central authority for subscription tier LOOKUPS (who is on which tier).
+// Server-only — never import directly in client components; the tier *rules*
+// (Tier, Feature, hasAccess) live in the client-safe lib/tiers.ts and are
+// re-exported here so existing server-side imports keep working.
 
 import { prisma } from "@/lib/prisma"
+import { normaliseTier, type Tier } from "@/lib/tiers"
 
-export type Tier = "FREE" | "PRO" | "ELITE"
+export type { Tier, Feature } from "@/lib/tiers"
+export { hasAccess, FEATURE_MIN_TIER } from "@/lib/tiers"
 
 export interface UserTierInfo {
   tier: Tier
@@ -13,9 +17,11 @@ export interface UserTierInfo {
   currentPeriodEnd: Date | null
   stripeCustomerId: string | null
   stripeSubscriptionId: string | null
+  /** See TierResolution.resolved — false means the lookup failed, not that the user is FREE. */
+  resolved: boolean
 }
 
-const EMPTY_TIER_INFO: UserTierInfo = {
+const EMPTY_TIER_INFO: Omit<UserTierInfo, "resolved"> = {
   tier: "FREE",
   isActive: false,
   cancelAtPeriodEnd: false,
@@ -30,91 +36,144 @@ function getAdminUserIds(): Set<string> {
   return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))
 }
 
-// Returns the user's active tier. Falls back to "FREE" for missing/expired
-// subscriptions. Never throws — designed to be called in API routes without
-// try/catch at the call site.
-export async function getUserTier(userId: string | null | undefined): Promise<Tier> {
-  if (!userId) return "FREE"
-  if (getAdminUserIds().has(userId)) return "ELITE"
+export interface TierResolution {
+  tier: Tier
+  /**
+   * false ONLY when the tier could not be determined (DB error/timeout).
+   * A signed-out user, or a signed-in user with no subscription row, is a
+   * known FREE answer and resolves true. Callers that gate paid content MUST
+   * check this — treating an unresolved lookup as FREE silently downgrades
+   * paying subscribers, which is the failure this flag exists to prevent.
+   */
+  resolved: boolean
+}
+
+// Upper bound on the tier lookup. It is a single indexed read on a unique key,
+// so anything slower than this is a stalled connection, not a slow query. Without
+// a bound a hung query holds the request open for the route's full maxDuration
+// (300s on /api/predictions); with it, the caller gets resolved: false quickly
+// and can surface a retry.
+const TIER_QUERY_TIMEOUT_MS = 3_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`tier lookup timed out after ${ms}ms`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * The one place that decides which tier a subscription row grants.
+ *
+ * Both resolveUserTier and getUserTierInfo route through this. Keeping it
+ * single is the point: this whole change exists because parallel tier logic
+ * drifted apart, and a future edit here (a grace period, a new status) must not
+ * be able to land on one path and miss the other.
+ */
+function effectiveTierFor(
+  sub: { tier: string; status: string; currentPeriodEnd: Date | null } | null,
+  isAdmin: boolean
+): Tier {
+  if (isAdmin) return "ELITE"
+  if (!sub) return "FREE"
+  const isActive = sub.status === "active" || sub.status === "trialing"
+  const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
+  return isActive && notExpired ? normaliseTier(sub.tier) : "FREE"
+}
+
+// Resolves the user's active tier, distinguishing "known FREE" from
+// "couldn't tell". Never throws.
+export async function resolveUserTier(userId: string | null | undefined): Promise<TierResolution> {
+  if (!userId) return { tier: "FREE", resolved: true }
+  if (getAdminUserIds().has(userId)) return { tier: "ELITE", resolved: true }
   try {
-    const sub = await prisma.subscription.findUnique({
-      where: { userId },
-      select: { tier: true, status: true, currentPeriodEnd: true },
+    const sub = await withTimeout(
+      prisma.subscription.findUnique({
+        where: { userId },
+        select: { tier: true, status: true, currentPeriodEnd: true },
+      }),
+      TIER_QUERY_TIMEOUT_MS
+    )
+    return { tier: effectiveTierFor(sub, false), resolved: true }
+  } catch (err) {
+    console.error("[subscription] tier lookup failed", {
+      userId,
+      err: err instanceof Error ? err.message : err,
     })
-    if (!sub) return "FREE"
-    const isActive = sub.status === "active" || sub.status === "trialing"
-    const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    if (!isActive || !notExpired) return "FREE"
-    const t = sub.tier.toUpperCase() as Tier
-    if (t === "ELITE" || t === "PRO") return t
-    return "FREE"
-  } catch {
-    return "FREE"
+    return { tier: "FREE", resolved: false }
   }
 }
 
-// Full subscription info for the account management page.
+// resolveUserTier + one retry, for routes that serve tier-gated content and
+// would otherwise downgrade a paying user on a single transient DB blip.
+// Callers should refuse to serve gated data when this still returns
+// resolved: false.
+export async function resolveUserTierWithRetry(userId: string | null | undefined): Promise<TierResolution> {
+  const first = await resolveUserTier(userId)
+  if (first.resolved) return first
+  // Jittered backoff: an immediate retry on every gated request would double
+  // the load on a database that is already struggling, and the jitter keeps
+  // concurrent requests from re-hitting it in lockstep.
+  await sleep(100 + Math.random() * 100)
+  return resolveUserTier(userId)
+}
+
+// Returns the user's active tier. Falls back to "FREE" for missing/expired
+// subscriptions AND for failed lookups. Never throws.
+// Prefer resolveUserTier() anywhere the difference between "known FREE" and
+// "lookup failed" matters — i.e. any route that serves tier-gated content.
+export async function getUserTier(userId: string | null | undefined): Promise<Tier> {
+  const { tier } = await resolveUserTier(userId)
+  return tier
+}
+
+const ADMIN_TIER_INFO: UserTierInfo = {
+  tier: "ELITE",
+  isActive: true,
+  cancelAtPeriodEnd: false,
+  currentPeriodEnd: null,
+  stripeCustomerId: null,
+  stripeSubscriptionId: null,
+  resolved: true,
+}
+
+// Full subscription info for the account page and /api/subscription/me.
+//
+// `resolved` matters as much here as it does in resolveUserTier: this function
+// backs the endpoint the home page uses to double-check a suspicious FREE
+// verdict. If a DB blip made it answer a confident "FREE", the cross-check
+// would confirm the very downgrade it exists to catch.
 export async function getUserTierInfo(userId: string): Promise<UserTierInfo> {
   const isAdmin = getAdminUserIds().has(userId)
   try {
-    const sub = await prisma.subscription.findUnique({ where: { userId } })
-    if (!sub) {
-      return isAdmin
-        ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
-        : EMPTY_TIER_INFO
-    }
+    const sub = await withTimeout(
+      prisma.subscription.findUnique({ where: { userId } }),
+      TIER_QUERY_TIMEOUT_MS
+    )
+    if (!sub) return isAdmin ? ADMIN_TIER_INFO : { ...EMPTY_TIER_INFO, resolved: true }
 
     const isActive = sub.status === "active" || sub.status === "trialing"
-    const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date()
-    const effectiveTier = isAdmin ? "ELITE" : (isActive && notExpired ? (sub.tier.toUpperCase() as Tier) : "FREE")
 
     return {
-      tier: effectiveTier,
+      tier: effectiveTierFor(sub, isAdmin),
       isActive: isAdmin ? true : isActive,
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       currentPeriodEnd: sub.currentPeriodEnd,
       stripeCustomerId: sub.stripeCustomerId ?? null,
       stripeSubscriptionId: sub.stripeSubscriptionId ?? null,
+      resolved: true,
     }
-  } catch {
-    return isAdmin
-      ? { tier: "ELITE", isActive: true, cancelAtPeriodEnd: false, currentPeriodEnd: null, stripeCustomerId: null, stripeSubscriptionId: null }
-      : EMPTY_TIER_INFO
+  } catch (err) {
+    console.error("[subscription] tier info lookup failed", {
+      userId,
+      err: err instanceof Error ? err.message : err,
+    })
+    // The admin override needs no DB read, so it is still a resolved answer.
+    return isAdmin ? ADMIN_TIER_INFO : { ...EMPTY_TIER_INFO, resolved: false }
   }
-}
-
-// Feature access matrix — single source of truth for what each tier unlocks.
-export type Feature =
-  | "all_games"         // PRO+: see all games (not just the top-1 free teaser)
-  | "recommendation"    // PRO+: recommendation badge (STRONG_NRFI, etc.)
-  | "confidence"        // PRO+: confidence badge / score
-  | "value_analysis"    // PRO+: value analysis panel (edge, Kelly, EV)
-  | "factors"           // PRO+: key factors list
-  | "pitcher_stats"     // PRO+: pitcher deep-dive tab
-  | "model_breakdown"   // ELITE: 7-model breakdown panel
-  | "deepnrfi"          // ELITE: DeepNRFI LightGBM layer
-  | "montecarlo"        // ELITE: Monte Carlo simulations
-  | "ensemble_weights"  // ELITE: ensemble version breakdown
-  | "api_access"        // ELITE: raw API access
-
-const TIER_RANK: Record<Tier, number> = { FREE: 0, PRO: 1, ELITE: 2 }
-
-const FEATURE_MIN_TIER: Record<Feature, Tier> = {
-  all_games:        "PRO",
-  recommendation:   "PRO",
-  confidence:       "PRO",
-  value_analysis:   "PRO",
-  factors:          "PRO",
-  pitcher_stats:    "PRO",
-  model_breakdown:  "ELITE",
-  deepnrfi:         "ELITE",
-  montecarlo:       "ELITE",
-  ensemble_weights: "ELITE",
-  api_access:       "ELITE",
-}
-
-export function hasAccess(tier: Tier, feature: Feature): boolean {
-  return TIER_RANK[tier] >= TIER_RANK[FEATURE_MIN_TIER[feature]]
 }
 
 // Map a Stripe price ID to an internal tier name.

@@ -20,7 +20,7 @@ import {
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
-import type { FilterOptions, NRFIPrediction, Game, Pitcher, Team } from "@/lib/types"
+import { isUnlockedPrediction, type FilterOptions, type NRFIPrediction, type Game, type Pitcher, type Team } from "@/lib/types"
 import type { Tier } from "@/lib/subscription"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
@@ -29,6 +29,11 @@ import { KpiCard } from "@/components/diamond/KpiCard"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 import { savePredictionsToDBAction } from "@/app/actions"
+import {
+  fetchGatedPredictions,
+  TierUnresolvedError,
+  type PredictionsPayload,
+} from "@/lib/api/gated-predictions"
 import { MLB_SEASON_START } from "@/lib/config"
 
 // Lazy-load onboarding modal to avoid SSR issues
@@ -268,18 +273,12 @@ export default function HomePage() {
   }, [])
 
   // ── Live data state ──────────────────────────────────────────────────────────
-  const [liveData, setLiveData] = useState<{
-    predictions: (Partial<NRFIPrediction> & { gameId: string; nrfiProbability: number; _tierLocked?: boolean })[]
-    games: Game[]
-    pitchersById: Record<string, Pitcher>
-    teamsById: Record<string, Team>
-    date: string
-    noGames?: boolean
-    tier?: Tier
-    lockedCount?: number
-  } | null>(null)
+  const [liveData, setLiveData] = useState<PredictionsPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Server couldn't determine our tier — distinct from a generic fetch failure,
+  // and must never fall through to the FREE paywall.
+  const [tierUnresolved, setTierUnresolved] = useState(false)
 
   // ── Prediction tracking store ────────────────────────────────────────────────
   const [trackedPredictions, setTrackedPredictions] = useState<TrackedPrediction[]>([])
@@ -364,53 +363,66 @@ export default function HomePage() {
     }
   }, [syncResults])
 
-  useEffect(() => {
-    fetch("/api/predictions")
-      .then(async (r) => {
-        const d = await r.json()
-        if (!r.ok) throw new Error(d?.error ?? `API returned ${r.status}`)
-        return d
-      })
-      .then((d) => {
-        setLiveData(d)
-        setLoading(false)
+  // Auto-save today's predictions to the tracking store.
+  // Use gameId lookup instead of index position so prediction → game mapping
+  // is correct even if order ever diverges.
+  // Only track predictions that are NOT tier-locked (free users only see 1 real prediction).
+  const ingestPredictions = useCallback((d: PredictionsPayload) => {
+    if (d.noGames || !d.games?.length || !d.predictions?.length) return
 
-        // Auto-save today's predictions to the tracking store.
-        // Use gameId lookup instead of index position so prediction → game mapping
-        // is correct even if order ever diverges.
-        // Only track predictions that are NOT tier-locked (free users only see 1 real prediction).
-        if (!d.noGames && d.games?.length > 0 && d.predictions?.length > 0) {
-          const fetchPitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
-          const fetchTeamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
-          const gameById        = new Map<string, Game>(
-            (d.games as Game[]).map((g) => [g.id, g])
-          )
-          // Only track predictions that have full data (not locked placeholders)
-          const fullPredictions = (d.predictions as (Partial<NRFIPrediction> & { gameId: string; _tierLocked?: boolean })[])
-            .filter((p) => !p._tierLocked && p.recommendation && p.confidence)
-          const incoming = fullPredictions.flatMap((pred) => {
-            const game = gameById.get(pred.gameId)
-            if (!game) return []
-            return [buildTrackedPrediction(pred as NRFIPrediction, game, fetchPitcherMap, fetchTeamMap, d.date)]
-          })
-          const updated = upsertPredictions(incoming)
-          setTrackedPredictions(updated)
-          setTrackingAccuracy(computeExtendedAccuracy(updated))
+    const fetchPitcherMap = new Map<string, Pitcher>(Object.entries(d.pitchersById ?? {}))
+    const fetchTeamMap    = new Map<string, Team>(Object.entries(d.teamsById ?? {}))
+    const gameById        = new Map<string, Game>(d.games.map((g) => [g.id, g]))
+    // Only track predictions that have full data (not locked placeholders)
+    const fullPredictions = d.predictions.filter(isUnlockedPrediction).filter((p) => p.recommendation && p.confidence)
+    const incoming = fullPredictions.flatMap((pred) => {
+      const game = gameById.get(pred.gameId)
+      if (!game) return []
+      return [buildTrackedPrediction(pred as NRFIPrediction, game, fetchPitcherMap, fetchTeamMap, d.date)]
+    })
+    const updated = upsertPredictions(incoming)
+    setTrackedPredictions(updated)
+    setTrackingAccuracy(computeExtendedAccuracy(updated))
 
-          // Write-through to DB using merged rows so already-settled predictions
-          // are not overwritten with fresh pending state from the live API.
-          if (isSignedInRef.current && incoming.length > 0) {
-            const incomingIds = new Set(incoming.map((p) => p.id))
-            const mergedIncoming = updated.filter((p) => incomingIds.has(p.id))
-            savePredictionsToDBAction(mergedIncoming).catch(console.error)
-          }
-        }
-      })
-      .catch((e: Error) => {
-        setError(e.message)
-        setLoading(false)
-      })
+    // Write-through to DB using merged rows so already-settled predictions
+    // are not overwritten with fresh pending state from the live API.
+    if (isSignedInRef.current && incoming.length > 0) {
+      const incomingIds = new Set(incoming.map((p) => p.id))
+      const mergedIncoming = updated.filter((p) => incomingIds.has(p.id))
+      savePredictionsToDBAction(mergedIncoming).catch(console.error)
+    }
   }, [])
+
+  // fetchGatedPredictions handles the stale-cache tier cross-check; see
+  // lib/api/gated-predictions.ts.
+  const loadPredictions = useCallback(async () => {
+    // Drop the previous session's slate up front so nothing authorized under an
+    // old session can linger if the replacement request is slow or fails.
+    setLoading(true)
+    setError(null)
+    setTierUnresolved(false)
+    setLiveData(null)
+    try {
+      const d = await fetchGatedPredictions({ isSignedIn: !!isSignedInRef.current })
+      setLiveData(d)
+      ingestPredictions(d)
+    } catch (e) {
+      // The server could not determine our subscription tier. Showing the FREE
+      // paywall here would silently downgrade a paying subscriber, so surface a
+      // retry instead of a generic error.
+      if (e instanceof TierUnresolvedError) setTierUnresolved(true)
+      else setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }, [ingestPredictions])
+
+  // Wait for Clerk before the first fetch — loadPredictions needs to know
+  // whether we're signed in to decide if a FREE verdict is worth double-checking.
+  useEffect(() => {
+    if (!authLoaded) return
+    loadPredictions()
+  }, [authLoaded, loadPredictions])
 
   const pitcherMap = useMemo(
     () => new Map(Object.entries(liveData?.pitchersById ?? {})),
@@ -502,7 +514,7 @@ export default function HomePage() {
     // Look up by gameId so prediction → game pairing is correct regardless of order.
     const gameById = new Map<string, Game>(todayGames.map((g) => [g.id, g]))
     // Only process predictions that have full data (not tier-locked ghost cards)
-    const visiblePreds = predictions.filter((p) => !p._tierLocked)
+    const visiblePreds = predictions.filter(isUnlockedPrediction)
     let items = visiblePreds.flatMap((pred) => {
       const game = gameById.get(pred.gameId)
       if (!game) return []
@@ -655,6 +667,25 @@ export default function HomePage() {
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="rounded-[14px] h-64 animate-pulse" style={{ background: "var(--hm-pitch)", border: "1px solid var(--hm-fence)" }} />
                 ))}
+              </div>
+            ) : tierUnresolved ? (
+              <div className="rounded-lg border border-border/40 bg-muted/10 py-12 text-center space-y-3 px-4">
+                <p className="text-sm font-semibold text-foreground">Couldn&apos;t verify your subscription</p>
+                <p className="text-xs text-muted-foreground">
+                  We couldn&apos;t confirm which plan you&apos;re on, so we haven&apos;t loaded today&apos;s slate.
+                  Your access hasn&apos;t changed — this is usually temporary.
+                </p>
+                <button
+                  onClick={() => loadPredictions()}
+                  className="mt-1 rounded-md px-4 py-1.5 text-xs font-semibold"
+                  style={{
+                    background: "linear-gradient(135deg, rgba(0,229,255,0.18), rgba(0,230,118,0.12))",
+                    border: "1px solid rgba(0,229,255,0.45)",
+                    color: "#00e5ff",
+                  }}
+                >
+                  Retry
+                </button>
               </div>
             ) : error ? (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 py-12 text-center space-y-2 px-4">
