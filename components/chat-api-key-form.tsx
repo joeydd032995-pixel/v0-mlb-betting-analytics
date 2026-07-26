@@ -46,7 +46,7 @@ export function ChatApiKeyForm({ apiKeyInfo }: Props) {
   }
 
   const updatedStr = apiKeyInfo
-    ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(apiKeyInfo.updatedAt)
+    ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "America/New_York" }).format(apiKeyInfo.updatedAt)
     : null
 
   return (

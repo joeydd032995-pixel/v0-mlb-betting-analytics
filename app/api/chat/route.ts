@@ -11,6 +11,7 @@ import { CONFIG } from "@/lib/config"
 import type Anthropic from "@anthropic-ai/sdk"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 const requestSchema = z.object({
   messages: z
@@ -50,7 +51,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
   }
 
-  const userKeyRow = await prisma.userApiKey.findUnique({ where: { userId } })
+  let userKeyRow: { encryptedKey: string } | null
+  try {
+    userKeyRow = await prisma.userApiKey.findUnique({ where: { userId }, select: { encryptedKey: true } })
+  } catch (err) {
+    console.error("[/api/chat] failed to look up stored API key", err)
+    return NextResponse.json({ error: "Chat request failed" }, { status: 500 })
+  }
+
   let userApiKey: string | null = null
   if (userKeyRow) {
     try {

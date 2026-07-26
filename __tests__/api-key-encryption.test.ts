@@ -1,8 +1,15 @@
-import { describe, expect, it, beforeAll } from "vitest"
+import { describe, expect, it, beforeAll, afterAll } from "vitest"
 import { encryptApiKey, decryptApiKey } from "@/lib/crypto/api-key-encryption"
+
+const originalEncryptionKey = process.env.ENCRYPTION_KEY
 
 beforeAll(() => {
   process.env.ENCRYPTION_KEY = "0".repeat(64)
+})
+
+afterAll(() => {
+  if (originalEncryptionKey === undefined) delete process.env.ENCRYPTION_KEY
+  else process.env.ENCRYPTION_KEY = originalEncryptionKey
 })
 
 describe("api-key-encryption", () => {

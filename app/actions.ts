@@ -480,10 +480,10 @@ export async function setChatApiKeyAction(
   if (!parsed.success) return { ok: false, error: "Enter a valid Anthropic API key" }
 
   const { apiKey } = parsed.data
-  const encryptedKey = encryptApiKey(apiKey)
   const lastFour = apiKey.slice(-4)
 
   try {
+    const encryptedKey = encryptApiKey(apiKey)
     await prisma.userApiKey.upsert({
       where: { userId },
       update: { encryptedKey, lastFour },
@@ -491,7 +491,7 @@ export async function setChatApiKeyAction(
     })
   } catch (err) {
     console.error("[setChatApiKeyAction]", err)
-    return { ok: false, error: "Failed to save API key" }
+    return { ok: false, error: "Unable to save the API key" }
   }
 
   revalidatePath("/account")
