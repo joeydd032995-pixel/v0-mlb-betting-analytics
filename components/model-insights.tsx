@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AlertCircle, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Database, Download, ChevronDown } from "lucide-react"
+import { MethodologyPanel } from "@/components/diamond/MethodologyPanel"
 import { cn } from "@/lib/utils"
 
 // ─── Performance API types ────────────────────────────────────────────────────
@@ -41,6 +42,12 @@ interface PerformanceData {
   totalPredictions: number
   totalCorrect: number
   accuracy: number
+  /** Settled predictions that came from a prior-season backtest replay. */
+  backtestedCount?: number
+  /** Those as a fraction of all settled predictions (0–1). */
+  backtestedShare?: number
+  /** Earliest and latest game date represented in the scored population. */
+  dateSpan?: { from: string; to: string } | null
   byConfidence: { High: ConfGroup | null; Medium: ConfGroup | null; Low: ConfGroup | null }
   perModel: Record<string, ModelStat> | null
   monthly: MonthRow[]
@@ -65,11 +72,39 @@ function NrfiYrfiBar({ nrfi, color }: { nrfi: number; color: string }) {
   )
 }
 
-interface ModelInsightsProps {
-  userId: string | null
+/**
+ * Live engine constants, read from the model modules by the Server Component
+ * and passed down as plain data. Everything the "How It Works" tab states
+ * about the engine must come from here rather than being written out by hand.
+ */
+export interface EngineFacts {
+  ensembleBlend: number
+  leagueAnchor: number
+  clampMin: number
+  clampMax: number
+  callThreshold: number
+  confidenceHigh: number
+  confidenceMedium: number
+  weights: {
+    poisson: number
+    zip: number
+    markov: number
+    mapre: number
+    logisticMeta: number
+    nnInteraction: number
+    hierarchicalBayes: number
+  }
+  calibrationIsIdentity: boolean
+  calibrationKnotCount: number
+  calibrationDomain: [number, number]
 }
 
-export function ModelInsights({ userId }: ModelInsightsProps) {
+interface ModelInsightsProps {
+  userId: string | null
+  engineFacts: EngineFacts
+}
+
+export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
   const [selectedFactor, setSelectedFactor] = useState<string>("pitcher")
 
   // ── Performance tab state ──────────────────────────────────────────────
@@ -291,28 +326,53 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
           <CardContent className="space-y-4">
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Final NRFI %</p>
-              <p className="font-mono text-sm text-emerald-400">P(NRFI) = clamp(0.76 × ensembleNrfi + 0.24 × 0.614, 0.02, 0.98)</p>
-              <p className="text-xs text-muted-foreground">76% inner model ensemble + 24% league anchor (61.4%). The anchor prevents extreme outputs in low-data situations. Output clamped to [2%, 98%].</p>
+              <p className="font-mono text-sm text-emerald-400">
+                P(NRFI) = clamp({engineFacts.ensembleBlend.toFixed(2)} × calibrated + {(1 - engineFacts.ensembleBlend).toFixed(2)} × {engineFacts.leagueAnchor.toFixed(3)}, {engineFacts.clampMin.toFixed(2)}, {engineFacts.clampMax.toFixed(2)})
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {pct(engineFacts.ensembleBlend)} inner model ensemble + {pct(1 - engineFacts.ensembleBlend)} league
+                anchor ({pct(engineFacts.leagueAnchor)}). The anchor prevents extreme outputs in low-data
+                situations. Output clamped to [{pct(engineFacts.clampMin)}, {pct(engineFacts.clampMax)}], and the
+                engine calls NRFI at ≥ {pct(engineFacts.callThreshold)}.
+              </p>
             </div>
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Monotonic P-Spline Calibration</p>
-              <p className="font-mono text-sm text-emerald-400">calibrated = interp(raw, KNOTS)   // 19 knots · [0.05 → 0.95]</p>
-              <p className="text-xs text-muted-foreground">Fitted to 2024–2025 backtest data. Maps raw ensemble probability to calibrated probability via piecewise-linear interpolation, correcting over/under-confidence across the full range.</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Monotonic Spline Calibration</p>
+              <p className="font-mono text-sm text-emerald-400">
+                calibrated = interp(raw, KNOTS)   // {engineFacts.calibrationKnotCount} knots · [{engineFacts.calibrationDomain[0]} → {engineFacts.calibrationDomain[1]}]
+              </p>
+              {engineFacts.calibrationIsIdentity ? (
+                <p className="text-xs text-amber-400/90">
+                  Currently the identity mapping — this stage is a no-op. The previous knot table was fitted
+                  to a pre-audit engine whose scale bias has since been corrected, so keeping it would have
+                  introduced a bias of its own. Awaiting a refit from a walk-forward backtest of the current
+                  engine on a held-out season.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Maps raw ensemble probability to calibrated probability via piecewise-linear interpolation,
+                  correcting over/under-confidence across the full range.
+                </p>
+              )}
             </div>
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Full Game</p>
               <p className="font-mono text-sm text-emerald-400">P(NRFI_game) = P(away scores 0 in top 1st) × P(home scores 0 in bot 1st)</p>
-              <p className="text-xs text-muted-foreground">Base models: each half-inning computed independently, probabilities multiplied. NN Interaction: half-inning values averaged (game-level signal). Final output clamped to [2%, 98%].</p>
+              <p className="text-xs text-muted-foreground">
+                Base models: each half-inning computed independently, probabilities multiplied.
+                NN Interaction: half-inning values averaged (game-level signal). Final output
+                clamped to [{pct(engineFacts.clampMin)}, {pct(engineFacts.clampMax)}].
+              </p>
             </div>
             {/* Base models */}
             <div>
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Base Models</p>
               <div className="grid grid-cols-4 gap-2 text-center text-xs">
                 {[
-                  { label: "Poisson", weight: "10.9%", color: "sky" },
-                  { label: "ZIP",     weight: "27.3%", color: "violet" },
-                  { label: "Markov",  weight: "43.6%", color: "amber" },
-                  { label: "MAPRE",   weight: "9.1%",  color: "rose" },
+                  { label: "Poisson", weight: pct(engineFacts.weights.poisson), color: "sky" },
+                  { label: "ZIP",     weight: pct(engineFacts.weights.zip),     color: "violet" },
+                  { label: "Markov",  weight: pct(engineFacts.weights.markov),  color: "amber" },
+                  { label: "MAPRE",   weight: pct(engineFacts.weights.mapre),   color: "rose" },
                 ].map((m) => (
                   <div key={m.label} className={cn(
                     "rounded-lg border p-3",
@@ -334,12 +394,14 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             </div>
             {/* Meta-models */}
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Meta-Models (stacked on base layer)</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                Meta-Models (computed and stored, but currently carry no blend weight)
+              </p>
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 {[
-                  { label: "Logistic Stack",   weight: "4.5%", color: "fuchsia" },
-                  { label: "NN Interaction",   weight: "2.7%", color: "cyan"    },
-                  { label: "Hier. Bayes",      weight: "1.8%", color: "orange"  },
+                  { label: "Logistic Stack", weight: pct(engineFacts.weights.logisticMeta),      color: "fuchsia" },
+                  { label: "NN Interaction", weight: pct(engineFacts.weights.nnInteraction),     color: "cyan"    },
+                  { label: "Hier. Bayes",    weight: pct(engineFacts.weights.hierarchicalBayes), color: "orange"  },
                 ].map((m) => (
                   <div key={m.label} className={cn(
                     "rounded-lg border p-3",
@@ -363,7 +425,7 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
         {/* Scenario note */}
         <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
           <span className="font-semibold text-foreground">Sample scenario used below: </span>
-          Two solid starters (home pitcher 72% NRFI rate, away pitcher 68%), pitcher-friendly park (0.95), slightly below-avg offense (0.95), 68°F, neutral weather. League avg NRFI = 51.6%. Each model&apos;s NRFI % and YRFI % is shown for this scenario.
+          Two solid starters (home pitcher 72% NRFI rate, away pitcher 68%), pitcher-friendly park (0.95), slightly below-avg offense (0.95), 68°F, neutral weather. League avg NRFI = {pct(engineFacts.leagueAnchor)}. Every percentage in the model cards below is this illustrative walkthrough, not live output.
         </div>
 
         {/* Pre-processing: Bayesian Shrinkage */}
@@ -755,19 +817,20 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 <p>      + sampleBonus                        <span className="text-foreground">(+12 if ≥18 starts, −14 if &lt;3)</span></p>
                 <p>      − formVariance × 15                  <span className="text-foreground">(high variance in last 5 = penalty)</span></p>
                 <p>      + (modelConsensus − 0.5) × 16        <span className="text-foreground">(all models agree = bonus)</span></p>
+                <p>      ± monteCarloVariance                 <span className="text-foreground">(−8 if var &gt;1.8, −4 if &gt;1.4, +3 if &lt;0.6)</span></p>
                 <p>clamped to [10, 98]</p>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs text-center">
                 <div className="rounded border border-emerald-500/30 bg-emerald-500/5 p-2">
-                  <p className="font-semibold text-emerald-400">≥68</p>
+                  <p className="font-semibold text-emerald-400">≥{engineFacts.confidenceHigh}</p>
                   <p className="text-muted-foreground">High</p>
                 </div>
                 <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2">
-                  <p className="font-semibold text-amber-400">45–67</p>
+                  <p className="font-semibold text-amber-400">{engineFacts.confidenceMedium}–{engineFacts.confidenceHigh - 1}</p>
                   <p className="text-muted-foreground">Medium</p>
                 </div>
                 <div className="rounded border border-rose-500/30 bg-rose-500/5 p-2">
-                  <p className="font-semibold text-rose-400">&lt;45</p>
+                  <p className="font-semibold text-rose-400">&lt;{engineFacts.confidenceMedium}</p>
                   <p className="text-muted-foreground">Low</p>
                 </div>
               </div>
@@ -804,9 +867,12 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             {perfData?.syncStatus && (
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                 <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalGames.toLocaleString()}</span> games in DB</span>
-                <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalPredictions.toLocaleString()}</span> predictions</span>
+                {/* Stored vs settled are different populations: the stat cards
+                    below score only settled rows, so the two counts differ. */}
+                <span><span className="font-semibold text-foreground">{perfData.syncStatus.totalPredictions.toLocaleString()}</span> predictions stored</span>
+                <span><span className="font-semibold text-foreground">{perfData.totalPredictions.toLocaleString()}</span> settled &amp; scored below</span>
                 {perfData.syncStatus.latestDate && (
-                  <span>through <span className="font-semibold text-foreground">{perfData.syncStatus.latestDate}</span></span>
+                  <span>results through <span className="font-semibold text-foreground">{perfData.syncStatus.latestDate}</span></span>
                 )}
               </div>
             )}
@@ -973,6 +1039,42 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
         {/* ── Stat cards ───────────────────────────────────────────────── */}
         {perfData?.hasData && (
           <>
+            <MethodologyPanel
+              summary={`All time · ${perfData.totalPredictions.toLocaleString()} settled predictions`}
+              rows={[
+                {
+                  label: "Source",
+                  value: "The shared prediction database — every settled prediction the system has stored, across all accounts. Not scoped to you, and not affected by anything saved in this browser.",
+                },
+                {
+                  label: "Period",
+                  value: perfData.dateSpan
+                    ? `All time — ${perfData.dateSpan.from} to ${perfData.dateSpan.to}. There is no date filter on this tab; the range reflects whichever seasons have been synced.`
+                    : "All time. There is no date filter on this tab; the range reflects whichever seasons have been synced.",
+                },
+                {
+                  label: "Model Accuracy",
+                  value: `${perfData.totalCorrect.toLocaleString()} correct ÷ ${perfData.totalPredictions.toLocaleString()} settled. Predictions still awaiting a result are excluded.`,
+                },
+                {
+                  label: "NRFI / YRFI Rate",
+                  value: "Measured over the same settled-prediction population as Model Accuracy, so all three cards share a denominator. The monthly table below instead uses every synced game.",
+                },
+                {
+                  label: "Backtested",
+                  value: perfData.backtestedShare != null
+                    ? `${(perfData.backtestedCount ?? 0).toLocaleString()} of ${perfData.totalPredictions.toLocaleString()} settled predictions (${pct(perfData.backtestedShare)}) replay a past season.`
+                    : "Not reported.",
+                },
+              ]}
+              caveats={[
+                "These totals will not match the Accuracy or History pages. Those are capped at the 2,000 most recent rows and merge in this browser's local storage; this tab reads the full database.",
+                "Backtested rows use point-in-time pitcher and team stats but synthetic month-average weather and no odds, so they measure something weaker than live prediction skill.",
+                "No profit/loss is reported here: backfilled predictions carry no odds snapshot, so a return figure over this population would be meaningless.",
+              ]}
+              className="mb-4"
+            />
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card>
                 <CardHeader>
@@ -1023,13 +1125,26 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                   {perfData.totalPredictions > 0 ? (
                     <>
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">All predictions</p>
+                        <p className="text-xs text-muted-foreground mb-1">All settled predictions</p>
                         <p className="text-3xl font-bold text-sky-400">{pct(perfData.accuracy)}</p>
                         <p className="text-xs text-muted-foreground mt-1">{perfData.totalCorrect.toLocaleString()} of {perfData.totalPredictions.toLocaleString()} predicted games correct</p>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
                         <div className="h-full bg-sky-500" style={{ width: pct(perfData.accuracy) }} />
                       </div>
+                      {/* The monthly table asterisks backtested months, but this
+                          is the number readers actually act on. */}
+                      {perfData.backtestedShare != null && perfData.backtestedShare > 0 && (
+                        <p className={cn(
+                          "text-[10px] leading-relaxed",
+                          perfData.backtestedShare > 0.5 ? "text-amber-400/90" : "text-muted-foreground"
+                        )}>
+                          {pct(perfData.backtestedShare)} of this sample is backtested
+                          ({(perfData.backtestedCount ?? 0).toLocaleString()} rows). Backtested rows use
+                          neutral weather and no odds, which pulls accuracy toward the actual NRFI rate
+                          rather than reflecting live prediction skill.
+                        </p>
+                      )}
                     </>
                   ) : (
                     <p className="text-xs text-muted-foreground">Sync data to see model accuracy.</p>
@@ -1068,7 +1183,11 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <Card>
                 <CardHeader>
                   <CardTitle>Accuracy by Confidence Level</CardTitle>
-                  <CardDescription>Higher-confidence predictions are more accurate</CardDescription>
+                  {/* Previously asserted that higher confidence is more accurate
+                      regardless of what the bars below actually showed. */}
+                  <CardDescription>
+                    Measured accuracy within each stored confidence tier (High ≥62, Medium 45–61, Low &lt;45)
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {(["High", "Medium", "Low"] as const).map((level) => {
@@ -1124,12 +1243,13 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                     </thead>
                     <tbody className="divide-y divide-border/20">
                       {/* Base models */}
-                      {(["Poisson", "ZIP", "Markov", "Ensemble"] as const).map((name) => {
+                      {(["Poisson", "ZIP", "Markov", "MAPRE", "Ensemble"] as const).map((name) => {
                         const m = perfData?.perModel?.[name]
                         const colorMap: Record<string, string> = {
                           Poisson:  "text-sky-400",
                           ZIP:      "text-violet-400",
                           Markov:   "text-amber-400",
+                          MAPRE:    "text-rose-400",
                           Ensemble: "text-emerald-400",
                         }
                         return (
@@ -1171,7 +1291,11 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                 </div>
                 <p className="mt-2 text-[10px] text-muted-foreground">
                   MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
-                  Meta-model values populate automatically once sufficient tracking data is synced.
+                  Each row is scored only over predictions where that model actually produced a value,
+                  so the Correct column shows different sample sizes — meta-models ran on fewer games than
+                  the base four. &ldquo;Ensemble&rdquo; is the final post-blend probability that drives the
+                  headline Model Accuracy above, not an independent model, so the two agree by construction.
+                  Rows are scored at a 0.5 threshold, while the engine issues its call at 0.52.
                 </p>
               </CardContent>
             </Card>
@@ -1181,7 +1305,11 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               <Card>
                 <CardHeader>
                   <CardTitle>Monthly Breakdown</CardTitle>
-                  <CardDescription>Actual NRFI rate and model accuracy per month (2024–present)</CardDescription>
+                  <CardDescription>
+                    Actual NRFI rate and model accuracy for every month present in the database
+                    {perfData.dateSpan ? ` (${perfData.dateSpan.from} to ${perfData.dateSpan.to})` : ""}
+                    {" "}— sync more seasons above to extend this range
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-lg border border-border/30 overflow-hidden">
@@ -1227,6 +1355,13 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
                       </tbody>
                     </table>
                   </div>
+                  <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
+                    &ldquo;Games&rdquo; counts every synced game that month and drives the NRFI/YRFI rates;
+                    &ldquo;Predictions&rdquo; counts only the settled predictions the model made and drives
+                    Model Acc. The two columns therefore use different denominators, and these NRFI rates
+                    will not match the Historical NRFI Rate card above, which is measured over predicted
+                    games only.
+                  </p>
                   {perfData.monthly.some((r) => (r.backtestedFraction ?? 0) > 0.5) && (
                     <p className="mt-2 text-[10px] text-amber-400/80">
                       * Backtested months use neutral weather inputs — model accuracy may mirror the actual NRFI rate rather than reflecting genuine prediction skill.
@@ -1254,6 +1389,13 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
             <CardDescription>How each input influences NRFI/YRFI predictions</CardDescription>
           </CardHeader>
           <CardContent>
+            {/* These impact percentages are hand-authored teaching values, not a
+                measured attribution — say so, as the Feature Importance chart does. */}
+            <p className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-400/90">
+              Illustrative ranking. The percentages below convey the relative importance the
+              engine is designed around — they are not measured attributions from backtested
+              predictions, and they do not correspond to the ensemble blend weights.
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 {factors.map((factor) => (
@@ -1336,15 +1478,26 @@ export function ModelInsights({ userId }: ModelInsightsProps) {
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-400">•</span>
-                <span>Recent form (last 5 games) counts for 30% of pitcher's effective rate</span>
+                <span>
+                  Recent form (last 5 starts) scales the pitcher&apos;s expected runs by up to
+                  ±15% — it is a bounded multiplier, not a 30% share of the rate
+                </span>
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-400">•</span>
-                <span>Model is recalibrated monthly using latest league-wide NRFI/YRFI data</span>
+                <span>
+                  {engineFacts.calibrationIsIdentity
+                    ? "The calibration spline is currently an identity map and is not on an automatic schedule — it is refit manually from a walk-forward backtest on a held-out season"
+                    : "The calibration spline is refit from a walk-forward backtest on a held-out season, not on a fixed schedule"}
+                </span>
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-400">•</span>
-                <span>Weather adjustments are applied only 2 hours before game time</span>
+                <span>
+                  Live predictions use the most recent stadium forecast available when the slate
+                  is built; backfilled predictions substitute month-average temperatures with no
+                  wind, so their weather term carries far less signal
+                </span>
               </li>
             </ul>
           </CardContent>

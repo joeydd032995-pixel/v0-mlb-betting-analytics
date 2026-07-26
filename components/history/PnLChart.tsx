@@ -20,7 +20,10 @@ export function PnLChart({ predictions }: Props) {
     return (
       <Panel title="Cumulative P/L" chip="Flat stake">
         <div className="py-8 text-center">
-          <p className="font-jet text-[11px] text-ds-muted">No settled bets yet. Results will appear here after recording game outcomes.</p>
+          <p className="font-jet text-[11px] text-ds-muted">
+            No priced bets in this window. P/L needs a settled prediction that stored an odds
+            snapshot — backfilled predictions carry no odds, so they never appear here.
+          </p>
         </div>
       </Panel>
     )
@@ -57,7 +60,7 @@ export function PnLChart({ predictions }: Props) {
   }
 
   return (
-    <Panel title="Cumulative P/L" chip={`${completed.length} settled bets`}>
+    <Panel title="Cumulative P/L" chip={`${completed.length} priced bets`}>
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Net P/L</div>
@@ -119,7 +122,9 @@ export function PnLChart({ predictions }: Props) {
         </ResponsiveContainer>
       </div>
       <p className="font-jet text-[9px] text-ds-dim mt-2">
-        Flat 1-unit stake on every high-confidence recommended bet. Does not account for vig.
+        Flat 1-unit stake on every settled prediction that carried an odds snapshot — all
+        confidence tiers, not just high-confidence. Settled predictions without stored odds
+        are excluded entirely. Priced at the recorded line; does not account for vig.
       </p>
     </Panel>
   )

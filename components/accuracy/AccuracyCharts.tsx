@@ -35,14 +35,17 @@ export function AccuracyCharts({ accuracy }: Props) {
   // Real reliability diagram: predicted-probability bin vs observed NRFI rate,
   // computed prediction-by-prediction in computeExtendedAccuracy. Bins with
   // fewer than 5 settled predictions are dropped (too noisy to plot).
+  // `predictedBin` is the bin's LOWER EDGE (bins are floor-based deciles), so
+  // the perfect-calibration reference is the bin midpoint. Using the edge would
+  // put the diagonal a systematic 5 points below where it belongs.
   const perfectCal = useMemo(() =>
     accuracy.calibrationData
       .filter(d => d.count >= 5)
       .map(d => ({
-        bucket:    `${(d.predictedBin * 100).toFixed(0)}%`,
-        predicted: d.predictedBin,
+        bucket:    `${(d.predictedBin * 100).toFixed(0)}–${((d.predictedBin + 0.1) * 100).toFixed(0)}%`,
+        predicted: d.predictedBin + 0.05,
         actual:    d.actualRate,
-        perfect:   d.predictedBin,
+        perfect:   d.predictedBin + 0.05,
         count:     d.count,
       })),
     [accuracy.calibrationData])
@@ -182,7 +185,9 @@ export function AccuracyCharts({ accuracy }: Props) {
         </div>
         )}
         <p className="font-jet text-[9px] text-ds-dim mt-2">
-          Observed first-inning NRFI rate per predicted-probability bin (≥ 5 settled predictions each). A well-calibrated model tracks the dashed diagonal.
+          Observed first-inning NRFI rate per predicted-probability decile (≥ 5 settled predictions each).
+          A well-calibrated model tracks the dashed diagonal. Engine output is clamped to 18–85%,
+          so bins outside that range can never populate — the curve is truncated by design, not by sample size.
         </p>
       </Panel>
     </div>

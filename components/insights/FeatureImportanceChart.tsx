@@ -50,7 +50,16 @@ function CustomTooltip({ active, payload }: TooltipPayload) {
   )
 }
 
-export function FeatureImportanceChart() {
+interface FeatureImportanceChartProps {
+  /**
+   * The engine's league anchor, passed in from the Server Component so the
+   * caption cannot drift from the constant it describes. The hard-coded 61.4%
+   * it replaced appeared nowhere in the engine.
+   */
+  leagueAnchor: number
+}
+
+export function FeatureImportanceChart({ leagueAnchor }: FeatureImportanceChartProps) {
   const chartData = FEATURES.map(f => ({
     ...f,
     value: f.importance * f.direction,
@@ -60,7 +69,8 @@ export function FeatureImportanceChart() {
   return (
     <Panel title="Feature Importance" chip="SHAP-style attribution">
       <p className="font-jet text-[10px] text-ds-muted mb-3">
-        Illustrative SHAP-style attribution — shows each feature&apos;s estimated influence on (predicted NRFI − 61.4% baseline).
+        Illustrative SHAP-style attribution — shows each feature&apos;s estimated influence on
+        (predicted NRFI − {(leagueAnchor * 100).toFixed(1)}% baseline).
         Positive (green) = increases NRFI probability. Negative (red) = decreases NRFI probability.
       </p>
       <div style={{ height: 300 }}>
