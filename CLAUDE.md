@@ -60,6 +60,7 @@ Key tables in `prisma/schema.prisma`:
 - `Bankroll` + `BankrollTransaction` — running ledger
 - `GameResult` — global ground truth (first-inning runs per game, synced by `app/api/historical-sync/route.ts`)
 - `ModelPrediction` — system-wide prediction records with actual results; `backtested=true` for prior seasons
+- `FreePick` — one row per ET date, the pinned FREE-tier daily pick; written by `lib/server/free-pick.ts` on the first non-empty `/api/predictions` slate for that date, insert-only so later requests can't move it
 - `EnsembleDiagnostic` — written only when `ENABLE_DIAGNOSTICS=true`
 - `BacktestRun` — walk-forward validation results
 - `UserApiKey` — per-user Anthropic API key for the chat assistant, encrypted at rest (see "AI Chat Assistant" above)
@@ -110,7 +111,7 @@ MLB Stats API is always available and free; all other external data falls back t
 - `GET /api/backfill?from=YYYY-MM-DD&to=YYYY-MM-DD` — localStorage backfill (max 30 days): returns `TrackedPrediction[]` JSON for the client-side accuracy dashboard; does **not** write to DB
 - `GET /api/games` — game list
 - `GET /api/performance` — model accuracy stats
-- `GET /api/free-pick-accuracy` — **public** (no auth): track record of the FREE tier's one daily pick, for the home-page KPI card. The pick is never stored, so it is reconstructed per date as the highest-`confidenceScore` `ModelPrediction` row via `selectFreePick()` (`lib/tier-gating.ts`) — use that helper, never a private copy of the rule, or the card reports a pick nobody was shown. Live rows only (`backtested: false`); publicly cacheable since the body is identical for every caller
+- `GET /api/free-pick-accuracy` — **public** (no auth): track record of the FREE tier's one daily pick, for the home-page KPI card. Hybrid reconstruction: a pinned `FreePick` row (written by `/api/predictions` via `lib/server/free-pick.ts` on the first non-empty slate of the day) is graded from its exact game; any date with no pin (everything before `FreePick` existed) falls back to replaying the highest-`confidenceScore` `ModelPrediction` row via `selectFreePick()` (`lib/tier-gating.ts`) — use that helper, never a private copy of the rule. Live rows only (`backtested: false`); publicly cacheable since the body is identical for every caller
 - `POST /api/bets`, `GET /api/bets`, `PATCH /api/bets/[id]` — bet tracker
 - `GET/POST /api/watchlist`, `DELETE /api/watchlist/[gameId]` — watchlist
 - `GET/POST /api/bankroll` — bankroll management

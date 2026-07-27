@@ -6,14 +6,19 @@
  * audience the free pick exists to persuade, so they are exactly who needs to
  * see how it has performed.
  *
- * The pick itself is never stored — applyTierGating derives it per request as
- * the highest-confidenceScore game of the slate — so this replays that rule
- * over ModelPrediction rows via computeFreePickAccuracy.
+ * Hybrid reconstruction: /api/predictions pins the pick going forward (one
+ * FreePick row per ET date, written on the first non-empty slate for that
+ * date — see lib/server/free-pick.ts). A date with a pinned row is graded
+ * from that exact game's ModelPrediction row. A date with no pinned row
+ * (every date before FreePick existed, or one where every pin attempt hit a
+ * DB error) falls back to the legacy reconstruction: replaying selectFreePick
+ * as an argmax over that date's stored ModelPrediction rows. Both
+ * contributions are merged by computeFreePickAccuracy.
  *
  * Returns: { total, correct, accuracy, dateSpan: { from, to } | null }
  *
- * Two caveats on the reconstruction, both inherent to there being no stored
- * free pick:
+ * The legacy fallback keeps its original caveats, both inherent to there
+ * being no pin for that date:
  *
  *  1. It is only exact for dates where the DB holds the FULL slate. Rows arrive
  *     via savePredictionsToDBAction (a signed-in user's visible slate — only
@@ -27,7 +32,7 @@
 
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { computeFreePickAccuracy } from "@/lib/free-pick-accuracy"
+import { computeFreePickAccuracy, type FreePickRow, type PinnedPickRow } from "@/lib/free-pick-accuracy"
 
 export const dynamic = "force-dynamic"
 
@@ -44,13 +49,30 @@ export async function GET() {
   try {
     // Live rows only: backtested backfills are scored from current-season stats
     // with synthetic weather and no odds, which pulls accuracy toward the base
-    // rate and would misrepresent picks actually shown on the site.
-    const rows = await prisma.modelPrediction.findMany({
-      where: { backtested: false },
-      select: { date: true, confidenceScore: true, status: true, correct: true },
+    // rate and would misrepresent picks actually shown on the site. Reused for
+    // both the pinned-row settlement lookup and the legacy fallback below, so a
+    // pinned game whose only row happens to be backtested is correctly treated
+    // as "not yet settled" rather than graded off a backtest-quality row.
+    const [pins, allRows] = await Promise.all([
+      prisma.freePick.findMany({ select: { date: true, gameId: true } }),
+      prisma.modelPrediction.findMany({
+        where: { backtested: false },
+        select: { id: true, date: true, confidenceScore: true, status: true, correct: true },
+      }),
+    ])
+
+    const byId = new Map(allRows.map((r) => [r.id, r]))
+    const pinnedRows: PinnedPickRow[] = pins.map((p) => {
+      const row = byId.get(p.gameId)
+      return { date: p.date, status: row?.status ?? null, correct: row?.correct ?? null }
     })
 
-    return NextResponse.json(computeFreePickAccuracy(rows), { headers: PUBLIC_CACHE_HEADERS })
+    const pinnedDates = new Set(pins.map((p) => p.date))
+    const legacyRows: FreePickRow[] = allRows
+      .filter((r) => !pinnedDates.has(r.date))
+      .map((r) => ({ date: r.date, confidenceScore: r.confidenceScore, status: r.status, correct: r.correct }))
+
+    return NextResponse.json(computeFreePickAccuracy(pinnedRows, legacyRows), { headers: PUBLIC_CACHE_HEADERS })
   } catch (err) {
     console.error("[free-pick-accuracy]", err)
     return NextResponse.json({ error: "Failed to compute free pick accuracy" }, { status: 500 })

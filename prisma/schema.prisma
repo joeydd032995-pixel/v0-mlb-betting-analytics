@@ -220,6 +220,25 @@ model ModelPrediction {
   @@map("model_predictions")
 }
 
+// ─── Free Pick (pinned FREE-tier daily pick) ──────────────────────────────────
+// Written once per ET date by lib/server/free-pick.ts, on the first
+// /api/predictions request that produces a non-empty rawPredictions slate —
+// insert-only, so later requests can't move the pin as odds/lineups shift
+// the ranking during the day. No relation to ModelPrediction: gameId matches
+// ModelPrediction.id / NRFIPrediction.gameId by convention, but that row may
+// not exist yet (or ever) at pin time — do not add a FK here.
+// A date with no row here (every pre-migration date, or one where every pin
+// attempt hit a DB error) falls back to the argmax-over-ModelPrediction
+// reconstruction in lib/free-pick-accuracy.ts.
+model FreePick {
+  date            String   @id
+  gameId          String
+  confidenceScore Float
+  createdAt       DateTime @default(now())
+
+  @@map("free_picks")
+}
+
 // ─── Ensemble Diagnostics ─────────────────────────────────────────────────────
 // Written only when ENABLE_DIAGNOSTICS=true — tracks per-game ensemble diagnostics.
 model EnsembleDiagnostic {
