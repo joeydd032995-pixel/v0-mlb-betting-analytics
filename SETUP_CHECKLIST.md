@@ -21,7 +21,7 @@ Track your progress through the 20-minute setup process.
 
 - [ ] Install dependencies
   ```bash
-  npm install
+  pnpm install
   ```
 
 ---

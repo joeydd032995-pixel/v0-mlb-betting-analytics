@@ -323,7 +323,7 @@ The default production path is `v1.7models` (the ensemble described above). Per-
 ### Prerequisites
 
 - Node.js 18+
-- pnpm (recommended for local dev; CI uses `npm ci`)
+- pnpm (the project's sole package manager; CI uses `pnpm install --frozen-lockfile`)
 
 ### Installation
 

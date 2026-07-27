@@ -30,7 +30,7 @@ Husky runs `eslint --fix` on staged `.ts`/`.tsx` files via lint-staged before ev
 - **Database:** Neon PostgreSQL via Prisma v5 ORM (`prisma/schema.prisma`)
 - **DB singleton:** `lib/prisma.ts` — always import `{ prisma }` from here
 - **Charts:** Recharts
-- **Package manager:** pnpm (use `pnpm` not `npm` for local dev; CI uses `npm ci`)
+- **Package manager:** pnpm — the sole lockfile is `pnpm-lock.yaml` (no `package-lock.json`); CI runs `pnpm install --frozen-lockfile` too
 
 ### Prediction Engine
 
