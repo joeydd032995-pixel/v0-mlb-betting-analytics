@@ -20,7 +20,7 @@ import {
   type TrackedPrediction,
   type ExtendedModelAccuracy,
 } from "@/lib/prediction-store"
-import { isUnlockedPrediction, type FilterOptions, type NRFIPrediction, type Game, type Pitcher, type Team } from "@/lib/types"
+import { isUnlockedPrediction, type FilterOptions, type FreePickAccuracy, type NRFIPrediction, type Game, type Pitcher, type Team } from "@/lib/types"
 import type { Tier } from "@/lib/subscription"
 import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
@@ -280,6 +280,13 @@ export default function HomePage() {
   // and must never fall through to the FREE paywall.
   const [tierUnresolved, setTierUnresolved] = useState(false)
 
+  // ── Free daily pick track record ─────────────────────────────────────────────
+  // Server-computed rather than derived from the local tracking store below:
+  // ingestPredictions drops the FREE teaser (buildFreeTeaser strips the
+  // recommendation/confidence fields it filters on), so a free or signed-out
+  // visitor has an empty store — and they are exactly who this card is for.
+  const [freePick, setFreePick] = useState<FreePickAccuracy | null>(null)
+
   // ── Prediction tracking store ────────────────────────────────────────────────
   const [trackedPredictions, setTrackedPredictions] = useState<TrackedPrediction[]>([])
   const [trackingAccuracy, setTrackingAccuracy] = useState<ExtendedModelAccuracy>(() =>
@@ -423,6 +430,21 @@ export default function HomePage() {
     if (!authLoaded) return
     loadPredictions()
   }, [authLoaded, loadPredictions])
+
+  // Free-pick track record. Same for every visitor, so it needs no auth gate —
+  // a failure just leaves the card showing "—" rather than blocking the page.
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/free-pick-accuracy")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: FreePickAccuracy | null) => {
+        if (!cancelled && data && typeof data.total === "number") setFreePick(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const pitcherMap = useMemo(
     () => new Map(Object.entries(liveData?.pitchersById ?? {})),
@@ -589,7 +611,7 @@ export default function HomePage() {
       {/* Main content */}
       <main className="mx-auto max-w-[1480px] space-y-4 sm:space-y-6 px-3 sm:px-5 lg:px-7 py-4 sm:py-6 lg:py-7">
         {/* KPI row */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <KpiCard
             metric="Season NRFI Accuracy"
             value={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? `${(trackingAccuracy.nrfiAccuracy * 100).toFixed(1)}%` : "—"}
@@ -632,6 +654,15 @@ export default function HomePage() {
             delta="season to date"
             deltaPositive={trackingAccuracy ? trackingAccuracy.roi >= 0 : undefined}
             variant="cy"
+          />
+          <KpiCard
+            metric="Free Pick Accuracy"
+            value={freePick && freePick.total > 0 ? `${(freePick.accuracy * 100).toFixed(1)}%` : "—"}
+            delta={freePick && freePick.total > 0
+              ? `${freePick.correct}W-${freePick.total - freePick.correct}L daily picks`
+              : "no settled free picks yet"}
+            deltaPositive={freePick && freePick.total > 0 ? freePick.accuracy > 0.516 : undefined}
+            variant="gold"
           />
         </div>
 

@@ -39,6 +39,29 @@ export function buildProPrediction(pred: NRFIPrediction): Omit<NRFIPrediction, "
   return { ...rest, _tierLocked: false }
 }
 
+/**
+ * The ordering FREE-tier gating ranks a slate by. V8's sort is stable, so ties
+ * fall back to the order the slate was emitted in.
+ */
+export function byConfidenceDesc<T extends { confidenceScore: number }>(a: T, b: T): number {
+  return b.confidenceScore - a.confidenceScore
+}
+
+/**
+ * The single prediction FREE tier surfaces from a slate.
+ *
+ * Exported so that surfaces which need to identify the free pick *after the
+ * fact* — e.g. reconstructing its historical accuracy from stored rows — derive
+ * it from the same rule the paywall uses rather than a copy that can drift.
+ * See __tests__/tier-gating.test.ts for the agreement check.
+ *
+ * The same full-slate caveat as applyTierGating applies: pass every prediction
+ * for the date, or whatever you pass is "top" unconditionally.
+ */
+export function selectFreePick<T extends { confidenceScore: number }>(slate: T[]): T | undefined {
+  return [...slate].sort(byConfidenceDesc)[0]
+}
+
 // IMPORTANT: always call this with the FULL slate of predictions for the date,
 // never a single-game subset. FREE-tier ranking picks the highest-confidence
 // game as the visible teaser by comparing confidenceScore across `predictions`
@@ -47,7 +70,7 @@ export function buildProPrediction(pred: NRFIPrediction): Omit<NRFIPrediction, "
 // games one at a time. Gate the full slate, then look up the game you need.
 export function applyTierGating(predictions: NRFIPrediction[], tier: Tier) {
   // Sort by confidenceScore descending so the highest-confidence game is always first
-  const sorted = [...predictions].sort((a, b) => b.confidenceScore - a.confidenceScore)
+  const sorted = [...predictions].sort(byConfidenceDesc)
 
   if (tier === "FREE") {
     const [top, ...rest] = sorted
