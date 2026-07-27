@@ -6,7 +6,7 @@ Track your progress through the 20-minute setup process.
 
 ## Phase 1: Prerequisites (2 minutes)
 
-- [ ] Node.js 18+ installed (`node --version`)
+- [ ] Node.js 20.9.0+ installed (`node --version`)
 - [ ] Git installed (`git --version`)
 - [ ] Repository cloned locally
 
@@ -21,7 +21,7 @@ Track your progress through the 20-minute setup process.
 
 - [ ] Install dependencies
   ```bash
-  npm install
+  pnpm install
   ```
 
 ---
