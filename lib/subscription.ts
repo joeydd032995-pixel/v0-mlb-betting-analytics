@@ -55,10 +55,13 @@ export interface TierResolution {
 // and can surface a retry.
 const TIER_QUERY_TIMEOUT_MS = 3_000
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+// Exported so any other route that risks holding a request open on a stalled
+// DB call (e.g. lib/server/free-pick.ts) can reuse the same bound instead of
+// re-deriving it.
+export function withTimeout<T>(promise: Promise<T>, ms: number, label = "tier lookup"): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`tier lookup timed out after ${ms}ms`)), ms)
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
   })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>
 }

@@ -1,6 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import { selectFreePick } from "@/lib/tier-gating"
+import { withTimeout } from "@/lib/subscription"
 import type { NRFIPrediction } from "@/lib/types"
+
+// It's a single upsert on a unique key, so anything slower than this is a
+// stalled connection, not a slow write. Without a bound a hung write holds
+// /api/predictions open for the route's full maxDuration (300s) even though
+// the pin is meant to be best-effort — see lib/subscription.ts's identical
+// rationale for its own DB-call bound, which this reuses.
+const PIN_TIMEOUT_MS = 3_000
 
 /**
  * Pins the FREE tier's one daily pick for `date`, first successful write wins.
@@ -15,19 +23,23 @@ import type { NRFIPrediction } from "@/lib/types"
  * e.g. app/api/webhooks/clerk/route.ts, rather than catching a unique-
  * violation error code).
  *
- * Never throws — a persistence failure here must not break the predictions
- * response for any tier.
+ * Never throws — a persistence failure or timeout here must not break the
+ * predictions response for any tier.
  */
 export async function pinFreePick(date: string, rawPredictions: NRFIPrediction[]): Promise<void> {
   const top = selectFreePick(rawPredictions)
   if (!top) return
 
   try {
-    await prisma.freePick.upsert({
-      where: { date },
-      create: { date, gameId: top.gameId, confidenceScore: top.confidenceScore },
-      update: {},
-    })
+    await withTimeout(
+      prisma.freePick.upsert({
+        where: { date },
+        create: { date, gameId: top.gameId, confidenceScore: top.confidenceScore },
+        update: {},
+      }),
+      PIN_TIMEOUT_MS,
+      "free pick pin"
+    )
   } catch (err) {
     console.error("[pinFreePick]", err)
   }

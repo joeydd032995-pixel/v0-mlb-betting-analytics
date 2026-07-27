@@ -66,4 +66,21 @@ describe("pinFreePick", () => {
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
+
+  // A hung write must not hold /api/predictions open for the route's full
+  // maxDuration (300s) — see lib/subscription.ts's identical bound on the
+  // tier lookup, reused here via withTimeout.
+  it("does not block on a write that never resolves", async () => {
+    const { pinFreePick } = await import("@/lib/server/free-pick")
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    upsert.mockReturnValue(new Promise(() => {})) // never settles
+
+    vi.useFakeTimers()
+    const pending = pinFreePick("2026-05-01", [makePrediction("game-1", 50)])
+    await vi.advanceTimersByTimeAsync(3_100)
+    await expect(pending).resolves.toBeUndefined()
+    vi.useRealTimers()
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
 })

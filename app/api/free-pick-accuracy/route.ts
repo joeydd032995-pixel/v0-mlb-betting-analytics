@@ -32,7 +32,8 @@
 
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { computeFreePickAccuracy, type FreePickRow, type PinnedPickRow } from "@/lib/free-pick-accuracy"
+import { computeFreePickAccuracy, type FreePickRow } from "@/lib/free-pick-accuracy"
+import type { PinnedPickRow } from "@/lib/types"
 
 export const dynamic = "force-dynamic"
 

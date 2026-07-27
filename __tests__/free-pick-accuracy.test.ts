@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { computeFreePickAccuracy, type FreePickRow, type PinnedPickRow } from "@/lib/free-pick-accuracy"
+import { computeFreePickAccuracy, type FreePickRow } from "@/lib/free-pick-accuracy"
+import type { PinnedPickRow } from "@/lib/types"
 
 function row(
   date: string,

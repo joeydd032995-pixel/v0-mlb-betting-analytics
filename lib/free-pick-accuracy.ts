@@ -13,24 +13,13 @@
 // Kept separate from the route so it can be unit-tested without a database.
 
 import { selectFreePick } from "@/lib/tier-gating"
-import type { FreePickAccuracy } from "@/lib/types"
+import type { FreePickAccuracy, PinnedPickRow } from "@/lib/types"
 
 /** The minimal ModelPrediction projection the legacy (unpinned) path needs. */
 export interface FreePickRow {
   date: string
   confidenceScore: number
   status: string
-  correct: boolean | null
-}
-
-/**
- * A pinned FreePick row joined against its ModelPrediction row (if any).
- * status/correct are null when no ModelPrediction row exists yet for the
- * pinned gameId — treated the same as an unsettled "pending" row.
- */
-export interface PinnedPickRow {
-  date: string
-  status: string | null
   correct: boolean | null
 }
 
