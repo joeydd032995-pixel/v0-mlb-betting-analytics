@@ -322,7 +322,7 @@ The default production path is `v1.7models` (the ensemble described above). Per-
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.9.0+ (required by Next.js 16; enforced via `engines.node` in `package.json`)
 - pnpm (the project's sole package manager; CI uses `pnpm install --frozen-lockfile`)
 
 ### Installation
