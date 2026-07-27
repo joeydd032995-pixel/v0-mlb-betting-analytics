@@ -34,6 +34,10 @@ const OUT_FILE = path.join(process.cwd(), "lib", "features", "umpire-profiles.ge
 const CONCURRENCY = 8
 const SHRINK_K = 20
 const LEAGUE_NRFI = 0.516
+// A real MLB boxscore payload runs tens-to-low-hundreds of KB; this caps
+// well above that to guard against an unexpectedly huge response being
+// written to disk, without risking false rejections on legitimate games.
+const MAX_BOXSCORE_BYTES = 5_000_000
 
 const LIMIT_ARG = process.argv.find(a => a.startsWith("--limit="))
 const LIMIT = LIMIT_ARG ? parseInt(LIMIT_ARG.split("=")[1]) : Infinity
@@ -61,17 +65,20 @@ function writeFileAtomic(filePath: string, data: string): void {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 /**
  * Minimal shape check on a parsed MLB boxscore payload before it's trusted
  * enough to cache or hand to extractObs(). Only validates the two properties
  * the rest of this script actually reads (`teams.home`, `teams.away`).
  */
 function isValidBoxscore(json: unknown): json is Record<string, unknown> {
-  if (typeof json !== "object" || json === null) return false
-  const teams = (json as Record<string, unknown>).teams
-  if (typeof teams !== "object" || teams === null) return false
-  const { home, away } = teams as Record<string, unknown>
-  return typeof home === "object" && home !== null && typeof away === "object" && away !== null
+  if (!isRecord(json)) return false
+  const teams = json.teams
+  if (!isRecord(teams)) return false
+  return isRecord(teams.home) && isRecord(teams.away)
 }
 
 async function fetchBoxscore(gamePk: number): Promise<Record<string, unknown> | null> {
@@ -85,6 +92,16 @@ async function fetchBoxscore(gamePk: number): Promise<Record<string, unknown> | 
   }
   const res = await fetch(`https://statsapi.mlb.com/api/v1/game/${gamePk}/boxscore`)
   if (!res.ok) return null
+  const contentType = res.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) {
+    console.warn(`gamePk ${gamePk}: unexpected content-type "${contentType}" — skipping (not cached)`)
+    return null
+  }
+  const contentLength = Number(res.headers.get("content-length"))
+  if (Number.isFinite(contentLength) && contentLength > MAX_BOXSCORE_BYTES) {
+    console.warn(`gamePk ${gamePk}: response too large (${contentLength} bytes) — skipping (not cached)`)
+    return null
+  }
   let json: unknown
   try {
     json = await res.json()
@@ -95,8 +112,16 @@ async function fetchBoxscore(gamePk: number): Promise<Record<string, unknown> | 
     console.warn(`gamePk ${gamePk}: boxscore response failed shape validation — skipping (not cached)`)
     return null
   }
+  // Content-Length can be absent (e.g. chunked transfer), so re-check the
+  // actual serialized size before writing — belt-and-suspenders with the
+  // header check above.
+  const serialized = JSON.stringify(json)
+  if (serialized.length > MAX_BOXSCORE_BYTES) {
+    console.warn(`gamePk ${gamePk}: serialized response too large (${serialized.length} bytes) — skipping (not cached)`)
+    return null
+  }
   // Cache-write is atomic (temp file + rename); the Python builder writes the identical payload.
-  try { writeFileAtomic(cachePath, JSON.stringify(json)) } catch { /* best-effort, non-fatal */ }
+  try { writeFileAtomic(cachePath, serialized) } catch { /* best-effort, non-fatal */ }
   return json
 }
 
