@@ -173,29 +173,106 @@ function OverviewTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
   )
 }
 
-function ByPitcherTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
+const MAX_BREAKDOWN_ROWS = 50
+
+function EmptyBreakdown({ icon: Icon, message }: { icon: typeof TrendingUp; message: string }) {
   return (
     <div className="rounded-lg border border-border/30 bg-card/50 p-6 text-center">
-      <TrendingUp className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-      <p className="text-sm text-muted-foreground">
-        Per-pitcher accuracy breakdown coming soon.
-      </p>
-      <p className="text-xs text-muted-foreground mt-2">
-        Will show NRFI accuracy and metrics for each pitcher in your tracked predictions.
+      <Icon className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  )
+}
+
+function ByPitcherTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
+  if (accuracy.byPitcher.length === 0) {
+    return (
+      <EmptyBreakdown
+        icon={TrendingUp}
+        message="No pitcher data in this range yet. Widen the period or track more predictions to see per-pitcher accuracy."
+      />
+    )
+  }
+
+  const rows = accuracy.byPitcher.slice(0, MAX_BREAKDOWN_ROWS)
+  const hiddenCount = accuracy.byPitcher.length - rows.length
+
+  return (
+    <div className="rounded-md border border-border/30 bg-card/50 p-3">
+      <p className="mb-2 text-xs font-semibold">Accuracy by starting pitcher</p>
+      <table className="w-full text-xs">
+        <thead className="text-muted-foreground">
+          <tr>
+            <th className="text-left font-normal pb-1.5">Pitcher</th>
+            <th className="text-right font-normal pb-1.5">Starts</th>
+            <th className="text-right font-normal pb-1.5">Record</th>
+            <th className="text-right font-normal pb-1.5">Accuracy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.pitcher} className="border-t border-border/20">
+              <td className="py-1.5">{r.pitcher}</td>
+              <td className="py-1.5 text-right tabular-nums">{r.starts}</td>
+              <td className="py-1.5 text-right tabular-nums">{r.correct}/{r.starts}</td>
+              <td className="py-1.5 text-right tabular-nums">{pct(r.accuracy)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {hiddenCount > 0 && (
+        <p className="mt-2 text-[10px] text-muted-foreground">+{hiddenCount} more pitchers not shown</p>
+      )}
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Each start counts toward that pitcher&apos;s bucket regardless of home/away — the NRFI/YRFI
+        outcome depends on both starters jointly.
       </p>
     </div>
   )
 }
 
 function SituationalTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
+  if (accuracy.byPark.length === 0) {
+    return (
+      <EmptyBreakdown
+        icon={MapPin}
+        message="No park data in this range yet. Widen the period or track more predictions to see per-park accuracy."
+      />
+    )
+  }
+
+  const rows = accuracy.byPark.slice(0, MAX_BREAKDOWN_ROWS)
+  const hiddenCount = accuracy.byPark.length - rows.length
+
   return (
-    <div className="rounded-lg border border-border/30 bg-card/50 p-6 text-center">
-      <MapPin className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-      <p className="text-sm text-muted-foreground">
-        Situational accuracy by park coming soon.
-      </p>
-      <p className="text-xs text-muted-foreground mt-2">
-        Will show accuracy breakdown by stadium and weather conditions.
+    <div className="rounded-md border border-border/30 bg-card/50 p-3">
+      <p className="mb-2 text-xs font-semibold">Accuracy by park</p>
+      <table className="w-full text-xs">
+        <thead className="text-muted-foreground">
+          <tr>
+            <th className="text-left font-normal pb-1.5">Park</th>
+            <th className="text-right font-normal pb-1.5">Games</th>
+            <th className="text-right font-normal pb-1.5">Record</th>
+            <th className="text-right font-normal pb-1.5">Accuracy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.venue} className="border-t border-border/20">
+              <td className="py-1.5">{r.venue}</td>
+              <td className="py-1.5 text-right tabular-nums">{r.total}</td>
+              <td className="py-1.5 text-right tabular-nums">{r.correct}/{r.total}</td>
+              <td className="py-1.5 text-right tabular-nums">{pct(r.accuracy)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {hiddenCount > 0 && (
+        <p className="mt-2 text-[10px] text-muted-foreground">+{hiddenCount} more parks not shown</p>
+      )}
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Park is inferred from the home team, not the recorded game venue — approximate for
+        franchises that changed ballparks (e.g. the Athletics) and doesn&apos;t detect neutral-site games.
       </p>
     </div>
   )

@@ -19,6 +19,7 @@ import type {
   Pitcher,
   Team,
 } from "./types"
+import { resolveVenueForTeam } from "./constants/mlb-stadiums"
 
 // ─── TrackedPrediction ────────────────────────────────────────────────────────
 
@@ -128,6 +129,22 @@ export interface DailyStats {
   combinedLosses: number
 }
 
+// ─── PitcherAccuracyRow / ParkAccuracyRow ──────────────────────────────────────
+
+export interface PitcherAccuracyRow {
+  pitcher: string
+  starts: number
+  correct: number
+  accuracy: number
+}
+
+export interface ParkAccuracyRow {
+  venue: string
+  total: number
+  correct: number
+  accuracy: number
+}
+
 // ─── ExtendedModelAccuracy ────────────────────────────────────────────────────
 
 export interface ExtendedModelAccuracy extends ModelAccuracy {
@@ -171,6 +188,8 @@ export interface ExtendedModelAccuracy extends ModelAccuracy {
   bestOverallModel: string
   bestOverallAccuracy: number
   dailyStats: DailyStats[]
+  byPitcher: PitcherAccuracyRow[]
+  byPark: ParkAccuracyRow[]
 }
 
 // ─── Storage key ──────────────────────────────────────────────────────────────
@@ -607,6 +626,8 @@ export function computeExtendedAccuracy(
     bestOverallModel: "Ensemble",
     bestOverallAccuracy: 0,
     dailyStats: [],
+    byPitcher: [],
+    byPark: [],
   }
 
   if (complete.length === 0) return empty
@@ -750,6 +771,39 @@ export function computeExtendedAccuracy(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([, s]) => s)
 
+  // ── Per-pitcher breakdown ────────────────────────────────────────────────
+  // Each settled prediction is really a joint outcome of both starters, so it
+  // contributes to both the home and away starter's bucket.
+  const pitcherMap = new Map<string, { correct: number; total: number }>()
+  for (const p of complete) {
+    for (const name of [p.homePitcher, p.awayPitcher]) {
+      if (!name || name === "TBD") continue
+      const s = pitcherMap.get(name) ?? { correct: 0, total: 0 }
+      s.total++
+      if (p.correct) s.correct++
+      pitcherMap.set(name, s)
+    }
+  }
+  const byPitcher = [...pitcherMap.entries()]
+    .map(([pitcher, s]) => ({ pitcher, starts: s.total, correct: s.correct, accuracy: s.correct / s.total }))
+    .sort((a, b) => b.starts - a.starts)
+
+  // ── Per-park breakdown ───────────────────────────────────────────────────
+  // venue is rarely persisted on DB-backed rows; fall back to deriving it
+  // from the home team when absent (see resolveVenueForTeam).
+  const parkMap = new Map<string, { correct: number; total: number }>()
+  for (const p of complete) {
+    const venue = p.venue || resolveVenueForTeam(p.homeTeam)
+    if (!venue) continue
+    const s = parkMap.get(venue) ?? { correct: 0, total: 0 }
+    s.total++
+    if (p.correct) s.correct++
+    parkMap.set(venue, s)
+  }
+  const byPark = [...parkMap.entries()]
+    .map(([venue, s]) => ({ venue, total: s.total, correct: s.correct, accuracy: s.correct / s.total }))
+    .sort((a, b) => b.total - a.total)
+
   return {
     totalPredictions: complete.length,
     correct:          totalCorrect,
@@ -786,5 +840,7 @@ export function computeExtendedAccuracy(
     bestOverallModel:      bestOverall.model,
     bestOverallAccuracy:   bestOverall.accuracy,
     dailyStats,
+    byPitcher,
+    byPark,
   }
 }
