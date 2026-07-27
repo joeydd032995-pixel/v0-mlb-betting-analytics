@@ -455,6 +455,17 @@ export interface FreePickAccuracy {
   dateSpan: { from: string; to: string } | null
 }
 
+/**
+ * A pinned FreePick row joined against its ModelPrediction row (if any).
+ * status/correct are null when no ModelPrediction row exists yet for the
+ * pinned gameId — treated the same as an unsettled "pending" row.
+ */
+export interface PinnedPickRow {
+  date: string
+  status: string | null
+  correct: boolean | null
+}
+
 export interface CalibrationPoint {
   predictedBin: number
   actualRate: number

@@ -4,6 +4,7 @@ import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { resolveUserTierWithRetry } from "@/lib/subscription"
 import { applyTierGating } from "@/lib/tier-gating"
+import { pinFreePick } from "@/lib/server/free-pick"
 import { PRIVATE_NO_STORE_HEADERS as CACHE_HEADERS } from "@/lib/cache-headers"
 
 // force-dynamic: tier-gated responses vary per user — cannot be edge-cached globally.
@@ -50,6 +51,7 @@ export async function GET() {
 
     const rawPredictions = computeAllPredictions(games, pitchers, teams)
     const { gated, lockedCount } = applyTierGating(rawPredictions, tier)
+    await pinFreePick(today, rawPredictions)
 
     // Only include game/pitcher/team map entries for games visible to this tier.
     // Ghost locked-card entries (only contain gameId) don't need full game objects.

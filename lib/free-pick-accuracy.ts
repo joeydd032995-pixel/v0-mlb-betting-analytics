@@ -1,18 +1,21 @@
 // lib/free-pick-accuracy.ts
-// Reconstructs the track record of the FREE tier's one daily pick.
+// Hybrid track record of the FREE tier's one daily pick.
 //
-// The free pick is not persisted anywhere: applyTierGating derives it on every
-// request as the highest-confidenceScore prediction of the day's slate. So the
-// only way to answer "how has the free pick done?" is to replay that same rule
-// over stored predictions — which is why the selection goes through
-// selectFreePick rather than a local copy of the comparator.
+// The pick is pinned going forward: /api/predictions (via lib/server/free-pick.ts)
+// inserts one FreePick row per ET date the first time that date's non-empty
+// slate is computed, insert-only so the pin can't drift as odds/lineups move
+// later in the day. Any date with no pinned row — every date before the
+// FreePick table existed, or a date where every pin attempt hit a DB error —
+// falls back to the pre-existing reconstruction: replaying selectFreePick as
+// an argmax over stored ModelPrediction rows for that date. Both
+// contributions are merged into one accuracy record here.
 //
 // Kept separate from the route so it can be unit-tested without a database.
 
 import { selectFreePick } from "@/lib/tier-gating"
-import type { FreePickAccuracy } from "@/lib/types"
+import type { FreePickAccuracy, PinnedPickRow } from "@/lib/types"
 
-/** The minimal ModelPrediction projection this needs. */
+/** The minimal ModelPrediction projection the legacy (unpinned) path needs. */
 export interface FreePickRow {
   date: string
   confidenceScore: number
@@ -20,25 +23,45 @@ export interface FreePickRow {
   correct: boolean | null
 }
 
+interface Acc {
+  total: number
+  correct: number
+  from: string | null
+  to: string | null
+}
+
+function record(acc: Acc, date: string, status: string | null, correct: boolean | null): void {
+  if (status !== "complete" || correct === null) return
+  acc.total += 1
+  if (correct) acc.correct += 1
+  if (acc.from === null || date < acc.from) acc.from = date
+  if (acc.to === null || date > acc.to) acc.to = date
+}
+
 /**
- * Groups rows by ET date, takes the free pick of each date, and scores the ones
- * that have settled.
+ * Merges pinned picks with the legacy argmax reconstruction for any date that
+ * has no pin.
  *
- * Callers are responsible for excluding backtested rows — this counts whatever
- * it is given.
+ * `legacyRows` should already exclude any date present in `pinnedRows` (the
+ * route does this with a single query); this function also defensively
+ * re-excludes them so a caller that forgets cannot double-count a date.
  */
-export function computeFreePickAccuracy(rows: FreePickRow[]): FreePickAccuracy {
+export function computeFreePickAccuracy(
+  pinnedRows: PinnedPickRow[],
+  legacyRows: FreePickRow[]
+): FreePickAccuracy {
+  const acc: Acc = { total: 0, correct: 0, from: null, to: null }
+  const pinnedDates = new Set(pinnedRows.map((p) => p.date))
+
+  for (const p of pinnedRows) record(acc, p.date, p.status, p.correct)
+
   const byDate = new Map<string, FreePickRow[]>()
-  for (const row of rows) {
+  for (const row of legacyRows) {
+    if (pinnedDates.has(row.date)) continue // defensive: a pin always wins for its date
     const forDate = byDate.get(row.date)
     if (forDate) forDate.push(row)
     else byDate.set(row.date, [row])
   }
-
-  let total = 0
-  let correct = 0
-  let from: string | null = null
-  let to: string | null = null
 
   for (const [date, forDate] of byDate) {
     // Rank the full slate, settled or not. A visitor saw the top-confidence
@@ -47,18 +70,13 @@ export function computeFreePickAccuracy(rows: FreePickRow[]): FreePickAccuracy {
     // postponement — crediting the free pick with a game it never showed.
     const pick = selectFreePick(forDate)
     if (!pick) continue
-    if (pick.status !== "complete" || pick.correct === null) continue
-
-    total += 1
-    if (pick.correct) correct += 1
-    if (from === null || date < from) from = date
-    if (to === null || date > to) to = date
+    record(acc, date, pick.status, pick.correct)
   }
 
   return {
-    total,
-    correct,
-    accuracy: total > 0 ? correct / total : 0,
-    dateSpan: from !== null && to !== null ? { from, to } : null,
+    total: acc.total,
+    correct: acc.correct,
+    accuracy: acc.total > 0 ? acc.correct / acc.total : 0,
+    dateSpan: acc.from !== null && acc.to !== null ? { from: acc.from, to: acc.to } : null,
   }
 }
