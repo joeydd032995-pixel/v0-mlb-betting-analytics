@@ -21,6 +21,7 @@
  */
 
 import { PrismaClient } from "@prisma/client"
+import crypto from "crypto"
 import * as fs from "fs"
 import * as path from "path"
 
@@ -33,22 +34,94 @@ const OUT_FILE = path.join(process.cwd(), "lib", "features", "umpire-profiles.ge
 const CONCURRENCY = 8
 const SHRINK_K = 20
 const LEAGUE_NRFI = 0.516
+// A real MLB boxscore payload runs tens-to-low-hundreds of KB; this caps
+// well above that to guard against an unexpectedly huge response being
+// written to disk, without risking false rejections on legitimate games.
+const MAX_BOXSCORE_BYTES = 5_000_000
 
 const LIMIT_ARG = process.argv.find(a => a.startsWith("--limit="))
 const LIMIT = LIMIT_ARG ? parseInt(LIMIT_ARG.split("=")[1]) : Infinity
 
 interface GameObs { umpId: number; umpName: string; nrfi: boolean; gameK: number | null }
 
+/**
+ * Atomically write `data` to `filePath`: write to a uniquely-named temp file
+ * in the same directory, then rename it over `filePath`. `fs.renameSync`
+ * within one filesystem is atomic on POSIX, so concurrent readers never see
+ * a partially-written file, and a crash mid-write only ever leaves an
+ * orphaned `.tmp-*` file — never a truncated `cachePath`.
+ */
+function writeFileAtomic(filePath: string, data: string): void {
+  const tmpPath = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`
+  let renamed = false
+  try {
+    fs.writeFileSync(tmpPath, data)
+    fs.renameSync(tmpPath, filePath)
+    renamed = true
+  } finally {
+    if (!renamed) {
+      try { fs.unlinkSync(tmpPath) } catch { /* best-effort cleanup */ }
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Minimal shape check on a parsed MLB boxscore payload before it's trusted
+ * enough to cache or hand to extractObs(). Only validates the two properties
+ * the rest of this script actually reads (`teams.home`, `teams.away`).
+ */
+function isValidBoxscore(json: unknown): json is Record<string, unknown> {
+  if (!isRecord(json)) return false
+  const teams = json.teams
+  if (!isRecord(teams)) return false
+  return isRecord(teams.home) && isRecord(teams.away)
+}
+
 async function fetchBoxscore(gamePk: number): Promise<Record<string, unknown> | null> {
   const cachePath = path.join(CACHE_DIR, `${gamePk}.json`)
   if (fs.existsSync(cachePath)) {
-    try { return JSON.parse(fs.readFileSync(cachePath, "utf8")) } catch { /* corrupt — refetch */ }
+    try {
+      const cached = JSON.parse(fs.readFileSync(cachePath, "utf8"))
+      if (isValidBoxscore(cached)) return cached
+      // cache exists but doesn't match expected shape — fall through and refetch
+    } catch { /* corrupt — refetch */ }
   }
   const res = await fetch(`https://statsapi.mlb.com/api/v1/game/${gamePk}/boxscore`)
   if (!res.ok) return null
-  const json = await res.json()
-  // Cache-write is best-effort; the Python builder writes the identical payload.
-  try { fs.writeFileSync(cachePath, JSON.stringify(json)) } catch { /* ignore */ }
+  const contentType = res.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) {
+    console.warn(`gamePk ${gamePk}: unexpected content-type "${contentType}" — skipping (not cached)`)
+    return null
+  }
+  const contentLength = Number(res.headers.get("content-length"))
+  if (Number.isFinite(contentLength) && contentLength > MAX_BOXSCORE_BYTES) {
+    console.warn(`gamePk ${gamePk}: response too large (${contentLength} bytes) — skipping (not cached)`)
+    return null
+  }
+  let json: unknown
+  try {
+    json = await res.json()
+  } catch {
+    return null
+  }
+  if (!isValidBoxscore(json)) {
+    console.warn(`gamePk ${gamePk}: boxscore response failed shape validation — skipping (not cached)`)
+    return null
+  }
+  // Content-Length can be absent (e.g. chunked transfer), so re-check the
+  // actual serialized size before writing — belt-and-suspenders with the
+  // header check above.
+  const serialized = JSON.stringify(json)
+  if (serialized.length > MAX_BOXSCORE_BYTES) {
+    console.warn(`gamePk ${gamePk}: serialized response too large (${serialized.length} bytes) — skipping (not cached)`)
+    return null
+  }
+  // Cache-write is atomic (temp file + rename); the Python builder writes the identical payload.
+  try { writeFileAtomic(cachePath, serialized) } catch { /* best-effort, non-fatal */ }
   return json
 }
 
@@ -143,7 +216,7 @@ async function main() {
     `}`,
     ``,
   ]
-  fs.writeFileSync(OUT_FILE, lines.join("\n"))
+  writeFileAtomic(OUT_FILE, lines.join("\n"))
   console.log(`wrote ${entries.length} profiles → ${path.relative(process.cwd(), OUT_FILE)}`)
 
   // Sanity peek: top-5 by sample
