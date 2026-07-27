@@ -436,6 +436,25 @@ export interface ModelAccuracy {
   monthlyData: MonthlyAccuracy[]
 }
 
+/**
+ * Track record of the single FREE-tier daily pick.
+ *
+ * The free pick is never stored — it is derived per request as the
+ * highest-`confidenceScore` prediction of the slate (lib/tier-gating.ts), so
+ * this is reconstructed the same way from stored rows. Live rows only:
+ * backtested backfills carry synthetic weather and no odds, which would drag
+ * the number toward the league base rate.
+ */
+export interface FreePickAccuracy {
+  /** Settled free picks — the denominator of `accuracy`. */
+  total: number
+  correct: number
+  /** correct / total, or 0 when there is nothing settled yet. */
+  accuracy: number
+  /** Earliest and latest ET date contributing a settled free pick. */
+  dateSpan: { from: string; to: string } | null
+}
+
 export interface CalibrationPoint {
   predictedBin: number
   actualRate: number

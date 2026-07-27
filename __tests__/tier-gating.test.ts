@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { applyTierGating } from "@/lib/tier-gating"
+import { applyTierGating, selectFreePick } from "@/lib/tier-gating"
 import { hasAccess, FEATURE_MIN_TIER, normaliseTier, type Feature, type Tier } from "@/lib/tiers"
 import type { NRFIPrediction } from "@/lib/types"
 
@@ -108,6 +108,45 @@ describe("applyTierGating", () => {
   it("handles an empty slate", () => {
     expect(applyTierGating([], "FREE")).toEqual({ gated: [], lockedCount: 0 })
     expect(applyTierGating([], "ELITE")).toEqual({ gated: [], lockedCount: 0 })
+  })
+})
+
+// /api/free-pick-accuracy reconstructs the historical free pick from stored
+// rows. If that reconstruction and the live paywall ever disagree, the card
+// reports the track record of a pick nobody was shown.
+describe("selectFreePick", () => {
+  it("agrees with the teaser applyTierGating exposes to FREE", () => {
+    const slates = [
+      [makePrediction("a", 40), makePrediction("b", 90), makePrediction("c", 65)],
+      [makePrediction("only", 12)],
+      [makePrediction("hi", 98), makePrediction("lo", 10)],
+      [makePrediction("neg", -5), makePrediction("zero", 0)],
+      Array.from({ length: 15 }, (_, i) => makePrediction(`g${i}`, (i * 37) % 100)),
+    ]
+
+    for (const slate of slates) {
+      const { gated } = applyTierGating(slate, "FREE")
+      expect(selectFreePick(slate)?.gameId).toBe(gated[0].gameId)
+    }
+  })
+
+  // Stable sort: equal scores must resolve to the same element on both paths.
+  it("breaks ties the same way applyTierGating does", () => {
+    const slate = [makePrediction("first", 70), makePrediction("second", 70)]
+    const { gated } = applyTierGating(slate, "FREE")
+
+    expect(selectFreePick(slate)?.gameId).toBe("first")
+    expect(gated[0].gameId).toBe("first")
+  })
+
+  it("returns undefined for an empty slate", () => {
+    expect(selectFreePick([])).toBeUndefined()
+  })
+
+  it("does not mutate the slate", () => {
+    const slate = [makePrediction("a", 40), makePrediction("b", 90)]
+    selectFreePick(slate)
+    expect(slate.map((p) => p.gameId)).toEqual(["a", "b"])
   })
 })
 

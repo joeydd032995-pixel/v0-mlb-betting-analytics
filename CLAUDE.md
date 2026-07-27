@@ -110,6 +110,7 @@ MLB Stats API is always available and free; all other external data falls back t
 - `GET /api/backfill?from=YYYY-MM-DD&to=YYYY-MM-DD` — localStorage backfill (max 30 days): returns `TrackedPrediction[]` JSON for the client-side accuracy dashboard; does **not** write to DB
 - `GET /api/games` — game list
 - `GET /api/performance` — model accuracy stats
+- `GET /api/free-pick-accuracy` — **public** (no auth): track record of the FREE tier's one daily pick, for the home-page KPI card. The pick is never stored, so it is reconstructed per date as the highest-`confidenceScore` `ModelPrediction` row via `selectFreePick()` (`lib/tier-gating.ts`) — use that helper, never a private copy of the rule, or the card reports a pick nobody was shown. Live rows only (`backtested: false`); publicly cacheable since the body is identical for every caller
 - `POST /api/bets`, `GET /api/bets`, `PATCH /api/bets/[id]` — bet tracker
 - `GET/POST /api/watchlist`, `DELETE /api/watchlist/[gameId]` — watchlist
 - `GET/POST /api/bankroll` — bankroll management

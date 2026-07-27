@@ -43,6 +43,7 @@ const isRateLimitedRoute = createRouteMatcher([
   "/api/games(.*)",
   "/api/historical-sync(.*)",
   "/api/weekly-recap(.*)",
+  "/api/free-pick-accuracy(.*)",
 ])
 
 export default clerkMiddleware(async (auth, req) => {
