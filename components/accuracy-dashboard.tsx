@@ -271,8 +271,9 @@ function SituationalTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
         <p className="mt-2 text-[10px] text-muted-foreground">+{hiddenCount} more parks not shown</p>
       )}
       <p className="mt-2 text-[10px] text-muted-foreground">
-        Park is inferred from the home team, not the recorded game venue — approximate for
-        franchises that changed ballparks (e.g. the Athletics) and doesn&apos;t detect neutral-site games.
+        Park uses the recorded game venue when available; otherwise it is inferred from the home
+        team. The fallback is approximate for franchises that changed ballparks (e.g. the
+        Athletics) and doesn&apos;t detect neutral-site games.
       </p>
     </div>
   )
