@@ -1,3 +1,5 @@
+import { getTeamByName } from "./mlb-teams"
+
 export interface StadiumInfo {
   lat: number
   lon: number
@@ -74,6 +76,34 @@ export const STADIUM_IS_DOME: Record<string, boolean> = Object.fromEntries(
 export const STADIUM_CF_BEARING: Record<string, number> = Object.fromEntries(
   Object.entries(MLB_STADIUMS).map(([name, info]) => [name, info.cfBearing])
 )
+
+/**
+ * Current-season home venue by team abbreviation. Used to approximate a
+ * prediction's park when no venue was persisted with the row (all DB-backed
+ * TrackedPredictions). Not season-aware: rows from before a team's park
+ * change (e.g. Athletics: Oakland Coliseum → Sutter Health Park) or from a
+ * neutral-site game will resolve to the current park, not the actual one.
+ */
+export const TEAM_HOME_VENUE: Record<string, string> = {
+  BAL: "Oriole Park at Camden Yards", BOS: "Fenway Park",           NYY: "Yankee Stadium",
+  TB:  "Tropicana Field",             TOR: "Rogers Centre",
+  CWS: "Guaranteed Rate Field",       CLE: "Progressive Field",     DET: "Comerica Park",
+  KC:  "Kauffman Stadium",            MIN: "Target Field",
+  HOU: "Minute Maid Park",            LAA: "Angel Stadium",         OAK: "Sutter Health Park",
+  SEA: "T-Mobile Park",               TEX: "Globe Life Field",
+  ATL: "Truist Park",                 MIA: "loanDepot park",        NYM: "Citi Field",
+  PHI: "Citizens Bank Park",          WSH: "Nationals Park",
+  CHC: "Wrigley Field",               CIN: "Great American Ball Park", MIL: "American Family Field",
+  PIT: "PNC Park",                    STL: "Busch Stadium",
+  ARI: "Chase Field",                 COL: "Coors Field",           LAD: "Dodger Stadium",
+  SD:  "Petco Park",                  SF:  "Oracle Park",
+}
+
+/** Resolves a team name (as stored on TrackedPrediction.homeTeam) to its current home venue. */
+export function resolveVenueForTeam(teamName: string): string | undefined {
+  const team = getTeamByName(teamName)
+  return team ? TEAM_HOME_VENUE[team.abbreviation] : undefined
+}
 
 /**
  * @deprecated Use STADIUM_CF_BEARING for numeric outfield bearings.
