@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -117,14 +118,22 @@ const RESOURCES: Resource[] = [
   },
 ]
 
-const FAQ = [
+const FAQ: { q: string; a: ReactNode }[] = [
   {
     q: "What does NRFI mean?",
     a: "NRFI = No Run First Inning. It's a bet that neither team will score in the first inning of an MLB game.",
   },
   {
     q: "How accurate is the model?",
-    a: "The model achieves ~56-58% accuracy overall, with 64%+ accuracy on high-confidence predictions. This edge compounds over many games.",
+    a: (
+      <>
+        Accuracy varies by season and market conditions — it is not a fixed number. See our live{" "}
+        <Link href="/accuracy" className="underline underline-offset-2 hover:text-foreground">
+          Accuracy Tracker
+        </Link>{" "}
+        for current, transparently-computed performance figures.
+      </>
+    ),
   },
   {
     q: "What's a value bet?",
@@ -154,7 +163,7 @@ export function ResourcesGrid() {
   }
 
   return (
-    <Tabs defaultValue="guides" className="w-full space-y-6">
+    <Tabs defaultValue="guides" className="w-full space-y-6" id="how-it-works">
       <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="guides">Guides</TabsTrigger>
         <TabsTrigger value="api">API Hub</TabsTrigger>

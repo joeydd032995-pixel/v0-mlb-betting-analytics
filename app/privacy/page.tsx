@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Privacy Policy for Homeplate Metrics NRFI/YRFI analytics platform.",
 }
 
-const EFFECTIVE_DATE = "May 23, 2026"
+const EFFECTIVE_DATE = "July 29, 2026"
 
 export default function PrivacyPage() {
   return (
@@ -91,6 +91,17 @@ export default function PrivacyPage() {
                 <p className="font-medium text-foreground text-xs">The Odds API / OpenWeatherMap</p>
                 <p>Third-party data providers. No personal data is sent — we only request odds and weather data.</p>
               </div>
+              <div className="rounded-md border border-border/30 px-4 py-3">
+                <p className="font-medium text-foreground text-xs">SportsBlaze / Baseball Savant (Statcast, via pybaseball)</p>
+                <p>Third-party sports-statistics providers used for enhanced splits and pitch-level data. No personal user data is sent — we only request game, player, and pitch statistics.</p>
+              </div>
+              <div className="rounded-md border border-border/30 px-4 py-3">
+                <p className="font-medium text-foreground text-xs">Stripe (stripe.com)</p>
+                <p>Payment processor for subscription billing. Stripe collects and stores your payment card
+                  details, billing address, and transaction history; we do not store your full card number.
+                  Subject to{" "}
+                  <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--hm-diamond)" }}>Stripe&apos;s Privacy Policy</a>.</p>
+              </div>
             </div>
           </section>
 
@@ -131,7 +142,41 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-base font-semibold text-foreground mb-2">8. Data Security</h2>
+            <h2 className="text-base font-semibold text-foreground mb-2">8. Your Privacy Choices (CCPA/CPRA)</h2>
+            <p>
+              We do not sell or share your personal information for cross-context behavioral advertising,
+              as those terms are defined under the California Consumer Privacy Act (CCPA), as amended by
+              the California Privacy Rights Act (CPRA), or under similar state privacy laws.
+            </p>
+            <p className="mt-2">
+              If you are a California resident (or a resident of a state with a comparable privacy law),
+              you have the right to know what personal information we collect, request its deletion,
+              request correction of inaccurate information, and opt out of the sale or sharing of personal
+              information — a mechanism that does not apply here because we do not sell or share your data.
+              To exercise any of these rights, contact us at{" "}
+              <a href="mailto:contact@homeplatemetrics.com" className="underline" style={{ color: "var(--hm-diamond)" }}>
+                contact@homeplatemetrics.com
+              </a>. We will not discriminate against you for exercising these rights.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-base font-semibold text-foreground mb-2">9. International Users &amp; Data Transfers</h2>
+            <p>
+              Your data is processed and stored in the United States (Neon/Vercel infrastructure, as
+              described in Section 4). If you access the Service from outside the United States, including
+              from the EU/UK, you understand and consent to your information being transferred to and
+              processed in the United States. We do not currently maintain a designated EU representative;
+              if you have a GDPR-related request, contact us at{" "}
+              <a href="mailto:contact@homeplatemetrics.com" className="underline" style={{ color: "var(--hm-diamond)" }}>
+                contact@homeplatemetrics.com
+              </a>{" "}
+              and we will respond as required by applicable law.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-base font-semibold text-foreground mb-2">10. Data Security</h2>
             <p>
               We use industry-standard security measures including encrypted connections (TLS),
               server-side authentication (Clerk), and parameterized database queries (Prisma ORM).
@@ -140,7 +185,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-base font-semibold text-foreground mb-2">9. Children&apos;s Privacy</h2>
+            <h2 className="text-base font-semibold text-foreground mb-2">11. Children&apos;s Privacy</h2>
             <p>
               The Service is not intended for users under 18. We do not knowingly collect personal
               information from anyone under 18. If you believe a minor has created an account, contact
@@ -149,7 +194,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-base font-semibold text-foreground mb-2">10. Changes to This Policy</h2>
+            <h2 className="text-base font-semibold text-foreground mb-2">12. Changes to This Policy</h2>
             <p>
               We may update this Privacy Policy from time to time. We will update the effective date
               above and, for material changes, notify you via the Service.
@@ -157,7 +202,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-base font-semibold text-foreground mb-2">11. Contact</h2>
+            <h2 className="text-base font-semibold text-foreground mb-2">13. Contact</h2>
             <p>
               Questions or concerns? Contact us at{" "}
               <a href="mailto:contact@homeplatemetrics.com" className="underline" style={{ color: "var(--hm-diamond)" }}>

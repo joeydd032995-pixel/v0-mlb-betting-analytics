@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import Link from "next/link"
 
 // ── Pricing data ───────────────────────────────────────────────────────────────
 
@@ -218,6 +219,13 @@ export function PricingModal({ open, onClose }: Props) {
                 {loading === "pro" ? "Redirecting…" : "Get Pro"}
               </button>
             )}
+            {currentTier !== "PRO" && (
+              <p className="text-[9px] text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+                Renews at {PRICES.pro[billing].amount}{PRICES.pro[billing].period} until canceled.{" "}
+                <Link href="/terms" className="underline">Terms</Link> ·{" "}
+                <Link href="/refund-policy" className="underline">Refunds</Link>
+              </p>
+            )}
           </div>
 
           {/* ELITE */}
@@ -255,6 +263,13 @@ export function PricingModal({ open, onClose }: Props) {
                 {loading === "elite" ? "Redirecting…" : "Get Elite"}
               </button>
             )}
+            {currentTier !== "ELITE" && (
+              <p className="text-[9px] text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+                Renews at {PRICES.elite[billing].amount}{PRICES.elite[billing].period} until canceled.{" "}
+                <Link href="/terms" className="underline">Terms</Link> ·{" "}
+                <Link href="/refund-policy" className="underline">Refunds</Link>
+              </p>
+            )}
           </div>
         </div>
 
@@ -284,7 +299,8 @@ export function PricingModal({ open, onClose }: Props) {
 
         <div className="px-6 py-3 border-t border-white/6">
           <p className="text-[10px] text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
-            Cancel anytime. Billed via Stripe. Prices in USD.
+            Cancel anytime. Billed via Stripe. Prices in USD.{" "}
+            <Link href="/refund-policy" className="underline">Refund Policy</Link>
           </p>
         </div>
       </DialogContent>

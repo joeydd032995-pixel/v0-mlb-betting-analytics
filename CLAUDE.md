@@ -73,8 +73,9 @@ Key tables in `prisma/schema.prisma`:
 | The Odds API | `THE_ODDS_API_KEY` | NRFI/YRFI live odds; market key: `batter_first_inning_scored` |
 | OpenWeatherMap | `OPENWEATHER_API_KEY` | Stadium weather |
 | SportsBlaze | `SPORTSBLAZE_API_KEY` | Optional enhanced splits |
+| Baseball Savant / Statcast (via `pybaseball`) | None (scraped, free) | Pitch-level Statcast summaries for DeepNRFI features; `scripts/data/refresh_statcast.py` refreshes the `pitcher_statcast` / `batter_statcast` Postgres tables on a weekly GitHub Actions cron; read via `lib/api/statcast.ts` |
 
-MLB Stats API is always available and free; all other external data falls back to mock data in `lib/mock-data.ts` when keys are absent.
+MLB Stats API is always available and free; The Odds API, OpenWeatherMap, and SportsBlaze fall back to mock data in `lib/mock-data.ts` when keys are absent. Statcast has no fallback data — `lib/api/statcast.ts` returns `null` when a player has no row yet, and callers impute with league-average defaults.
 
 ### AI Chat Assistant
 

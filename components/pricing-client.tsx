@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useEffect } from "react"
+import Link from "next/link"
 
 // ── Pricing data ───────────────────────────────────────────────────────────────
 
@@ -287,6 +288,13 @@ export function PricingClient() {
               {loading === "pro" ? "Redirecting…" : "Get Pro"}
             </button>
           )}
+          {currentTier !== "PRO" && (
+            <p className="text-[10px] text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Renews automatically at {PRICES.pro[billing].amount}{PRICES.pro[billing].period} until canceled.{" "}
+              <Link href="/terms" className="underline">Terms</Link> ·{" "}
+              <Link href="/refund-policy" className="underline">Refunds</Link>
+            </p>
+          )}
         </div>
 
         {/* ELITE */}
@@ -342,6 +350,13 @@ export function PricingClient() {
               {loading === "elite" ? "Redirecting…" : "Get Elite"}
             </button>
           )}
+          {currentTier !== "ELITE" && (
+            <p className="text-[10px] text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Renews automatically at {PRICES.elite[billing].amount}{PRICES.elite[billing].period} until canceled.{" "}
+              <Link href="/terms" className="underline">Terms</Link> ·{" "}
+              <Link href="/refund-policy" className="underline">Refunds</Link>
+            </p>
+          )}
         </div>
       </div>
 
@@ -385,7 +400,8 @@ export function PricingClient() {
       </div>
 
       <p className="text-center text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>
-        Cancel anytime. Billed securely via Stripe. All prices in USD.
+        Cancel anytime via the <Link href="/account" className="underline underline-offset-2 hover:text-white/40">Billing Portal</Link>. Billed securely via Stripe. All prices in USD.
+        See our <Link href="/refund-policy" className="underline underline-offset-2 hover:text-white/40">Refund Policy</Link>.
         Questions? <a href="mailto:support@homeplatemetrics.com" className="underline underline-offset-2 hover:text-white/40">support@homeplatemetrics.com</a>
       </p>
     </div>

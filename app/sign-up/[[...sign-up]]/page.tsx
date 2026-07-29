@@ -89,6 +89,19 @@ export default function SignUpPage() {
         path="/sign-up"
       />
 
+      {/* ── Terms/Privacy consent ────────────────────────────────────────── */}
+      <p className="mt-4 max-w-xs text-center text-xs text-muted-foreground">
+        By creating an account, you agree to our{" "}
+        <Link href="/terms" className="underline underline-offset-4 hover:text-foreground">
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="underline underline-offset-4 hover:text-foreground">
+          Privacy Policy
+        </Link>
+        .
+      </p>
+
       {/* ── Guest escape hatch ───────────────────────────────────────────── */}
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Just browsing?{" "}
