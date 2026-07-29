@@ -4,6 +4,7 @@
 
 import type { Metadata } from "next"
 import { PricingClient } from "@/components/pricing-client"
+import { DisclaimerBanner } from "@/components/legal/disclaimer-banner"
 
 export const metadata: Metadata = {
   title: "Pricing — Homeplate Metrics",
@@ -14,7 +15,8 @@ export const metadata: Metadata = {
 export default function PricingPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--hm-abyss)" }}>
-      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-12 sm:py-16">
+      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-12 sm:py-16 space-y-8">
+        <DisclaimerBanner />
         <PricingClient />
       </main>
     </div>

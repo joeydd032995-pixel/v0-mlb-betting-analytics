@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils"
 import { Activity, LineChart, Users, History, SlidersHorizontal, X, RefreshCw, DatabaseZap } from "lucide-react"
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { KpiCard } from "@/components/diamond/KpiCard"
+import { DisclaimerBanner } from "@/components/legal/disclaimer-banner"
 import { useAuth } from "@clerk/nextjs"
 import { toast } from "sonner"
 import { savePredictionsToDBAction } from "@/app/actions"
@@ -610,6 +611,8 @@ export default function HomePage() {
     <div className="min-h-screen" style={{ background: "var(--hm-abyss)" }}>
       {/* Main content */}
       <main className="mx-auto max-w-[1480px] space-y-4 sm:space-y-6 px-3 sm:px-5 lg:px-7 py-4 sm:py-6 lg:py-7">
+        <DisclaimerBanner />
+
         {/* KPI row */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <KpiCard

@@ -124,7 +124,7 @@ const FAQ = [
   },
   {
     q: "How accurate is the model?",
-    a: "The model achieves ~56-58% accuracy overall, with 64%+ accuracy on high-confidence predictions. This edge compounds over many games.",
+    a: "Accuracy varies by season and market conditions — it is not a fixed number. See our live Accuracy Tracker (/accuracy) for current, transparently-computed performance figures.",
   },
   {
     q: "What's a value bet?",
@@ -154,7 +154,7 @@ export function ResourcesGrid() {
   }
 
   return (
-    <Tabs defaultValue="guides" className="w-full space-y-6">
+    <Tabs defaultValue="guides" className="w-full space-y-6" id="how-it-works">
       <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="guides">Guides</TabsTrigger>
         <TabsTrigger value="api">API Hub</TabsTrigger>

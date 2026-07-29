@@ -19,13 +19,14 @@ const FOOTER_LINKS = {
   LEGAL: [
     { label: "Terms of Service", href: "/terms" },
     { label: "Privacy Policy",   href: "/privacy" },
+    { label: "Refund Policy",    href: "/refund-policy" },
     { label: "Disclaimer",       href: "/disclaimer" },
   ],
   CONTACT: [
     { label: "GitHub",    href: "https://github.com" },
     { label: "Twitter",   href: "https://twitter.com" },
     { label: "Email",     href: "mailto:contact@homeplatemetrics.com" },
-    { label: "Feedback",  href: "/feedback" },
+    { label: "Feedback",  href: "mailto:contact@homeplatemetrics.com" },
   ],
 }
 
