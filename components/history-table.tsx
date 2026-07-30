@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { CheckCircle2, XCircle, ClipboardList, ChevronDown, ChevronRight, Trash2, Download } from "lucide-react"
+import { InfoTip } from "@/components/diamond/InfoTip"
+import { HISTORY_COPY } from "@/lib/content/card-copy"
 import type { TrackedPrediction, ExtendedModelAccuracy, PerModelAccuracy } from "@/lib/prediction-store"
 
 interface Props {
@@ -185,9 +187,13 @@ function ModelAccuracyPanel({ perModel }: { perModel: PerModelAccuracy[] }) {
   if (perModel.length === 0) return null
   return (
     <div className="rounded-lg border border-border/40 bg-muted/10 p-4">
-      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h4 className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Per-Model Accuracy (completed predictions)
+        <InfoTip text={HISTORY_COPY.perModelAccuracy.disclaimer} />
       </h4>
+      <p className="mb-3 text-[11px] text-muted-foreground">
+        {HISTORY_COPY.perModelAccuracy.description}
+      </p>
       <div className="grid gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {perModel.map((m) => {
           const color =
@@ -288,7 +294,10 @@ function PendingSection({
     <div>
       <div className="mb-2 flex items-center gap-2">
         <ClipboardList className="h-4 w-4 text-amber-400" />
-        <h3 className="text-sm font-semibold text-foreground">Pending Results</h3>
+        <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">
+          Pending Results
+          <InfoTip text={HISTORY_COPY.pendingResults.disclaimer} />
+        </h3>
         <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-xs font-medium text-amber-400">
           {pending.length}
         </span>
@@ -667,6 +676,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
                 ? `${accuracy.correct}/${accuracy.totalPredictions} correct`
                 : "No completed results yet",
             color: "text-emerald-400",
+            copy: HISTORY_COPY.summaryOverall,
           },
           {
             label: "NRFI Accuracy",
@@ -675,6 +685,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
               ? `${accuracy.nrfiCorrect}/${accuracy.nrfiTotal} correct`
               : "When predicting NRFI",
             color: "text-sky-400",
+            copy: HISTORY_COPY.summaryNrfi,
           },
           {
             label: "YRFI Accuracy",
@@ -683,6 +694,7 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
               ? `${accuracy.yrfiCorrect}/${accuracy.yrfiTotal} correct`
               : "When predicting YRFI",
             color: "text-violet-400",
+            copy: HISTORY_COPY.summaryYrfi,
           },
           {
             label: "High-Conf Accuracy",
@@ -694,12 +706,17 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
                   ? "No completed High-Conf results"
                   : "No completed results yet",
             color: "text-amber-400",
+            copy: HISTORY_COPY.summaryHighConf,
           },
         ].map((s) => (
           <Card key={s.label} className="border border-border/50 p-4">
-            <p className="text-xs text-muted-foreground">{s.label}</p>
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              {s.label}
+              <InfoTip text={s.copy.disclaimer} />
+            </p>
             <p className={cn("mt-1 text-2xl font-bold tabular-nums", s.color)}>{s.value}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">{s.sub}</p>
+            <p className="mt-1.5 text-xs text-muted-foreground/80">{s.copy.description}</p>
           </Card>
         ))}
       </div>
@@ -712,7 +729,11 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       {/* ── Monthly accuracy ── */}
       {accuracy.monthlyData.length > 0 && (
         <div>
-          <h3 className="mb-3 text-sm font-semibold text-foreground">Monthly Accuracy</h3>
+          <h3 className="mb-1 flex items-center gap-1 text-sm font-semibold text-foreground">
+            Monthly Accuracy
+            <InfoTip text={HISTORY_COPY.monthlyAccuracy.disclaimer} />
+          </h3>
+          <p className="mb-3 text-xs text-muted-foreground">{HISTORY_COPY.monthlyAccuracy.description}</p>
           <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-6">
             {accuracy.monthlyData.map((m) => (
               <div
@@ -763,16 +784,25 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       {/* ── Pending results ── */}
       {pending.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Results for pending games are fetched automatically from the MLB Stats API once
-          each game ends — reload this page to pick up newly settled games, or enter runs
-          manually below.
+          {/* This page does not settle anything on load. Predictions saved in this
+              browser are scored when you visit the dashboard; system-wide ones are
+              scored by the nightly sync. */}
+          Pending games do not settle from this page. Predictions saved in this browser are
+          scored from the MLB Stats API next time you open the dashboard, and system-wide
+          predictions are scored by the nightly sync — or you can enter runs manually below.
         </p>
       )}
       <PendingSection pending={pending} onRecordResult={onRecordResult} onDelete={onDelete} />
 
       {/* ── Completed predictions (NRFI / YRFI tabs + won/lost filter) ── */}
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-foreground">Completed Predictions</h3>
+        <h3 className="mb-1 flex items-center gap-1 text-sm font-semibold text-foreground">
+          Completed Predictions
+          <InfoTip text={HISTORY_COPY.completedPredictions.disclaimer} />
+        </h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {HISTORY_COPY.completedPredictions.description}
+        </p>
 
         {completed.length === 0 ? (
           <div className="rounded-lg border border-border/40 bg-muted/10 py-12 text-center">

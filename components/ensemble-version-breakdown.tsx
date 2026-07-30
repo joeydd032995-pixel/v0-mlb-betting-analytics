@@ -10,6 +10,8 @@
 
 import { useEffect, useState } from "react"
 import { Layers } from "lucide-react"
+import { InfoTip } from "@/components/diamond/InfoTip"
+import { ACCURACY_COPY, type CardCopy } from "@/lib/content/card-copy"
 import { cn } from "@/lib/utils"
 
 interface VersionGroup {
@@ -34,17 +36,37 @@ function pct(n: number, decimals = 1) {
   return `${(n * 100).toFixed(decimals)}%`
 }
 
-function VersionCard({ label, group, accent }: { label: string; group: VersionGroup | null; accent: "sky" | "fuchsia" }) {
+function VersionCard({
+  label,
+  group,
+  accent,
+  copy,
+}: {
+  label: string
+  group: VersionGroup | null
+  accent: "sky" | "fuchsia"
+  copy: CardCopy
+}) {
   const accentClass =
     accent === "fuchsia"
       ? "border-fuchsia-500/30 bg-fuchsia-500/5"
       : "border-sky-500/30 bg-sky-500/5"
   const headerClass = accent === "fuchsia" ? "text-fuchsia-300" : "text-sky-300"
 
+  const header = (
+    <p className={cn("flex items-center gap-1 text-xs font-semibold", headerClass)}>
+      {label}
+      <InfoTip text={copy.disclaimer} />
+    </p>
+  )
+
   if (!group || group.total === 0) {
     return (
       <div className={cn("rounded-md border p-3 text-xs", accentClass)}>
-        <p className={cn("font-semibold mb-1", headerClass)}>{label}</p>
+        {header}
+        {/* The description belongs here too — a version with no rows yet is
+            exactly when a reader needs to know what the card would show. */}
+        <p className="mt-1 mb-2 text-muted-foreground">{copy.description}</p>
         <p className="text-muted-foreground">No completed predictions on this version yet.</p>
       </div>
     )
@@ -52,7 +74,8 @@ function VersionCard({ label, group, accent }: { label: string; group: VersionGr
 
   return (
     <div className={cn("rounded-md border p-3", accentClass)}>
-      <p className={cn("text-xs font-semibold mb-2", headerClass)}>{label}</p>
+      {header}
+      <p className="mt-1 mb-2 text-xs text-muted-foreground">{copy.description}</p>
       <div className="grid grid-cols-3 gap-2 text-xs">
         <div>
           <p className="text-muted-foreground">Accuracy</p>
@@ -116,19 +139,39 @@ export function EnsembleVersionBreakdown() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-fuchsia-300">
-        <Layers className="h-3.5 w-3.5" />
-        Ensemble version comparison
+      <div>
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-fuchsia-300">
+          <Layers className="h-3.5 w-3.5" />
+          Ensemble version comparison
+          <InfoTip text={ACCURACY_COPY.versionComparison.disclaimer} />
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {ACCURACY_COPY.versionComparison.description}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <VersionCard label="v1.7models · legacy 7-model" group={v1} accent="sky" />
-        <VersionCard label="v2.9models · Ensemble++"     group={v2} accent="fuchsia" />
+        <VersionCard
+          label="v1.7models · legacy 7-model"
+          group={v1}
+          accent="sky"
+          copy={ACCURACY_COPY.versionCardV1}
+        />
+        <VersionCard
+          label="v2.9models · Ensemble++"
+          group={v2}
+          accent="fuchsia"
+          copy={ACCURACY_COPY.versionCardV2}
+        />
       </div>
 
       {buckets.length > 0 && (
         <div className="rounded-md border border-border/30 bg-card/50 p-3">
-          <p className="mb-2 text-xs font-semibold">By model conviction (|p − 0.50|)</p>
+          <p className="mb-1 flex items-center gap-1 text-xs font-semibold">
+            By model conviction (|p − 0.50|)
+            <InfoTip text={ACCURACY_COPY.byConviction.disclaimer} />
+          </p>
+          <p className="mb-2 text-xs text-muted-foreground">{ACCURACY_COPY.byConviction.description}</p>
           <table className="w-full text-xs">
             <thead className="text-muted-foreground">
               <tr>

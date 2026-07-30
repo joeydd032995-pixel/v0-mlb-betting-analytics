@@ -6,6 +6,8 @@ import type { ExtendedModelAccuracy } from "@/lib/prediction-store"
 import { BarChart3, TrendingUp, MapPin, Layers } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { EnsembleVersionBreakdown } from "@/components/ensemble-version-breakdown"
+import { InfoTip } from "@/components/diamond/InfoTip"
+import { ACCURACY_COPY } from "@/lib/content/card-copy"
 
 interface AccuracyDashboardProps {
   accuracy: ExtendedModelAccuracy
@@ -19,11 +21,17 @@ function AccuracyCard({
   label,
   value,
   subtext,
+  description,
+  info,
   variant = "default",
 }: {
   label: string
   value: string | number
   subtext?: string
+  /** One line on what the tile counts. */
+  description?: string
+  /** What the tile leaves out, revealed by the ⓘ beside the label. */
+  info?: string
   variant?: "default" | "positive" | "negative"
 }) {
   const variantClass =
@@ -35,9 +43,39 @@ function AccuracyCard({
 
   return (
     <div className={cn("rounded-lg border p-4", variantClass)}>
-      <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>
+      <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground mb-1">
+        {label}
+        {info && <InfoTip text={info} />}
+      </p>
       <p className="text-2xl font-bold text-foreground">{value}</p>
       {subtext && <p className="text-xs text-muted-foreground mt-1">{subtext}</p>}
+      {description && <p className="text-xs text-muted-foreground/80 mt-1.5">{description}</p>}
+    </div>
+  )
+}
+
+/**
+ * Heading for the grouped sections of the overview, carrying the same
+ * description + ⓘ disclaimer pattern the cards use.
+ */
+function SectionHeading({
+  title,
+  description,
+  info,
+  className,
+}: {
+  title: string
+  description: string
+  info: string
+  className?: string
+}) {
+  return (
+    <div className={cn("mb-4", className)}>
+      <h3 className="flex items-center gap-1 text-sm font-semibold">
+        {title}
+        <InfoTip text={info} />
+      </h3>
+      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>
   )
 }
@@ -51,15 +89,39 @@ function OverviewTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
           label="Overall Accuracy"
           value={accuracy.totalPredictions > 0 ? pct(accuracy.accuracy) : "—"}
           subtext={`over ${accuracy.totalPredictions} settled`}
+          description={ACCURACY_COPY.overviewOverall.description}
+          info={ACCURACY_COPY.overviewOverall.disclaimer}
         />
-        <AccuracyCard label="Tracked" value={accuracy.totalTracked} subtext="settled + pending" />
-        <AccuracyCard label="Settled" value={accuracy.totalPredictions} subtext="scored above" />
-        <AccuracyCard label="Pending" value={accuracy.pendingCount} subtext="not yet scored" />
+        <AccuracyCard
+          label="Tracked"
+          value={accuracy.totalTracked}
+          subtext="settled + pending"
+          description={ACCURACY_COPY.overviewTracked.description}
+          info={ACCURACY_COPY.overviewTracked.disclaimer}
+        />
+        <AccuracyCard
+          label="Settled"
+          value={accuracy.totalPredictions}
+          subtext="scored above"
+          description={ACCURACY_COPY.overviewSettled.description}
+          info={ACCURACY_COPY.overviewSettled.disclaimer}
+        />
+        <AccuracyCard
+          label="Pending"
+          value={accuracy.pendingCount}
+          subtext="not yet scored"
+          description={ACCURACY_COPY.overviewPending.description}
+          info={ACCURACY_COPY.overviewPending.disclaimer}
+        />
       </div>
 
       {/* NRFI vs YRFI */}
       <div className="rounded-lg border border-border/30 bg-card/50 p-4">
-        <h3 className="text-sm font-semibold mb-4">By Prediction Type</h3>
+        <SectionHeading
+          title="By Prediction Type"
+          description={ACCURACY_COPY.byPredictionType.description}
+          info={ACCURACY_COPY.byPredictionType.disclaimer}
+        />
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-xs text-muted-foreground mb-1">NRFI Accuracy</p>
@@ -84,7 +146,11 @@ function OverviewTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
 
       {/* Confidence breakdown */}
       <div className="rounded-lg border border-border/30 bg-card/50 p-4">
-        <h3 className="text-sm font-semibold mb-4">By Confidence Level</h3>
+        <SectionHeading
+          title="By Confidence Level"
+          description={ACCURACY_COPY.byConfidenceLevel.description}
+          info={ACCURACY_COPY.byConfidenceLevel.disclaimer}
+        />
         <div className="grid grid-cols-3 gap-4">
           <AccuracyCard
             label="High (≥62)"
@@ -111,7 +177,11 @@ function OverviewTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
 
       {/* ROI & P/L */}
       <div className="rounded-lg border border-border/30 bg-card/50 p-4">
-        <h3 className="text-sm font-semibold mb-4">Financial Performance</h3>
+        <SectionHeading
+          title="Financial Performance"
+          description={ACCURACY_COPY.financialPerformance.description}
+          info={ACCURACY_COPY.financialPerformance.disclaimer}
+        />
         <div className="grid grid-cols-2 gap-4">
           {/* Both figures cover only predictions that stored odds. Rendering a
               confident 0.00% when nothing is priced would imply a break-even
@@ -146,7 +216,12 @@ function OverviewTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
       {/* Monthly trend */}
       {accuracy.monthlyData.length > 0 && (
         <div className="rounded-lg border border-border/30 bg-card/50 p-4">
-          <h3 className="text-sm font-semibold mb-3">Monthly Breakdown</h3>
+          <SectionHeading
+            title="Monthly Breakdown"
+            description={ACCURACY_COPY.monthlyBreakdown.description}
+            info={ACCURACY_COPY.monthlyBreakdown.disclaimer}
+            className="mb-3"
+          />
           <div className="space-y-2">
             {accuracy.monthlyData.map((m) => (
               <div key={m.month} className="flex items-center justify-between text-xs">
@@ -199,7 +274,11 @@ function ByPitcherTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
 
   return (
     <div className="rounded-md border border-border/30 bg-card/50 p-3">
-      <p className="mb-2 text-xs font-semibold">Accuracy by starting pitcher</p>
+      <p className="mb-1 flex items-center gap-1 text-xs font-semibold">
+        Accuracy by starting pitcher
+        <InfoTip text={ACCURACY_COPY.byPitcher.disclaimer} />
+      </p>
+      <p className="mb-2 text-xs text-muted-foreground">{ACCURACY_COPY.byPitcher.description}</p>
       <table className="w-full text-xs">
         <thead className="text-muted-foreground">
           <tr>
@@ -246,7 +325,11 @@ function SituationalTab({ accuracy }: { accuracy: ExtendedModelAccuracy }) {
 
   return (
     <div className="rounded-md border border-border/30 bg-card/50 p-3">
-      <p className="mb-2 text-xs font-semibold">Accuracy by park</p>
+      <p className="mb-1 flex items-center gap-1 text-xs font-semibold">
+        Accuracy by park
+        <InfoTip text={ACCURACY_COPY.byPark.disclaimer} />
+      </p>
+      <p className="mb-2 text-xs text-muted-foreground">{ACCURACY_COPY.byPark.description}</p>
       <table className="w-full text-xs">
         <thead className="text-muted-foreground">
           <tr>

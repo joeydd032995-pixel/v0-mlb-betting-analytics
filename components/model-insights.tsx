@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { InfoTip } from "@/components/diamond/InfoTip"
+import { INSIGHTS_COPY } from "@/lib/content/card-copy"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -320,7 +322,10 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
         {/* Ensemble Overview */}
         <Card>
           <CardHeader>
-            <CardTitle>Ensemble Architecture</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              Ensemble Architecture
+              <InfoTip text={INSIGHTS_COPY.ensembleArchitecture.disclaimer} />
+            </CardTitle>
             <CardDescription>Seven complementary models vote on each half-inning, then combine into one final probability</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -434,6 +439,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">0</span>
               Pre-processing — Bayesian Shrinkage
+              <InfoTip text={INSIGHTS_COPY.shrinkage.disclaimer} />
             </CardTitle>
             <CardDescription>Applied to every pitcher's NRFI rate before it enters any model</CardDescription>
           </CardHeader>
@@ -465,6 +471,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500/20 text-xs font-bold text-sky-400">1</span>
               Poisson Model
+              <InfoTip text={INSIGHTS_COPY.poisson.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded px-2 py-0.5">12% weight</span>
             </CardTitle>
             <CardDescription>Standard run-expectancy model. Acts as the numerical anchor.</CardDescription>
@@ -496,6 +503,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/20 text-xs font-bold text-violet-400">2</span>
               Zero-Inflated Poisson (ZIP)
+              <InfoTip text={INSIGHTS_COPY.zip.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">30% weight</span>
             </CardTitle>
             <CardDescription>Separates "lockdown" innings from "active" innings. Standard Poisson underestimates clean 1-2-3 frames.</CardDescription>
@@ -527,6 +535,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-xs font-bold text-amber-400">3</span>
               Markov Chain (24-state)
+              <InfoTip text={INSIGHTS_COPY.markov.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">48% weight</span>
             </CardTitle>
             <CardDescription>Simulates the inning plate-by-plate across all 24 base-out states using Bill James Log-5 matchup probabilities.</CardDescription>
@@ -560,6 +569,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20 text-xs font-bold text-rose-400">4</span>
               MAPRE — Multi-Factor Adjusted Poisson Run Expectancy
+              <InfoTip text={INSIGHTS_COPY.mapre.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-0.5">10% weight</span>
             </CardTitle>
             <CardDescription>Injects seven hidden 1st-inning factors on top of the Bayesian lambda. Applied at game level with cross-half correlation.</CardDescription>
@@ -597,6 +607,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-fuchsia-500/20 text-xs font-bold text-fuchsia-400">5</span>
               Logistic Stack (Meta-Model)
+              <InfoTip text={INSIGHTS_COPY.logisticMeta.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded px-2 py-0.5">0% weight (display-only)</span>
             </CardTitle>
             <CardDescription>Placeholder stacker: currently the weighted base-4 average itself (0% blend weight). Will become a trained logistic stacker once walk-forward CV evidence exists.</CardDescription>
@@ -627,6 +638,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/20 text-xs font-bold text-cyan-400">6</span>
               NN Interaction (Meta-Model)
+              <InfoTip text={INSIGHTS_COPY.nnInteraction.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 rounded px-2 py-0.5">0% weight (display-only)</span>
             </CardTitle>
             <CardDescription>Captures the cross-model synergy between Poisson and Markov — two independent models. When both agree strongly, confidence rises.</CardDescription>
@@ -656,6 +668,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/20 text-xs font-bold text-orange-400">7</span>
               Hierarchical Bayes (Meta-Model)
+              <InfoTip text={INSIGHTS_COPY.hierarchicalBayes.disclaimer} />
               <span className="ml-auto text-xs font-semibold text-orange-400 bg-orange-500/10 border border-orange-500/30 rounded px-2 py-0.5">0% weight (display-only)</span>
             </CardTitle>
             <CardDescription>The dynamically-shrunk scoreless-half rate itself (k = 30/50/80 by pitcher type). Veterans get higher data-trust; rookies stay closer to the league prior. 0% blend weight (duplicate of the step-0 prior).</CardDescription>
@@ -699,6 +712,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">8</span>
               Recent Form Multiplier
+              <InfoTip text={INSIGHTS_COPY.recentForm.disclaimer} />
             </CardTitle>
             <CardDescription>Applied to lambda before all seven models. Adjusts for hot/cold streaks vs a pitcher's season baseline.</CardDescription>
           </CardHeader>
@@ -718,7 +732,10 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
         {/* Combined Output */}
         <Card>
           <CardHeader>
-            <CardTitle>Combined Model Output</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              Combined Model Output
+              <InfoTip text={INSIGHTS_COPY.combinedOutput.disclaimer} />
+            </CardTitle>
             <CardDescription>How all seven models are weighted and blended into the final NRFI / YRFI %</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -807,7 +824,11 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
         {/* Confidence + Value Bet */}
         <Card>
           <CardHeader>
-            <CardTitle>Confidence Score & Value Bets</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              Confidence Score & Value Bets
+              <InfoTip text={INSIGHTS_COPY.confidenceScore.disclaimer} />
+            </CardTitle>
+            <CardDescription>{INSIGHTS_COPY.confidenceScore.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -857,6 +878,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <Database className="h-5 w-5 text-muted-foreground" />
               Historical Data Sync
+              <InfoTip text={INSIGHTS_COPY.historicalSync.disclaimer} />
             </CardTitle>
             <CardDescription>
               Pulls first-inning results from the MLB Stats API into the database.
@@ -1081,7 +1103,9 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   <CardTitle className="flex items-center gap-2">
                     <BarChart3 className="h-5 w-5 text-emerald-400" />
                     Historical NRFI Rate
+                    <InfoTip text={INSIGHTS_COPY.nrfiRate.disclaimer} />
                   </CardTitle>
+                  <CardDescription>{INSIGHTS_COPY.nrfiRate.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div>
@@ -1100,7 +1124,9 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   <CardTitle className="flex items-center gap-2">
                     <BarChart3 className="h-5 w-5 text-rose-400" />
                     Historical YRFI Rate
+                    <InfoTip text={INSIGHTS_COPY.yrfiRate.disclaimer} />
                   </CardTitle>
+                  <CardDescription>{INSIGHTS_COPY.yrfiRate.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div>
@@ -1119,7 +1145,9 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   <CardTitle className="flex items-center gap-2">
                     <TrendingUp className="h-5 w-5 text-sky-400" />
                     Model Accuracy
+                    <InfoTip text={INSIGHTS_COPY.modelAccuracy.disclaimer} />
                   </CardTitle>
+                  <CardDescription>{INSIGHTS_COPY.modelAccuracy.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {perfData.totalPredictions > 0 ? (
@@ -1157,13 +1185,17 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   <CardTitle className="flex items-center gap-2">
                     <CheckCircle2 className="h-5 w-5 text-violet-400" />
                     High-Confidence
+                    <InfoTip text={INSIGHTS_COPY.highConfidence.disclaimer} />
                   </CardTitle>
+                  <CardDescription>{INSIGHTS_COPY.highConfidence.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {perfData.byConfidence.High ? (
                     <>
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">Confidence ≥62</p>
+                        {/* Read from the engine rather than hard-coded, so the
+                            label cannot drift from the actual tier cutoff. */}
+                        <p className="text-xs text-muted-foreground mb-1">Confidence ≥{engineFacts.confidenceHigh}</p>
                         <p className="text-3xl font-bold text-violet-400">{pct(perfData.byConfidence.High.accuracy)}</p>
                         <p className="text-xs text-muted-foreground mt-1">{perfData.byConfidence.High.total.toLocaleString()} predictions</p>
                       </div>
@@ -1182,7 +1214,10 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             {perfData.totalPredictions > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Accuracy by Confidence Level</CardTitle>
+                  <CardTitle className="flex items-center gap-1.5">
+                    Accuracy by Confidence Level
+                    <InfoTip text={INSIGHTS_COPY.accuracyByConfidence.disclaimer} />
+                  </CardTitle>
                   {/* Previously asserted that higher confidence is more accurate
                       regardless of what the bars below actually showed. */}
                   <CardDescription>
@@ -1229,7 +1264,10 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             {/* Per-model accuracy */}
             <Card>
               <CardHeader>
-                <CardTitle>Per-Model Accuracy</CardTitle>
+                <CardTitle className="flex items-center gap-1.5">
+                  Per-Model Accuracy
+                  <InfoTip text={INSIGHTS_COPY.perModelAccuracy.disclaimer} />
+                </CardTitle>
                 <CardDescription>How each model performs independently vs the final ensemble</CardDescription>
               </CardHeader>
               <CardContent>
@@ -1293,11 +1331,6 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                 </div>
                 <p className="mt-2 text-[10px] text-muted-foreground">
                   MAE = Mean Absolute Error between model probability and actual outcome (lower is better).
-                  Each row is scored only over predictions where that model actually produced a value,
-                  so the Correct column shows different sample sizes — meta-models ran on fewer games than
-                  the base four. &ldquo;Ensemble&rdquo; is the final post-blend probability that drives the
-                  headline Model Accuracy above, not an independent model, so the two agree by construction.
-                  Rows are scored at a 0.5 threshold, while the engine issues its call at 0.52.
                 </p>
               </CardContent>
             </Card>
@@ -1306,7 +1339,10 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             {perfData.monthly.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Monthly Breakdown</CardTitle>
+                  <CardTitle className="flex items-center gap-1.5">
+                    Monthly Breakdown
+                    <InfoTip text={INSIGHTS_COPY.monthlyBreakdown.disclaimer} />
+                  </CardTitle>
                   {/* Range must come from the months actually listed below, which
                       are keyed off synced games — not from dateSpan, which covers
                       only settled predictions and can omit months shown here. */}
@@ -1362,13 +1398,6 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                       </tbody>
                     </table>
                   </div>
-                  <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
-                    &ldquo;Games&rdquo; counts every synced game that month and drives the NRFI/YRFI rates;
-                    &ldquo;Predictions&rdquo; counts only the settled predictions the model made and drives
-                    Model Acc. The two columns therefore use different denominators, and these NRFI rates
-                    will not match the Historical NRFI Rate card above, which is measured over predicted
-                    games only.
-                  </p>
                   {perfData.monthly.some((r) => (r.backtestedFraction ?? 0) > 0.5) && (
                     <p className="mt-2 text-[10px] text-amber-400/80">
                       * Backtested months use neutral weather inputs — model accuracy may mirror the actual NRFI rate rather than reflecting genuine prediction skill.
@@ -1392,7 +1421,10 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
       <TabsContent value="factors" className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Model Factors & Impact</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              Model Factors & Impact
+              <InfoTip text={INSIGHTS_COPY.modelFactors.disclaimer} />
+            </CardTitle>
             <CardDescription>How each input influences NRFI/YRFI predictions</CardDescription>
           </CardHeader>
           <CardContent>
@@ -1475,7 +1507,9 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <CardTitle className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-amber-400" />
               Important Notes
+              <InfoTip text={INSIGHTS_COPY.importantNotes.disclaimer} />
             </CardTitle>
+            <CardDescription>{INSIGHTS_COPY.importantNotes.description}</CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm text-muted-foreground">

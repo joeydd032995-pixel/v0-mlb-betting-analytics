@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts"
 import { Panel } from "@/components/diamond/Panel"
+import { INSIGHTS_COPY } from "@/lib/content/card-copy"
 
 // SHAP-style feature importance: correlation of input features with
 // (prediction − LEAGUE_ANCHOR). Positive = increases NRFI probability.
@@ -67,11 +68,16 @@ export function FeatureImportanceChart({ leagueAnchor }: FeatureImportanceChartP
   }))
 
   return (
-    <Panel title="Feature Importance" chip="SHAP-style attribution">
+    <Panel
+      title="Feature Importance"
+      chip="SHAP-style attribution"
+      description={INSIGHTS_COPY.featureImportance.description}
+      info={INSIGHTS_COPY.featureImportance.disclaimer}
+    >
       <p className="font-jet text-[10px] text-ds-muted mb-3">
-        Illustrative SHAP-style attribution — shows each feature&apos;s estimated influence on
-        (predicted NRFI − {(leagueAnchor * 100).toFixed(1)}% baseline).
-        Positive (green) = increases NRFI probability. Negative (red) = decreases NRFI probability.
+        Each bar is a feature&apos;s estimated influence on (predicted NRFI −{" "}
+        {(leagueAnchor * 100).toFixed(1)}% baseline). Positive (green) = increases NRFI
+        probability. Negative (red) = decreases NRFI probability.
       </p>
       <div style={{ height: 300 }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -110,7 +116,8 @@ export function FeatureImportanceChart({ leagueAnchor }: FeatureImportanceChartP
         </ResponsiveContainer>
       </div>
       <p className="font-jet text-[9px] text-ds-dim mt-2">
-        Illustrative placeholder values — representative of typical SHAP attribution magnitudes. Real values require per-prediction SHAP computation from backtested data.
+        Illustrative placeholder values — representative of typical SHAP attribution magnitudes.
+        Real values require per-prediction SHAP computation from backtested data.
       </p>
     </Panel>
   )

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils"
+import { InfoTip } from "@/components/diamond/InfoTip"
 
 type KpiVariant = "diamond" | "grass" | "blood" | "gold" | "slate" | "cy" | "gr" | "bl" | "tl"
 
@@ -11,6 +12,13 @@ interface KpiCardProps {
   className?: string
   icon?: React.ReactNode
   subtext?: string
+  /**
+   * One line on what the tile is showing. Rendered in normal case beneath the
+   * value — unlike `subtext`, which is a short uppercase mono label.
+   */
+  description?: string
+  /** What this tile does not cover — shown on hover/focus of an ⓘ by the label. */
+  info?: string
 }
 
 const VARIANT_CFG: Record<KpiVariant, { bar: string; hover: string; text: string }> = {
@@ -27,7 +35,7 @@ const VARIANT_CFG: Record<KpiVariant, { bar: string; hover: string; text: string
 }
 
 export function KpiCard({
-  metric, value, delta, deltaPositive, variant = "cy", className, icon, subtext,
+  metric, value, delta, deltaPositive, variant = "cy", className, icon, subtext, description, info,
 }: KpiCardProps) {
   const cfg = VARIANT_CFG[variant]
   return (
@@ -58,10 +66,11 @@ export function KpiCard({
       />
 
       <div
-        className="font-mono uppercase tracking-[0.24em]"
+        className={cn("flex items-center gap-1 font-mono uppercase tracking-[0.24em]", icon && "pr-5")}
         style={{ fontSize: "9px", color: "var(--hm-smoke)" }}
       >
         {metric}
+        {info && <InfoTip text={info} />}
       </div>
 
       <div
@@ -78,6 +87,15 @@ export function KpiCard({
         >
           {subtext}
         </div>
+      )}
+
+      {description && (
+        <p
+          className="mt-[6px] font-mono text-[10px] leading-snug"
+          style={{ color: "var(--hm-smoke)" }}
+        >
+          {description}
+        </p>
       )}
 
       {delta && (
