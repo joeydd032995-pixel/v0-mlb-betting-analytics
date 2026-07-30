@@ -19,7 +19,12 @@ export function PnLChart({ predictions }: Props) {
 
   if (completed.length === 0) {
     return (
-      <Panel title="Cumulative P/L" chip="Flat stake">
+      <Panel
+        title="Cumulative P/L"
+        chip="Flat stake"
+        description={HISTORY_COPY.pnlChart.description}
+        info={HISTORY_COPY.pnlChart.disclaimer}
+      >
         <div className="py-8 text-center">
           <p className="font-jet text-[11px] text-ds-muted">
             No priced bets in this window. P/L needs a settled prediction that stored an odds

@@ -64,7 +64,10 @@ function VersionCard({
     return (
       <div className={cn("rounded-md border p-3 text-xs", accentClass)}>
         {header}
-        <p className="mt-1 text-muted-foreground">No completed predictions on this version yet.</p>
+        {/* The description belongs here too — a version with no rows yet is
+            exactly when a reader needs to know what the card would show. */}
+        <p className="mt-1 mb-2 text-muted-foreground">{copy.description}</p>
+        <p className="text-muted-foreground">No completed predictions on this version yet.</p>
       </div>
     )
   }

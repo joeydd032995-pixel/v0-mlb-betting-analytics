@@ -29,7 +29,11 @@ export function InfoTip({ text, label = "What this doesn't show", className }: I
           type="button"
           aria-label={label}
           className={cn(
-            "inline-flex shrink-0 translate-y-[1px] items-center justify-center rounded-full",
+            // 24px hit area for touch and WCAG 2.2 target size. The negative
+            // vertical margin keeps the taller box from growing card headers;
+            // horizontal padding is left alone so the box never overlaps the
+            // title text beside it.
+            "inline-flex size-6 -my-1.5 shrink-0 translate-y-[1px] items-center justify-center rounded-full",
             "text-muted-foreground/60 transition-colors hover:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             className,

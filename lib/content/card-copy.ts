@@ -164,9 +164,15 @@ export const INSIGHTS_COPY = {
 // /accuracy
 // ---------------------------------------------------------------------------
 
-/** Repeated across the tiles that all read from the same scoped population. */
+/**
+ * Repeated across the tiles that all read from the same scoped population.
+ *
+ * The 2,000-row cap is applied server-side to account-stored predictions only;
+ * predictions saved in this browser are merged on top of that capped set, so
+ * the wording must not claim a flat 2,000-row ceiling on everything.
+ */
 const SCOPED_POPULATION =
-  "Covers only the selected period, and only the 2,000 most recently created predictions — so 'All Time' is a window, not the full archive."
+  "Covers only the selected period. Of the predictions stored on your account, only the 2,000 most recently created are loaded — so even 'All Time' is a window rather than the full archive — with anything saved in this browser merged on top."
 
 const SYSTEM_ROWS =
   "Includes the system-wide slate written by the nightly agent and the historical backfill, not just predictions you saved yourself."
@@ -186,8 +192,7 @@ export const ACCURACY_COPY = {
   },
   kpiHighConfPnl: {
     description: "Hypothetical result of backing every top-tier pick at one flat unit.",
-    disclaimer:
-      "Not real money and not your bet history — see Bets and Bankroll for actual wagers. Only predictions that captured an odds snapshot count, and backfilled predictions never carry odds, so this covers far fewer picks than the accuracy tile beside it. Odds are the price at prediction time, not closing line, and no vig, stake sizing or bankroll growth is modelled.",
+    disclaimer: `Not real money and not your bet history — see Bets and Bankroll for actual wagers. Only predictions that captured an odds snapshot count, and backfilled predictions never carry odds, so this covers far fewer picks than the accuracy tile beside it. Odds are the price at prediction time, not closing line, and no vig, stake sizing or bankroll growth is modelled. ${SCOPED_POPULATION}`,
   },
 
   perModelAccuracy: {
@@ -283,7 +288,7 @@ export const ACCURACY_COPY = {
 // ---------------------------------------------------------------------------
 
 const HISTORY_SCOPE =
-  "Covers the selected period — which starts at the last 90 days, not all time — and only the 2,000 most recently created predictions. Signed-out visitors see only what this browser saved locally."
+  "Covers the selected period, which defaults to the last 90 days — switch to All Time to widen it. Of the predictions stored on your account, only the 2,000 most recently created are loaded, with anything saved in this browser merged on top. Signed out, you see only what this browser saved locally."
 
 export const HISTORY_COPY = {
   kpiTracked: {
@@ -296,8 +301,7 @@ export const HISTORY_COPY = {
   },
   kpiHighConfPnl: {
     description: "Hypothetical return from backing every top-tier pick at one flat unit.",
-    disclaimer:
-      "Not real money and not the Bets ledger. Only predictions with a stored odds snapshot count, and predictions saved to your account never carry odds — so this figure comes almost entirely from picks captured live in this browser. No vig, stake sizing or closing-line movement is modelled.",
+    disclaimer: `Not real money and not the Bets ledger. Only predictions with a stored odds snapshot count, and predictions saved to your account never carry odds — so this figure comes almost entirely from picks captured live in this browser. No vig, stake sizing or closing-line movement is modelled. ${HISTORY_SCOPE}`,
   },
   kpiNrfi: {
     description: "Hit rate on the predictions where the engine called NRFI.",
