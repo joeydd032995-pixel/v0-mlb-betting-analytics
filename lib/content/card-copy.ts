@@ -169,10 +169,12 @@ export const INSIGHTS_COPY = {
  *
  * The 2,000-row cap is applied server-side to account-stored predictions only;
  * predictions saved in this browser are merged on top of that capped set, so
- * the wording must not claim a flat 2,000-row ceiling on everything.
+ * the wording must not claim a flat 2,000-row ceiling on everything. The cap
+ * takes the most recent 2,000 by GAME DATE — it used to be by insertion time,
+ * which let a backfill evict recent games.
  */
 const SCOPED_POPULATION =
-  "Covers only the selected period. Of the predictions stored on your account, only the 2,000 most recently created are loaded — so even 'All Time' is a window rather than the full archive — with anything saved in this browser merged on top."
+  "Covers only the selected period. Of the predictions stored on your account, only the 2,000 most recent by game date are loaded — so even 'All Time' is a window rather than the full archive — with anything saved in this browser merged on top."
 
 const SYSTEM_ROWS =
   "Includes the system-wide slate written by the nightly agent and the historical backfill, not just predictions you saved yourself."
@@ -180,7 +182,7 @@ const SYSTEM_ROWS =
 export const ACCURACY_COPY = {
   kpiOverall: {
     description: "How often the called side matched the first-inning result.",
-    disclaimer: `Scored predictions only — pending ones are not in the denominator. ${SYSTEM_ROWS} Backtested rows are pooled in with live ones and are not separated out. ${SCOPED_POPULATION}`,
+    disclaimer: `Scored predictions only — pending ones are not in the denominator. ${SYSTEM_ROWS} Backtested rows are pooled in with live ones and are not separated out; because they run on neutral weather and no odds they score close to the league base rate, so they dilute this number rather than inflate it. ${SCOPED_POPULATION}`,
   },
   kpiNrfi: {
     description: "Hit rate on the predictions where the engine called NRFI.",
@@ -206,7 +208,7 @@ export const ACCURACY_COPY = {
     // The clamp caveat stays in the visible footnote below the chart, where the
     // real clamp range can be interpolated rather than hard-coded here.
     disclaimer:
-      "Bands holding fewer than five settled predictions are dropped rather than drawn, so sparse tails vanish silently. Backtested predictions are pooled in with live ones and drag the curve toward the league base rate. This chart shows agreement between stated and observed rates only — Brier score and log loss are not plotted here.",
+      "Bands holding fewer than five settled predictions are dropped rather than drawn, so sparse tails vanish silently. The end bands are empty mainly because the final step blends the model 76/24 with the league average, which pulls every probability toward the middle — the output clamp barely binds on top of that. Backtested predictions are pooled in with live ones and drag the curve further toward the base rate, diluting it rather than flattering it. This chart shows agreement between stated and observed rates only — Brier score and log loss are not plotted here.",
   },
 
   overviewOverall: {
@@ -224,7 +226,7 @@ export const ACCURACY_COPY = {
   overviewPending: {
     description: "Predictions still waiting on a first-inning result.",
     disclaimer:
-      "Pending means no result has been recorded — which can equally mean the game has not been played or that the result sync has not run for it yet. The two are not distinguished anywhere in the app.",
+      "Pending means no result has been recorded yet — usually because the game has not finished. Results are attached by the nightly sync, so a game that ends late may stay pending until the next run. The two cases are not distinguished here.",
   },
 
   byPredictionType: {
@@ -288,7 +290,7 @@ export const ACCURACY_COPY = {
 // ---------------------------------------------------------------------------
 
 const HISTORY_SCOPE =
-  "Covers the selected period, which defaults to the last 90 days — switch to All Time to widen it. Of the predictions stored on your account, only the 2,000 most recently created are loaded, with anything saved in this browser merged on top. Signed out, you see only what this browser saved locally."
+  "Covers the selected period, which defaults to the last 90 days — switch to All Time to widen it. Of the predictions stored on your account, only the 2,000 most recent by game date are loaded, with anything saved in this browser merged on top. Signed out, you see only what this browser saved locally."
 
 export const HISTORY_COPY = {
   kpiTracked: {
@@ -297,7 +299,7 @@ export const HISTORY_COPY = {
   },
   kpiCorrect: {
     description: "How often the called side matched the first-inning result.",
-    disclaimer: `Settled predictions only. Backtested rows are pooled with live ones — backtests use point-in-time stats but synthetic weather and no odds, which pulls accuracy toward the league base rate. ${HISTORY_SCOPE}`,
+    disclaimer: `Settled predictions only. Backtested rows are pooled with live ones — backtests use point-in-time stats but synthetic weather and no odds, which pulls accuracy toward the league base rate. The effect is dilution, not inflation: a corpus dominated by backtests understates genuine live skill. ${HISTORY_SCOPE}`,
   },
   kpiHighConfPnl: {
     description: "Hypothetical return from backing every top-tier pick at one flat unit.",
@@ -344,7 +346,7 @@ export const HISTORY_COPY = {
   pendingResults: {
     description: "Predictions still waiting on a first-inning result.",
     disclaimer:
-      "These do not settle themselves from this page. Results for predictions you saved in this browser are filled in when you visit the dashboard; system-wide predictions are settled by the nightly sync, which only revisits the current and previous month. Record Result works on predictions saved to your own account and has no effect on system-wide rows.",
+      "These do not settle themselves from this page. The nightly sync attaches results to every prediction whose game has finished, whatever its date, so these should clear on their own once the games are final. Results for predictions saved in this browser are also filled in when you visit the dashboard. Record Result writes to predictions saved on your own account; on a system-wide prediction it updates this device only.",
   },
   completedPredictions: {
     description: "Every settled prediction in the window, with the call, the result and the price.",

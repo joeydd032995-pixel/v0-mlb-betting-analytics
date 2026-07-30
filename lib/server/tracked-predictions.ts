@@ -1,15 +1,47 @@
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { computeProfitLoss, type TrackedPrediction } from "@/lib/prediction-store"
 
 /**
  * Hard cap on rows pulled into the accuracy/history surfaces.
  *
- * Rows are taken newest-created first, so once the table grows past this the
+ * Rows are taken by most recent GAME DATE, so once the table grows past this the
  * pages are looking at a window rather than the whole corpus.  `totalAvailable`
  * is returned alongside so the UI can say so out loud instead of silently
  * presenting a truncated population as complete.
+ *
+ * Ordering by game date rather than `createdAt` matters: `createdAt` is
+ * insertion wall-clock, so a historical backfill run stamps thousands of
+ * old-season rows with today's timestamp and used to evict every recent live
+ * prediction from this window — while the client then filters by game date, so
+ * the selected period could come back arbitrarily sparse.  `date` is also
+ * indexed, which `createdAt` is not.
  */
 export const TRACKED_PREDICTION_CAP = 2000
+
+/**
+ * Exactly the columns `toTrackedPrediction` reads.
+ *
+ * Without this the query pulled every column — including the `deepNrfiTopFeatures`,
+ * `monteCarloDistribution` and `inputsPresence` JSON blobs, none of which are
+ * mapped — and the whole set is serialized into the page's RSC payload.
+ * `modelBreakdown` has to stay: it still carries the ZIP/Bayesian diagnostics
+ * and `modelInputs`.
+ */
+const TRACKED_SELECT = {
+  id: true, date: true,
+  homeTeam: true, awayTeam: true,
+  homePitcher: true, awayPitcher: true,
+  nrfiProbability: true, prediction: true,
+  confidence: true, confidenceScore: true,
+  nrfiOdds: true, yrfiOdds: true,
+  poissonNrfi: true, zipNrfi: true, markovNrfi: true,
+  mapreNrfi: true, ensembleNrfi: true, modelConsensus: true,
+  logisticMetaNrfi: true, nnInteractionNrfi: true, hierarchicalBayesNrfi: true,
+  modelBreakdown: true,
+  status: true, createdAt: true, backtested: true,
+  actualResult: true, correct: true,
+} satisfies Prisma.ModelPredictionSelect
 
 export interface LoadedTrackedPredictions {
   rows: TrackedPrediction[]
@@ -46,7 +78,9 @@ export async function loadDbTrackedPredictions(
   const [rows, totalAvailable] = await Promise.all([
     prisma.modelPrediction.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      select: TRACKED_SELECT,
+      // Game date, not insertion time — see TRACKED_PREDICTION_CAP above.
+      orderBy: { date: "desc" },
       take: TRACKED_PREDICTION_CAP,
     }),
     prisma.modelPrediction.count({ where }),
@@ -59,9 +93,7 @@ export async function loadDbTrackedPredictions(
   }
 }
 
-type ModelPredictionRow = Awaited<
-  ReturnType<typeof prisma.modelPrediction.findMany>
->[number]
+type ModelPredictionRow = Prisma.ModelPredictionGetPayload<{ select: typeof TRACKED_SELECT }>
 
 function toTrackedPrediction(r: ModelPredictionRow): TrackedPrediction {
   const breakdown = r.modelBreakdown as Record<string, number> | null

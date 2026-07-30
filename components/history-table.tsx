@@ -784,12 +784,12 @@ export function HistoryTable({ predictions, accuracy, onRecordResult, onDelete, 
       {/* ── Pending results ── */}
       {pending.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          {/* This page does not settle anything on load. Predictions saved in this
-              browser are scored when you visit the dashboard; system-wide ones are
-              scored by the nightly sync. */}
-          Pending games do not settle from this page. Predictions saved in this browser are
-          scored from the MLB Stats API next time you open the dashboard, and system-wide
-          predictions are scored by the nightly sync — or you can enter runs manually below.
+          {/* This page does not settle anything on load. The nightly cron now
+              sweeps every pending row regardless of date; the dashboard visit
+              only updates this browser's copy. */}
+          Pending games do not settle from this page. The nightly sync attaches results once
+          each game is final, and predictions saved in this browser are also scored next time
+          you open the dashboard — or you can enter runs manually below.
         </p>
       )}
       <PendingSection pending={pending} onRecordResult={onRecordResult} onDelete={onDelete} />

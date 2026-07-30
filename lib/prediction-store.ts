@@ -218,7 +218,24 @@ function isValidTrackedPrediction(p: unknown): p is TrackedPrediction {
 
 // ─── CRUD helpers ─────────────────────────────────────────────────────────────
 
-/** Threshold used to classify a prediction as NRFI vs YRFI */
+/**
+ * Threshold used to classify a prediction as NRFI vs YRFI.
+ *
+ * Deliberately NOT the same as `NRFI_CALL_THRESHOLD` (0.52) in lib/nrfi-engine.ts.
+ * The two answer different questions and are both correct:
+ *
+ *   0.50 (here)  — which side the model leaned, stored as `prediction` and used
+ *                  as the ground-truth comparison for `correct`. Every game gets
+ *                  a label, because accuracy needs a call on all of them.
+ *   0.52 (engine) — whether the lean is strong enough to surface as a
+ *                  recommendation. Games between the two fall into TOSS_UP.
+ *
+ * So a game at nrfiProbability 0.51 is stored as `prediction: "NRFI"` while its
+ * displayed recommendation is TOSS_UP. That is intended, not a mismatch — but it
+ * does mean per-model accuracy is scored at a slightly looser bar than the one
+ * the recommendation ladder uses. Changing either value re-labels historical
+ * rows and moves every accuracy figure on the site.
+ */
 export const NRFI_PREDICTION_THRESHOLD = 0.5
 
 /**

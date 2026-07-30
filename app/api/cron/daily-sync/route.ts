@@ -3,7 +3,9 @@
  *
  * Vercel Cron job — runs daily at 09:00 UTC (05:00 ET).
  * Syncs the current month's completed games (and the previous month
- * for the first 3 days of each month to catch any late-arriving games).
+ * for the first 3 days of each month to catch any late-arriving games),
+ * then settles every pending prediction it can find a result for — including
+ * ones outside the synced months, which the fan-out alone would never reach.
  *
  * Protected by CRON_SECRET — Vercel injects:
  *   Authorization: Bearer <CRON_SECRET>
@@ -15,32 +17,15 @@
  */
 
 import { NextResponse } from "next/server"
+import { checkCronAuth } from "@/lib/server/cron-auth"
+import { settlePendingPredictions } from "@/lib/server/settle-predictions"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
 export async function GET(request: Request) {
-  const cronSecret  = process.env.CRON_SECRET
-  const authHeader  = request.headers.get("authorization")
-
-  if (process.env.NODE_ENV === "production") {
-    if (!cronSecret) {
-      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 })
-    }
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  } else {
-    // In development: require Authorization: Bearer <CRON_SECRET> or "dev".
-    // Prevents accidental production DB writes when .env.local points at prod.
-    const devToken = cronSecret ?? "dev"
-    if (authHeader !== `Bearer ${devToken}`) {
-      return NextResponse.json(
-        { error: "Dev cron requires Authorization: Bearer <CRON_SECRET or 'dev'>" },
-        { status: 401 }
-      )
-    }
-  }
+  const denied = checkCronAuth(request)
+  if (denied) return denied
 
   // Resolve current date in ET
   const etDate  = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
@@ -90,11 +75,27 @@ export async function GET(request: Request) {
     }
   }
 
+  // Settle AFTER the fan-out, so rows historical-sync just created get scored in
+  // the same run. This reaches every pending prediction regardless of month,
+  // which the fan-out above deliberately does not — it only ever asks for the
+  // current month. Called in-process rather than over HTTP to avoid a second
+  // baseUrl/token round trip.
+  let settled: unknown
+  try {
+    settled = await settlePendingPredictions()
+  } catch (err) {
+    allOk = false
+    settled = { error: String(err) }
+  }
+
   const ranAtEt = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     dateStyle: "short",
     timeStyle: "medium",
   }).format(new Date())
 
-  return NextResponse.json({ ok: allOk, ran: ranAtEt, synced: results }, { status: allOk ? 200 : 502 })
+  return NextResponse.json(
+    { ok: allOk, ran: ranAtEt, synced: results, settled },
+    { status: allOk ? 200 : 502 }
+  )
 }
