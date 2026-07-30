@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils"
+import { InfoTip } from "@/components/diamond/InfoTip"
 
 type AccentVariant = "diamond" | "grass" | "blood" | "gold" | "none"
 
@@ -16,9 +17,15 @@ interface PanelProps {
   title?: string
   chip?: string
   accent?: AccentVariant
+  /** One line on what this panel shows, rendered under the title. */
+  description?: string
+  /** What it does not cover — shown on hover/focus of an ⓘ beside the title. */
+  info?: string
 }
 
-export function Panel({ children, className, title, chip, accent = "diamond" }: PanelProps) {
+export function Panel({
+  children, className, title, chip, accent = "diamond", description, info,
+}: PanelProps) {
   const topColor = ACCENT_COLOR[accent]
   return (
     <div
@@ -38,12 +45,13 @@ export function Panel({ children, className, title, chip, accent = "diamond" }: 
       />
 
       {title && (
-        <div className="flex items-center justify-between gap-2 mb-[14px]">
+        <div className={cn("flex items-center justify-between gap-2", description ? "mb-[6px]" : "mb-[14px]")}>
           <h3
-            className="font-mono uppercase tracking-[0.24em]"
+            className="flex items-center gap-1 font-mono uppercase tracking-[0.24em]"
             style={{ fontSize: "10px", color: "var(--hm-smoke)" }}
           >
             {title}
+            {info && <InfoTip text={info} />}
           </h3>
           {chip && (
             <span
@@ -59,6 +67,14 @@ export function Panel({ children, className, title, chip, accent = "diamond" }: 
             </span>
           )}
         </div>
+      )}
+      {description && (
+        <p
+          className="font-mono text-[10px] leading-relaxed mb-[14px]"
+          style={{ color: "var(--hm-smoke)" }}
+        >
+          {description}
+        </p>
       )}
       {children}
     </div>

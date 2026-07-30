@@ -6,6 +6,7 @@ import {
   LineChart, Line, ReferenceLine, Legend,
 } from "recharts"
 import { Panel } from "@/components/diamond/Panel"
+import { ACCURACY_COPY } from "@/lib/content/card-copy"
 import type { ExtendedModelAccuracy } from "@/lib/prediction-store"
 
 interface Props {
@@ -61,7 +62,12 @@ export function AccuracyCharts({ accuracy, clampRange, leagueBaseline }: Props) 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       {/* Per-model accuracy bar chart */}
-      <Panel title="Per-Model Accuracy" chip="% correct">
+      <Panel
+        title="Per-Model Accuracy"
+        chip="% correct"
+        description={ACCURACY_COPY.perModelAccuracy.description}
+        info={ACCURACY_COPY.perModelAccuracy.disclaimer}
+      >
         {perModelData.length === 0 ? (
           <p className="font-jet text-[11px] text-ds-muted py-4 text-center">
             No tracked predictions with results yet.
@@ -137,7 +143,12 @@ export function AccuracyCharts({ accuracy, clampRange, leagueBaseline }: Props) 
       </Panel>
 
       {/* Reliability / calibration diagram */}
-      <Panel title="Calibration Curve" chip="Predicted vs Actual">
+      <Panel
+        title="Calibration Curve"
+        chip="Predicted vs Actual"
+        description={ACCURACY_COPY.calibrationCurve.description}
+        info={ACCURACY_COPY.calibrationCurve.disclaimer}
+      >
         {perfectCal.length === 0 ? (
           <p className="font-jet text-[11px] text-ds-muted py-4 text-center">
             Not enough settled predictions yet to plot calibration (need ≥ 5 per probability bin).
@@ -193,7 +204,6 @@ export function AccuracyCharts({ accuracy, clampRange, leagueBaseline }: Props) 
         </div>
         )}
         <p className="font-jet text-[9px] text-ds-dim mt-2">
-          Observed first-inning NRFI rate per predicted-probability decile (≥ 5 settled predictions each).
           A well-calibrated model tracks the dashed diagonal. Engine output is clamped to{" "}
           {(clampRange[0] * 100).toFixed(0)}–{(clampRange[1] * 100).toFixed(0)}%, so bins outside that
           range can never populate — the curve is truncated by design, not by sample size.

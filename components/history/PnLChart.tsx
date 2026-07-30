@@ -4,6 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts"
 import { Panel } from "@/components/diamond/Panel"
+import { HISTORY_COPY } from "@/lib/content/card-copy"
 import type { TrackedPrediction } from "@/lib/prediction-store"
 
 interface Props {
@@ -60,7 +61,12 @@ export function PnLChart({ predictions }: Props) {
   }
 
   return (
-    <Panel title="Cumulative P/L" chip={`${completed.length} priced bets`}>
+    <Panel
+      title="Cumulative P/L"
+      chip={`${completed.length} priced bets`}
+      description={HISTORY_COPY.pnlChart.description}
+      info={HISTORY_COPY.pnlChart.disclaimer}
+    >
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="font-jet text-[9px] uppercase tracking-[0.2em] text-ds-muted">Net P/L</div>
@@ -122,9 +128,7 @@ export function PnLChart({ predictions }: Props) {
         </ResponsiveContainer>
       </div>
       <p className="font-jet text-[9px] text-ds-dim mt-2">
-        Flat 1-unit stake on every settled prediction that carried an odds snapshot — all
-        confidence tiers, not just high-confidence. Settled predictions without stored odds
-        are excluded entirely. Priced at the recorded line; does not account for vig.
+        Priced at the recorded line, not the closing line, and does not account for vig.
       </p>
     </Panel>
   )

@@ -8,6 +8,7 @@ import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { MethodologyPanel } from "@/components/diamond/MethodologyPanel"
 import { PeriodChips } from "@/components/diamond/PeriodChips"
 import { filterByPeriod, periodRange, formatPeriodRange } from "@/lib/utils/date-et"
+import { ACCURACY_COPY } from "@/lib/content/card-copy"
 import {
   loadTrackedPredictions,
   mergeTrackedPredictions,
@@ -76,18 +77,24 @@ export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap, clampRa
           // pending ones included, which is not this figure's denominator.
           delta={`${accuracy.correct} of ${settled} settled`}
           variant="cy"
+          description={ACCURACY_COPY.kpiOverall.description}
+          info={ACCURACY_COPY.kpiOverall.disclaimer}
         />
         <KpiCard
           metric="NRFI Pick Accuracy"
           value={accuracy.nrfiTotal > 0 ? `${((accuracy.nrfiCorrect / accuracy.nrfiTotal) * 100).toFixed(1)}%` : "—"}
           delta={`${accuracy.nrfiTotal} NRFI picks`}
           variant="gr"
+          description={ACCURACY_COPY.kpiNrfi.description}
+          info={ACCURACY_COPY.kpiNrfi.disclaimer}
         />
         <KpiCard
           metric="High-Conf Accuracy"
           value={accuracy.highConfTotal > 0 ? `${((accuracy.highConfCorrect / accuracy.highConfTotal) * 100).toFixed(1)}%` : "—"}
           delta={`${accuracy.highConfTotal} predictions`}
           variant="bl"
+          description={ACCURACY_COPY.kpiHighConf.description}
+          info={ACCURACY_COPY.kpiHighConf.disclaimer}
         />
         <KpiCard
           metric="High-Conf P/L"
@@ -99,6 +106,8 @@ export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap, clampRa
           delta={`${accuracy.highConfPricedCount} priced of ${accuracy.highConfTotal}`}
           deltaPositive={accuracy.highConfPricedCount > 0 ? accuracy.highConfPnL >= 0 : undefined}
           variant="cy"
+          description={ACCURACY_COPY.kpiHighConfPnl.description}
+          info={ACCURACY_COPY.kpiHighConfPnl.disclaimer}
         />
       </div>
 
@@ -137,6 +146,8 @@ export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap, clampRa
           "Backtested predictions use point-in-time pitcher and team stats but synthetic month-average weather and no odds. That pushes their accuracy toward the raw league NRFI rate, so a corpus dominated by them understates genuine live prediction skill.",
           "Predictions without an odds snapshot contribute to accuracy but not to P/L or ROI, which is why those denominators are smaller.",
           "Confidence tiers are frozen at the time each prediction was written. Rows scored under an earlier threshold are pooled with current ones.",
+          "Predictions saved in this browser are stored per-device, so opening this page in another browser can give different totals.",
+          "The ensemble version comparison further down reads every prediction stored system-wide and ignores the period selection above, so its counts will not reconcile with the rest of this page.",
           ...(truncated
             ? [`Showing the ${dbCap.toLocaleString()} most recently created of ${dbTotalAvailable.toLocaleString()} stored predictions. Older ones are not counted in any figure on this page.`]
             : []),
