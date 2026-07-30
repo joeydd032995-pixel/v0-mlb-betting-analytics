@@ -167,14 +167,16 @@ export const INSIGHTS_COPY = {
 /**
  * Repeated across the tiles that all read from the same scoped population.
  *
- * The 2,000-row cap is applied server-side to account-stored predictions only;
- * predictions saved in this browser are merged on top of that capped set, so
- * the wording must not claim a flat 2,000-row ceiling on everything. The cap
- * takes the most recent 2,000 by GAME DATE — it used to be by insertion time,
- * which let a backfill evict recent games.
+ * The 2,000-row cap is applied server-side to DATABASE rows — which is your own
+ * saved predictions and the system-wide slate together, since the query is
+ * `OR: [{ userId }, { userId: null }]`. Predictions saved in this browser are
+ * merged on top of that capped set and are not subject to it, so the wording
+ * must not claim a flat 2,000-row ceiling on everything. The cap takes the most
+ * recent 2,000 by GAME DATE — it used to be by insertion time, which let a
+ * backfill evict recent games.
  */
 const SCOPED_POPULATION =
-  "Covers only the selected period. Of the predictions stored on your account, only the 2,000 most recent by game date are loaded — so even 'All Time' is a window rather than the full archive — with anything saved in this browser merged on top."
+  "Covers only the selected period. Of the predictions stored in the database — yours and the system-wide slate together — only the 2,000 most recent by game date are loaded, so even 'All Time' is a window rather than the full archive. Anything saved in this browser is merged on top and isn't subject to that limit."
 
 const SYSTEM_ROWS =
   "Includes the system-wide slate written by the nightly agent and the historical backfill, not just predictions you saved yourself."
@@ -226,7 +228,7 @@ export const ACCURACY_COPY = {
   overviewPending: {
     description: "Predictions still waiting on a first-inning result.",
     disclaimer:
-      "Pending means no result has been recorded yet — usually because the game has not finished. Results are attached by the nightly sync, so a game that ends late may stay pending until the next run. The two cases are not distinguished here.",
+      "Pending means no result has been recorded yet. That can mean the game has not finished, or that it finished after the nightly sync last ran — this tile does not distinguish the two, so a pending count above zero is not by itself a sign anything is wrong.",
   },
 
   byPredictionType: {
@@ -290,7 +292,7 @@ export const ACCURACY_COPY = {
 // ---------------------------------------------------------------------------
 
 const HISTORY_SCOPE =
-  "Covers the selected period, which defaults to the last 90 days — switch to All Time to widen it. Of the predictions stored on your account, only the 2,000 most recent by game date are loaded, with anything saved in this browser merged on top. Signed out, you see only what this browser saved locally."
+  "Covers the selected period, which defaults to the last 90 days — switch to All Time to widen it. Of the predictions stored in the database — yours and the system-wide slate together — only the 2,000 most recent by game date are loaded, with anything saved in this browser merged on top and not subject to that limit. Signed out, you see only what this browser saved locally."
 
 export const HISTORY_COPY = {
   kpiTracked: {

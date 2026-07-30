@@ -80,7 +80,10 @@ export async function loadDbTrackedPredictions(
       where,
       select: TRACKED_SELECT,
       // Game date, not insertion time — see TRACKED_PREDICTION_CAP above.
-      orderBy: { date: "desc" },
+      // `date` is not unique, so `id` breaks ties: without it, which rows
+      // survive a cap boundary that lands mid-date is undefined, and the page
+      // could shift between requests with no underlying data change.
+      orderBy: [{ date: "desc" }, { id: "desc" }],
       take: TRACKED_PREDICTION_CAP,
     }),
     prisma.modelPrediction.count({ where }),

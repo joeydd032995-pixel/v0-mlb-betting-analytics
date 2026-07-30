@@ -57,6 +57,12 @@ export interface SettleReport {
    */
   deferred: number
   /**
+   * Rows whose `id` isn't a numeric gamePk, so there is nothing to join them to.
+   * Held separately because they can never resolve — counting them as
+   * `unresolved` would make that field grow forever and stop meaning anything.
+   */
+  invalidId: number
+  /**
    * Rows we looked for and genuinely could not resolve — the game isn't final,
    * or the API returned nothing for it. This is the only count worth alerting on.
    */
@@ -164,6 +170,7 @@ export async function settlePendingPredictions(
     gameResultsCreated: 0,
     notDue: 0,
     deferred: 0,
+    invalidId: 0,
     unresolved: 0,
     dryRun,
   }
@@ -195,7 +202,14 @@ export async function settlePendingPredictions(
 
   for (const p of due) {
     const pk = gamePkById.get(p.id)
-    const nrfi = pk != null ? knownNrfi.get(pk) : undefined
+    if (pk == null) {
+      // No gamePk to join on, and the id will never become numeric. Drop it here
+      // rather than letting it fall through to the API stage, where it would
+      // cost a wasted date fetch and inflate `unresolved` on every future run.
+      report.invalidId++
+      continue
+    }
+    const nrfi = knownNrfi.get(pk)
     if (nrfi === undefined) stillPending.push(p)
     else fromDb.push({ id: p.id, ...resolveSettlement(p.prediction, nrfi) })
   }
@@ -260,8 +274,8 @@ export async function settlePendingPredictions(
 
   const fromApi: Array<{ id: string; actualResult: "NRFI" | "YRFI"; correct: boolean }> = []
   for (const p of stillPending) {
-    const pk = gamePkById.get(p.id)
-    const nrfi = pk != null ? apiNrfi.get(pk) : undefined
+    // Every row here came through the guard above, so the gamePk is present.
+    const nrfi = apiNrfi.get(gamePkById.get(p.id)!)
     if (nrfi !== undefined) {
       fromApi.push({ id: p.id, ...resolveSettlement(p.prediction, nrfi) })
     } else if (deferredDates.has(p.date)) {

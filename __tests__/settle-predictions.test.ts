@@ -1,15 +1,32 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // The module imports prisma and the MLB API wrappers at load time. Stub both so
-// the scoring logic can be exercised as a pure unit — resolveSettlement is the
-// part worth locking down and it touches neither.
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+// the logic can be exercised as a unit.
+const findManyPredictions = vi.fn()
+const findManyGameResults = vi.fn()
+const updateMany = vi.fn()
+const createMany = vi.fn()
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    modelPrediction: {
+      findMany: (...args: unknown[]) => findManyPredictions(...args),
+      updateMany: (...args: unknown[]) => updateMany(...args),
+    },
+    gameResult: {
+      findMany: (...args: unknown[]) => findManyGameResults(...args),
+      createMany: (...args: unknown[]) => createMany(...args),
+    },
+  },
+}))
+
+const fetchGamesByDate = vi.fn()
 vi.mock("@/lib/api/mlb-stats", () => ({
-  fetchGamesByDate: vi.fn(),
+  fetchGamesByDate: (...args: unknown[]) => fetchGamesByDate(...args),
   fetchGameLinescore: vi.fn(),
 }))
 
-import { resolveSettlement } from "@/lib/server/settle-predictions"
+import { resolveSettlement, settlePendingPredictions } from "@/lib/server/settle-predictions"
 
 describe("resolveSettlement", () => {
   it("scores a correct NRFI call", () => {
@@ -54,5 +71,97 @@ describe("resolveSettlement", () => {
     for (const [prediction, nrfi, expected] of combos) {
       expect(resolveSettlement(prediction, nrfi).correct).toBe(expected)
     }
+  })
+})
+
+describe("settlePendingPredictions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    findManyGameResults.mockResolvedValue([])
+    updateMany.mockResolvedValue({ count: 0 })
+    createMany.mockResolvedValue({ count: 0 })
+    fetchGamesByDate.mockResolvedValue([])
+  })
+
+  it("counts a non-numeric id as invalidId, not unresolved", async () => {
+    // `unresolved` is the field documented as the one worth alerting on. A row
+    // whose id can never become a gamePk would otherwise land there on every
+    // run forever, making the number useless.
+    findManyPredictions.mockResolvedValue([
+      { id: "not-a-gamepk", prediction: "NRFI", date: "2020-05-01" },
+    ])
+
+    const report = await settlePendingPredictions()
+
+    expect(report.invalidId).toBe(1)
+    expect(report.unresolved).toBe(0)
+    expect(report.settledFromDb).toBe(0)
+  })
+
+  it("does not spend an MLB API call on a row it can never resolve", async () => {
+    findManyPredictions.mockResolvedValue([
+      { id: "abc", prediction: "NRFI", date: "2020-05-01" },
+    ])
+
+    await settlePendingPredictions()
+
+    expect(fetchGamesByDate).not.toHaveBeenCalled()
+  })
+
+  it("still reports a genuinely unresolved row with a valid id", async () => {
+    // Valid gamePk, no GameResult, and the API knows nothing about the date.
+    findManyPredictions.mockResolvedValue([
+      { id: "745804", prediction: "NRFI", date: "2020-05-01" },
+    ])
+
+    const report = await settlePendingPredictions()
+
+    expect(report.unresolved).toBe(1)
+    expect(report.invalidId).toBe(0)
+    expect(fetchGamesByDate).toHaveBeenCalledWith("2020-05-01")
+  })
+
+  it("settles from GameResult without touching the MLB API", async () => {
+    findManyPredictions.mockResolvedValue([
+      { id: "745804", prediction: "YRFI", date: "2020-05-01" },
+    ])
+    findManyGameResults.mockResolvedValue([{ gamePk: 745804, nrfi: false }])
+
+    const report = await settlePendingPredictions()
+
+    expect(report.settledFromDb).toBe(1)
+    expect(report.unresolved).toBe(0)
+    expect(fetchGamesByDate).not.toHaveBeenCalled()
+    // Only the three settlement fields may be written.
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["745804"] } },
+      data: { actualResult: "YRFI", correct: true, status: "complete" },
+    })
+  })
+
+  it("writes nothing in dryRun mode", async () => {
+    findManyPredictions.mockResolvedValue([
+      { id: "745804", prediction: "NRFI", date: "2020-05-01" },
+    ])
+    findManyGameResults.mockResolvedValue([{ gamePk: 745804, nrfi: true }])
+
+    const report = await settlePendingPredictions({ dryRun: true })
+
+    expect(report.settledFromDb).toBe(1)
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(createMany).not.toHaveBeenCalled()
+  })
+
+  it("treats a future-dated game as notDue rather than a failure", async () => {
+    const future = "2999-01-01"
+    findManyPredictions.mockResolvedValue([
+      { id: "745804", prediction: "NRFI", date: future },
+    ])
+
+    const report = await settlePendingPredictions()
+
+    expect(report.notDue).toBe(1)
+    expect(report.unresolved).toBe(0)
+    expect(report.invalidId).toBe(0)
   })
 })

@@ -69,13 +69,17 @@ export function HistoryClient({ dbPredictions, dbTotalAvailable, dbCap }: Props)
     // isn't yours — every system-wide prediction (`userId: null`) hits that path.
     // `.catch()` alone let those failures disappear, so the row silently stayed
     // pending with no indication anything had gone wrong.
+    //
+    // It has three failure modes though, and only one of them means "not yours":
+    // a genuine database error must not be reported as a fact about the data.
     recordResultAction(id, homeRuns, awayRuns)
       .then((res) => {
-        if (!res.ok) {
-          setActionError(
-            "Saved on this device only — this prediction isn't stored on your account, so the shared record wasn't updated. The nightly sync settles those automatically.",
-          )
-        }
+        if (res.ok) return
+        setActionError(
+          res.error === "Prediction not found in DB"
+            ? "Saved on this device only — this prediction isn't stored on your account, so the shared record wasn't updated. The nightly sync settles those automatically."
+            : "Saved on this device only — the server couldn't record the result. Please try again.",
+        )
       })
       .catch((err: unknown) => {
         console.error(err)
@@ -206,7 +210,7 @@ export function HistoryClient({ dbPredictions, dbTotalAvailable, dbCap }: Props)
           "Predictions stored on your account do not save an odds snapshot, so P/L comes almost entirely from picks captured live in this browser. Signed out, this page shows only what this browser saved.",
           "The backtested count only marks prior seasons. The nightly sync rebuilds the current season through the same degraded pipeline — month-average weather, no odds, no lineups — but those rows are not flagged as backtested.",
           ...(truncated
-            ? [`Showing the ${dbCap.toLocaleString()} most recent by game date of ${dbTotalAvailable.toLocaleString()} stored predictions. Older ones are not counted in any figure on this page.`]
+            ? [`Showing the ${dbCap.toLocaleString()} most recent by game date of ${dbTotalAvailable.toLocaleString()} predictions stored in the database. Older database rows are not counted in any figure on this page; predictions saved in this browser are unaffected.`]
             : []),
         ]}
       />

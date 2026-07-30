@@ -149,7 +149,7 @@ export function AccuracyClient({ dbPredictions, dbTotalAvailable, dbCap, clampRa
           "Predictions saved in this browser are stored per-device, so opening this page in another browser can give different totals.",
           "The ensemble version comparison further down reads every prediction stored system-wide and ignores the period selection above, so its counts will not reconcile with the rest of this page.",
           ...(truncated
-            ? [`Showing the ${dbCap.toLocaleString()} most recent by game date of ${dbTotalAvailable.toLocaleString()} stored predictions. Older ones are not counted in any figure on this page.`]
+            ? [`Showing the ${dbCap.toLocaleString()} most recent by game date of ${dbTotalAvailable.toLocaleString()} predictions stored in the database. Older database rows are not counted in any figure on this page; predictions saved in this browser are unaffected.`]
             : []),
         ]}
       />
