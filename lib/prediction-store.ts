@@ -218,7 +218,29 @@ function isValidTrackedPrediction(p: unknown): p is TrackedPrediction {
 
 // ─── CRUD helpers ─────────────────────────────────────────────────────────────
 
-/** Threshold used to classify a prediction as NRFI vs YRFI */
+/**
+ * Threshold used to classify a prediction as NRFI vs YRFI.
+ *
+ * Deliberately NOT the same as `NRFI_CALL_THRESHOLD` (0.52) in lib/nrfi-engine.ts.
+ * The two answer different questions and are both correct:
+ *
+ *   0.50 (here)  — which side the model leaned, stored as `prediction` and used
+ *                  as the ground-truth comparison for `correct`. Every game gets
+ *                  a label, because accuracy needs a call on all of them.
+ *   0.52 (engine) — whether the lean is strong enough to surface as a
+ *                  recommendation. Games between the two fall into TOSS_UP.
+ *
+ * So a game at nrfiProbability 0.51 is stored as `prediction: "NRFI"` while its
+ * displayed recommendation is TOSS_UP. That is intended, not a mismatch — but it
+ * does mean per-model accuracy is scored at a slightly looser bar than the one
+ * the recommendation ladder uses.
+ *
+ * Changing this value is not a purely forward-looking edit: `migrateThreshold`
+ * below re-labels stored predictions in *this browser* on next load. Rows in the
+ * database keep whatever label they were written with — there is no migration
+ * for them — so the two populations would disagree until every affected row was
+ * rewritten server-side.
+ */
 export const NRFI_PREDICTION_THRESHOLD = 0.5
 
 /**
@@ -227,14 +249,24 @@ export const NRFI_PREDICTION_THRESHOLD = 0.5
  * A record needs migration when nrfiProbability is in [0.34, 0.5) but is
  * stored as "NRFI", or nrfiProbability >= 0.5 but stored as "YRFI".
  * Returns the array unchanged (by reference) if no records need updating.
+ *
+ * Re-labelling the call also invalidates `correct`, which was scored against the
+ * old label — leaving it alone would produce a settled row claiming it predicted
+ * NRFI and got it right when the recorded result was YRFI.  Rows with no result
+ * yet keep `correct` undefined.
  */
 function migrateThreshold(predictions: TrackedPrediction[]): TrackedPrediction[] {
   let changed = false
   const migrated = predictions.map((p) => {
-    const correct: "NRFI" | "YRFI" = p.nrfiProbability >= NRFI_PREDICTION_THRESHOLD ? "NRFI" : "YRFI"
-    if (p.prediction === correct) return p
+    // The side the current threshold implies — not the `correct` boolean.
+    const side: "NRFI" | "YRFI" = p.nrfiProbability >= NRFI_PREDICTION_THRESHOLD ? "NRFI" : "YRFI"
+    if (p.prediction === side) return p
     changed = true
-    return { ...p, prediction: correct }
+    return {
+      ...p,
+      prediction: side,
+      correct: p.actualResult == null ? p.correct : p.actualResult === side,
+    }
   })
   return changed ? migrated : predictions
 }
