@@ -36,6 +36,12 @@ import { fetchGamesByDate, fetchGameLinescore } from "@/lib/api/mlb-stats"
 const ID_CHUNK = 500
 
 /**
+ * Detailed states that mean the game was never played, so no first inning will
+ * ever exist. The MLB API still reports these as abstract state "Final".
+ */
+const NEVER_PLAYED_STATES = new Set(["postponed", "cancelled", "canceled"])
+
+/**
  * Dates are only worth asking the MLB API about once. Cap how many we'll fetch
  * in a single pass so a large pending backlog can't blow the function's time
  * budget — the next run picks up where this one left off.
@@ -76,10 +82,10 @@ export interface SettleReport {
    * one of today's games sits here until the last out. Not a failure.
    */
   awaitingResult: number
-  /**
-   * The game is final but produced no first inning: postponed, cancelled, or
-   * otherwise never played. These can never settle, so they stay pending
-   * forever and are re-checked on every run. Not a failure either.
+   /**
+   * The schedule reports the game as postponed or cancelled, so it was never
+   * played and no first inning will ever exist. These can never settle, stay
+   * pending forever, and are re-checked on every run. Not a failure.
    */
   noResultPossible: number
   /**
@@ -276,10 +282,15 @@ export async function settlePendingPredictions(
       const game = finalGames[i]
       const firstInning = linescores[i]?.innings.find((inn) => inn.num === 1)
       if (!firstInning) {
-        // Final with no first inning means the game was never actually played —
-        // postponed or cancelled. Record it so the caller sees "can't settle"
-        // rather than "failed to settle".
-        noFirstInning.add(game.gamePk)
+        // Careful here: `fetchGameLinescore` returns null both for a game that
+        // has no innings AND for a transport failure, so the absence of a
+        // linescore cannot by itself tell "never played" from "couldn't reach
+        // the API". Trust the schedule's detailed state instead — it names
+        // postponements and cancellations explicitly — and let anything else
+        // fall through to `unresolved`, where a genuine anomaly belongs.
+        if (NEVER_PLAYED_STATES.has(game.status.detailedState.toLowerCase())) {
+          noFirstInning.add(game.gamePk)
+        }
         continue
       }
 

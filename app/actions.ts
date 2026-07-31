@@ -384,10 +384,11 @@ export async function savePredictionsToDBAction(
               logisticMetaNrfi:      p.logisticMetaNrfi ?? null,
               nnInteractionNrfi:     p.nnInteractionNrfi ?? null,
               hierarchicalBayesNrfi: p.hierarchicalBayesNrfi ?? null,
-              // The client payload carries the odds snapshot; it used to be
-              // dropped here, which is part of why no stored row had odds.
-              nrfiOdds:       p.nrfiOdds ?? null,
-              yrfiOdds:       p.yrfiOdds ?? null,
+              // Odds are deliberately NOT taken from the client payload. This
+              // upsert keys on the gamePk alone, so it can land on a shared
+              // `userId: null` row that everyone's accuracy figures read, and
+              // /api/backtest derives ROI from these columns. The nightly agent
+              // writes odds server-side; that is the trustworthy source.
               modelConsensus: p.modelConsensus,
               modelBreakdown,
               actualResult:   p.actualResult ?? null,
@@ -411,10 +412,9 @@ export async function savePredictionsToDBAction(
               ...(p.logisticMetaNrfi       != null ? { logisticMetaNrfi:       p.logisticMetaNrfi       } : {}),
               ...(p.nnInteractionNrfi      != null ? { nnInteractionNrfi:      p.nnInteractionNrfi      } : {}),
               ...(p.hierarchicalBayesNrfi  != null ? { hierarchicalBayesNrfi:  p.hierarchicalBayesNrfi  } : {}),
-              // Same reasoning for odds: absent means "this save has none", not
-              // "delete the snapshot the agent captured live".
-              ...(p.nrfiOdds               != null ? { nrfiOdds:               p.nrfiOdds               } : {}),
-              ...(p.yrfiOdds               != null ? { yrfiOdds:               p.yrfiOdds               } : {}),
+              // Odds omitted here for the same reason as the create branch: a
+              // client payload must not be able to rewrite the priced record a
+              // shared row carries.
               modelConsensus:  p.modelConsensus,
               modelBreakdown,
               actualResult:    p.actualResult ?? null,

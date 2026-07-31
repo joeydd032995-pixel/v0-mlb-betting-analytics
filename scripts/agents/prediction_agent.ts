@@ -85,10 +85,12 @@ interface Persisted {
   logisticMetaNrfi:       number | null
   nnInteractionNrfi:      number | null
   hierarchicalBayesNrfi:  number | null
-  // Odds snapshot at prediction time. This agent is the only writer that ever
-  // has live odds in hand — the historical backfill has none — so if these are
-  // dropped here, no row in the database has odds and P/L and ROI are computed
-  // over an empty set everywhere in the app.
+  // Odds snapshot captured server-side at prediction time. The historical
+  // backfill has no odds, and the client-facing save path deliberately does not
+  // write them, so in practice this is where priced rows come from. Without it
+  // the site's P/L and ROI — which need a real snapshot (`computeProfitLoss`
+  // returns undefined without one) — have nothing to work from. The offline
+  // backtest is unaffected either way; it substitutes -110 when odds are absent.
   nrfiOdds:        number | null
   yrfiOdds:        number | null
   modelBreakdown:  Json

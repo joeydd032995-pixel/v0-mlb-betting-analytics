@@ -28,10 +28,10 @@ vi.mock("@/lib/api/mlb-stats", () => ({
 }))
 
 /** Minimal MLB schedule entry. */
-function game(gamePk: number, abstractGameState: string) {
+function game(gamePk: number, abstractGameState: string, detailedState = abstractGameState) {
   return {
     gamePk,
-    status: { abstractGameState, detailedState: abstractGameState },
+    status: { abstractGameState, detailedState },
     teams: { home: { team: { name: "Home" } }, away: { team: { name: "Away" } } },
   }
 }
@@ -178,20 +178,36 @@ describe("settlePendingPredictions", () => {
     expect(report.noResultPossible).toBe(0)
   })
 
-  it("counts a final game with no first inning as noResultPossible", async () => {
-    // Postponed and cancelled games are 'Final' to the MLB API but were never
-    // played, so there is no NRFI/YRFI to record — ever.
+  it("counts a postponed game as noResultPossible", async () => {
+    // Postponed and cancelled games report abstract state 'Final' but were
+    // never played, so there is no NRFI/YRFI to record — ever.
     findManyPredictions.mockResolvedValue([
       { id: "745804", prediction: "NRFI", date: "2020-05-01" },
     ])
-    fetchGamesByDate.mockResolvedValue([game(745804, "Final")])
-    fetchGameLinescore.mockResolvedValue({ innings: [] })
+    fetchGamesByDate.mockResolvedValue([game(745804, "Final", "Postponed")])
+    fetchGameLinescore.mockResolvedValue(null)
 
     const report = await settlePendingPredictions()
 
     expect(report.noResultPossible).toBe(1)
     expect(report.unresolved).toBe(0)
     expect(report.settledFromApi).toBe(0)
+  })
+
+  it("does not mistake an unavailable linescore for a game that was never played", async () => {
+    // fetchGameLinescore returns null both for a game with no innings AND for a
+    // transport failure. A genuinely-final game whose linescore we couldn't
+    // fetch is an anomaly worth surfacing, not a permanent 'can't settle'.
+    findManyPredictions.mockResolvedValue([
+      { id: "745804", prediction: "NRFI", date: "2020-05-01" },
+    ])
+    fetchGamesByDate.mockResolvedValue([game(745804, "Final", "Final")])
+    fetchGameLinescore.mockResolvedValue(null)
+
+    const report = await settlePendingPredictions()
+
+    expect(report.unresolved).toBe(1)
+    expect(report.noResultPossible).toBe(0)
   })
 
   it("never settles an unfinished game from its placeholder linescore", async () => {
