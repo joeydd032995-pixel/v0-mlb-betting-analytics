@@ -21,11 +21,25 @@ const dbUrl =
  * client unable to connect at all.  Neon serves SQL over HTTPS, so this lets
  * scripts and one-off verification runs reach the same database from there.
  *
- * Off unless `PRISMA_NEON_HTTP=true`, so production and CI keep the pooled TCP
- * connection they have always used.  The HTTP driver does not support
- * interactive transactions — another reason not to make it the default.
+ * Off unless `PRISMA_NEON_HTTP=true`, and **refused outright in production**.
+ *
+ * That refusal is not caution for its own sake: the HTTP driver cannot run
+ * interactive transactions, and this app depends on them in a dozen places —
+ * `placeBetAction` and friends in app/actions.ts, plus the bets and bankroll
+ * routes, all use `prisma.$transaction(async (tx) => …)`.  Enabling this against
+ * a live deployment would break bet placement and bankroll writes at runtime.
+ * Making it structurally impossible beats documenting the hazard and hoping.
  */
-const useNeonHttp = process.env.PRISMA_NEON_HTTP === "true"
+const useNeonHttp =
+  process.env.PRISMA_NEON_HTTP === "true" && process.env.NODE_ENV !== "production"
+
+if (process.env.PRISMA_NEON_HTTP === "true" && process.env.NODE_ENV === "production") {
+  console.warn(
+    "[prisma] Ignoring PRISMA_NEON_HTTP in production — the Neon HTTP driver " +
+      "cannot run the interactive transactions this app relies on. Using the " +
+      "standard pooled connection instead."
+  )
+}
 
 function createClient(): PrismaClient {
   const log: ("error" | "warn")[] =
