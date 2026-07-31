@@ -85,6 +85,12 @@ interface Persisted {
   logisticMetaNrfi:       number | null
   nnInteractionNrfi:      number | null
   hierarchicalBayesNrfi:  number | null
+  // Odds snapshot at prediction time. This agent is the only writer that ever
+  // has live odds in hand — the historical backfill has none — so if these are
+  // dropped here, no row in the database has odds and P/L and ROI are computed
+  // over an empty set everywhere in the app.
+  nrfiOdds:        number | null
+  yrfiOdds:        number | null
   modelBreakdown:  Json
   modelConsensus:  number
   ensembleVersion: "v1.7models" | "v2.9models"
@@ -125,6 +131,8 @@ function buildRow(
     logisticMetaNrfi:      tracked.logisticMetaNrfi ?? null,
     nnInteractionNrfi:     tracked.nnInteractionNrfi ?? null,
     hierarchicalBayesNrfi: tracked.hierarchicalBayesNrfi ?? null,
+    nrfiOdds:        tracked.nrfiOdds ?? null,
+    yrfiOdds:        tracked.yrfiOdds ?? null,
     modelBreakdown:  (pred.modelBreakdown ?? Prisma.JsonNull) as Json,
     modelConsensus:  tracked.modelConsensus,
     ensembleVersion: pred.ensembleVersion ?? "v1.7models",
@@ -154,6 +162,12 @@ async function upsertPrediction(row: Persisted): Promise<void> {
       logisticMetaNrfi:      row.logisticMetaNrfi,
       nnInteractionNrfi:     row.nnInteractionNrfi,
       hierarchicalBayesNrfi: row.hierarchicalBayesNrfi,
+      // Only overwrite odds when this run actually captured some. The agent
+      // reruns through the day; an early run before the book posts a line has
+      // no odds, and a later one does — but the reverse is also possible, and
+      // writing null then would discard a snapshot we can never recover.
+      ...(row.nrfiOdds != null && { nrfiOdds: row.nrfiOdds }),
+      ...(row.yrfiOdds != null && { yrfiOdds: row.yrfiOdds }),
       modelBreakdown:  row.modelBreakdown,
       modelConsensus:  row.modelConsensus,
       ensembleVersion: row.ensembleVersion,

@@ -228,7 +228,7 @@ export const ACCURACY_COPY = {
   overviewPending: {
     description: "Predictions still waiting on a first-inning result.",
     disclaimer:
-      "Pending means no result has been recorded yet. That can mean the game has not finished, or that it finished after the nightly sync last ran — this tile does not distinguish the two, so a pending count above zero is not by itself a sign anything is wrong.",
+      "Pending means no result has been recorded yet. Usually the game has not finished, or it finished after the nightly sync last ran. A handful never resolve at all — a postponed or cancelled game has no first inning to score, so it stays pending permanently. A pending count above zero is not by itself a sign anything is wrong.",
   },
 
   byPredictionType: {
@@ -348,7 +348,7 @@ export const HISTORY_COPY = {
   pendingResults: {
     description: "Predictions still waiting on a first-inning result.",
     disclaimer:
-      "These do not settle themselves from this page. The nightly sync attaches results to every prediction whose game has finished, whatever its date, so these should clear on their own once the games are final. Results for predictions saved in this browser are also filled in when you visit the dashboard. Record Result writes to predictions saved on your own account; on a system-wide prediction it updates this device only.",
+      "These do not settle themselves from this page. The nightly sync attaches results to every prediction whose game has finished, whatever its date, so most clear on their own. Postponed and cancelled games are the exception — they never produce a first inning, so there is nothing to score and they stay here permanently. Results for predictions saved in this browser are also filled in when you visit the dashboard. Record Result writes to predictions saved on your own account; on a system-wide prediction it updates this device only.",
   },
   completedPredictions: {
     description: "Every settled prediction in the window, with the call, the result and the price.",

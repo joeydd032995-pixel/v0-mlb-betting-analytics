@@ -384,6 +384,10 @@ export async function savePredictionsToDBAction(
               logisticMetaNrfi:      p.logisticMetaNrfi ?? null,
               nnInteractionNrfi:     p.nnInteractionNrfi ?? null,
               hierarchicalBayesNrfi: p.hierarchicalBayesNrfi ?? null,
+              // The client payload carries the odds snapshot; it used to be
+              // dropped here, which is part of why no stored row had odds.
+              nrfiOdds:       p.nrfiOdds ?? null,
+              yrfiOdds:       p.yrfiOdds ?? null,
               modelConsensus: p.modelConsensus,
               modelBreakdown,
               actualResult:   p.actualResult ?? null,
@@ -407,6 +411,10 @@ export async function savePredictionsToDBAction(
               ...(p.logisticMetaNrfi       != null ? { logisticMetaNrfi:       p.logisticMetaNrfi       } : {}),
               ...(p.nnInteractionNrfi      != null ? { nnInteractionNrfi:      p.nnInteractionNrfi      } : {}),
               ...(p.hierarchicalBayesNrfi  != null ? { hierarchicalBayesNrfi:  p.hierarchicalBayesNrfi  } : {}),
+              // Same reasoning for odds: absent means "this save has none", not
+              // "delete the snapshot the agent captured live".
+              ...(p.nrfiOdds               != null ? { nrfiOdds:               p.nrfiOdds               } : {}),
+              ...(p.yrfiOdds               != null ? { yrfiOdds:               p.yrfiOdds               } : {}),
               modelConsensus:  p.modelConsensus,
               modelBreakdown,
               actualResult:    p.actualResult ?? null,
