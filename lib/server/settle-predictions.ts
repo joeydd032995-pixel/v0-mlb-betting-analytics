@@ -20,12 +20,26 @@
 // else. `GameResult.gamePk` is the same MLB gamePk as `ModelPrediction.id`, a
 // join `app/api/backtest/route.ts` already relies on; this is the first thing to
 // write it back.
+//
+// A note on the report: some pending rows can never settle. Postponed and
+// cancelled games are "final" to the MLB API but have no first inning, so there
+// is no NRFI/YRFI to record — production currently holds about ten of them,
+// going back to 2024. They are counted as `noResultPossible`, stay pending, and
+// are re-checked on every run; that repeated check is the deliberate cost of not
+// writing a terminal status onto them. Do not read a non-zero
+// `noResultPossible` as a fault.
 
 import { prisma } from "@/lib/prisma"
 import { fetchGamesByDate, fetchGameLinescore } from "@/lib/api/mlb-stats"
 
 /** Chunk size for `IN (...)` lookups, to keep query parameter counts sane. */
 const ID_CHUNK = 500
+
+/**
+ * Detailed states that mean the game was never played, so no first inning will
+ * ever exist. The MLB API still reports these as abstract state "Final".
+ */
+const NEVER_PLAYED_STATES = new Set(["postponed", "cancelled", "canceled"])
 
 /**
  * Dates are only worth asking the MLB API about once. Cap how many we'll fetch
@@ -60,11 +74,23 @@ export interface SettleReport {
    * Rows whose `id` isn't a numeric gamePk, so there is nothing to join them to.
    * Held separately because they can never resolve — counting them as
    * `unresolved` would make that field grow forever and stop meaning anything.
+   * Zero in production today; this is defensive.
    */
   invalidId: number
   /**
-   * Rows we looked for and genuinely could not resolve — the game isn't final,
-   * or the API returned nothing for it. This is the only count worth alerting on.
+   * The game is on the schedule but hasn't finished. Entirely normal — every
+   * one of today's games sits here until the last out. Not a failure.
+   */
+  awaitingResult: number
+   /**
+   * The schedule reports the game as postponed or cancelled, so it was never
+   * played and no first inning will ever exist. These can never settle, stay
+   * pending forever, and are re-checked on every run. Not a failure.
+   */
+  noResultPossible: number
+  /**
+   * Final, expected to resolve, and didn't. The only genuinely anomalous count,
+   * and the only one worth alerting on.
    */
   unresolved: number
   dryRun: boolean
@@ -171,6 +197,8 @@ export async function settlePendingPredictions(
     notDue: 0,
     deferred: 0,
     invalidId: 0,
+    awaitingResult: 0,
+    noResultPossible: 0,
     unresolved: 0,
     dryRun,
   }
@@ -230,10 +258,21 @@ export async function settlePendingPredictions(
     homeRuns: number; awayRuns: number; nrfi: boolean
   }> = []
 
+  /** gamePk → whether the MLB schedule says the game has finished. */
+  const isFinalByPk = new Map<number, boolean>()
+  /** Final games whose linescore has no first inning — postponed, cancelled. */
+  const noFirstInning = new Set<number>()
+
   for (const date of datesNeedingApi) {
     const games = await fetchGamesByDate(date)
+    for (const g of games) {
+      isFinalByPk.set(g.gamePk, g.status.abstractGameState.toLowerCase() === "final")
+    }
+
     // Conservative on purpose: only a genuinely final game has a settled first
-    // inning. This matches the filter historical-sync applies.
+    // inning. This matches the filter historical-sync applies — and it is
+    // load-bearing, because a Preview/Pre-Game linescore reports a placeholder
+    // first inning of 0-0 that would otherwise settle unplayed games as NRFI.
     const finalGames = games.filter((g) => g.status.abstractGameState.toLowerCase() === "final")
     if (finalGames.length === 0) continue
 
@@ -242,7 +281,18 @@ export async function settlePendingPredictions(
     for (let i = 0; i < finalGames.length; i++) {
       const game = finalGames[i]
       const firstInning = linescores[i]?.innings.find((inn) => inn.num === 1)
-      if (!firstInning) continue
+      if (!firstInning) {
+        // Careful here: `fetchGameLinescore` returns null both for a game that
+        // has no innings AND for a transport failure, so the absence of a
+        // linescore cannot by itself tell "never played" from "couldn't reach
+        // the API". Trust the schedule's detailed state instead — it names
+        // postponements and cancellations explicitly — and let anything else
+        // fall through to `unresolved`, where a genuine anomaly belongs.
+        if (NEVER_PLAYED_STATES.has(game.status.detailedState.toLowerCase())) {
+          noFirstInning.add(game.gamePk)
+        }
+        continue
+      }
 
       const homeRuns = firstInning.home.runs ?? 0
       const awayRuns = firstInning.away.runs ?? 0
@@ -269,19 +319,34 @@ export async function settlePendingPredictions(
     })
     report.gameResultsCreated = created.count
   } else if (dryRun) {
+    // Candidates, not the post-dedup total: `skipDuplicates` would drop any that
+    // already exist, so a live run reports the same number or fewer. Note this
+    // covers every final game on the dates fetched, not just those with a
+    // pending prediction — that is the point, it heals the ground-truth gap
+    // historical-sync's date-level skip leaves behind.
     report.gameResultsCreated = gameResultRows.length
   }
 
   const fromApi: Array<{ id: string; actualResult: "NRFI" | "YRFI"; correct: boolean }> = []
   for (const p of stillPending) {
     // Every row here came through the guard above, so the gamePk is present.
-    const nrfi = apiNrfi.get(gamePkById.get(p.id)!)
+    const pk = gamePkById.get(p.id)!
+    const nrfi = apiNrfi.get(pk)
+
     if (nrfi !== undefined) {
       fromApi.push({ id: p.id, ...resolveSettlement(p.prediction, nrfi) })
     } else if (deferredDates.has(p.date)) {
       // We never asked about this date — don't report it as a failure.
       report.deferred++
+    } else if (noFirstInning.has(pk)) {
+      report.noResultPossible++
+    } else if (isFinalByPk.get(pk) === false) {
+      // On the schedule, just not finished. The overwhelmingly common case for
+      // anything dated today.
+      report.awaitingResult++
     } else {
+      // Final (or absent from the schedule entirely) and still no result — the
+      // genuinely surprising case.
       report.unresolved++
     }
   }

@@ -1,5 +1,8 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Enables the optional Neon HTTP driver in lib/prisma.ts, used only when
+  // PRISMA_NEON_HTTP=true. The default TCP path is unaffected by this flag.
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {

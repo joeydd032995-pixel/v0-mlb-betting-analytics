@@ -424,8 +424,12 @@ export async function GET(request: Request) {
             logisticMetaNrfi:      tracked.logisticMetaNrfi ?? null,
             nnInteractionNrfi:     tracked.nnInteractionNrfi ?? null,
             hierarchicalBayesNrfi: tracked.hierarchicalBayesNrfi ?? null,
-            nrfiOdds:        tracked.nrfiOdds ?? null,
-            yrfiOdds:        tracked.yrfiOdds ?? null,
+            // Deliberately NOT writing odds here. `buildLightGame` always sets
+            // `odds: undefined`, so `tracked.nrfiOdds ?? null` was unconditionally
+            // null — meaning a re-sync over a date would wipe the odds snapshot
+            // the nightly agent captured live. Omitting the keys leaves any
+            // stored value alone, matching how the nullable model columns are
+            // handled in app/actions.ts.
             modelConsensus:  tracked.modelConsensus,
             inputsPresence,
             ...(actualResult !== undefined

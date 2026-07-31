@@ -85,6 +85,14 @@ interface Persisted {
   logisticMetaNrfi:       number | null
   nnInteractionNrfi:      number | null
   hierarchicalBayesNrfi:  number | null
+  // Odds snapshot captured server-side at prediction time. The historical
+  // backfill has no odds, and the client-facing save path deliberately does not
+  // write them, so in practice this is where priced rows come from. Without it
+  // the site's P/L and ROI — which need a real snapshot (`computeProfitLoss`
+  // returns undefined without one) — have nothing to work from. The offline
+  // backtest is unaffected either way; it substitutes -110 when odds are absent.
+  nrfiOdds:        number | null
+  yrfiOdds:        number | null
   modelBreakdown:  Json
   modelConsensus:  number
   ensembleVersion: "v1.7models" | "v2.9models"
@@ -125,6 +133,8 @@ function buildRow(
     logisticMetaNrfi:      tracked.logisticMetaNrfi ?? null,
     nnInteractionNrfi:     tracked.nnInteractionNrfi ?? null,
     hierarchicalBayesNrfi: tracked.hierarchicalBayesNrfi ?? null,
+    nrfiOdds:        tracked.nrfiOdds ?? null,
+    yrfiOdds:        tracked.yrfiOdds ?? null,
     modelBreakdown:  (pred.modelBreakdown ?? Prisma.JsonNull) as Json,
     modelConsensus:  tracked.modelConsensus,
     ensembleVersion: pred.ensembleVersion ?? "v1.7models",
@@ -154,6 +164,12 @@ async function upsertPrediction(row: Persisted): Promise<void> {
       logisticMetaNrfi:      row.logisticMetaNrfi,
       nnInteractionNrfi:     row.nnInteractionNrfi,
       hierarchicalBayesNrfi: row.hierarchicalBayesNrfi,
+      // Only overwrite odds when this run actually captured some. The agent
+      // reruns through the day; an early run before the book posts a line has
+      // no odds, and a later one does — but the reverse is also possible, and
+      // writing null then would discard a snapshot we can never recover.
+      ...(row.nrfiOdds != null && { nrfiOdds: row.nrfiOdds }),
+      ...(row.yrfiOdds != null && { yrfiOdds: row.yrfiOdds }),
       modelBreakdown:  row.modelBreakdown,
       modelConsensus:  row.modelConsensus,
       ensembleVersion: row.ensembleVersion,

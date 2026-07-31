@@ -384,6 +384,11 @@ export async function savePredictionsToDBAction(
               logisticMetaNrfi:      p.logisticMetaNrfi ?? null,
               nnInteractionNrfi:     p.nnInteractionNrfi ?? null,
               hierarchicalBayesNrfi: p.hierarchicalBayesNrfi ?? null,
+              // Odds are deliberately NOT taken from the client payload. This
+              // upsert keys on the gamePk alone, so it can land on a shared
+              // `userId: null` row that everyone's accuracy figures read, and
+              // /api/backtest derives ROI from these columns. The nightly agent
+              // writes odds server-side; that is the trustworthy source.
               modelConsensus: p.modelConsensus,
               modelBreakdown,
               actualResult:   p.actualResult ?? null,
@@ -407,6 +412,9 @@ export async function savePredictionsToDBAction(
               ...(p.logisticMetaNrfi       != null ? { logisticMetaNrfi:       p.logisticMetaNrfi       } : {}),
               ...(p.nnInteractionNrfi      != null ? { nnInteractionNrfi:      p.nnInteractionNrfi      } : {}),
               ...(p.hierarchicalBayesNrfi  != null ? { hierarchicalBayesNrfi:  p.hierarchicalBayesNrfi  } : {}),
+              // Odds omitted here for the same reason as the create branch: a
+              // client payload must not be able to rewrite the priced record a
+              // shared row carries.
               modelConsensus:  p.modelConsensus,
               modelBreakdown,
               actualResult:    p.actualResult ?? null,
