@@ -12,9 +12,14 @@
   --hm-fence:   #2a2a2a;
   --hm-warning: #383838;
 
-  /* ── Typography ── */
+  /* ── Typography ──
+     Four ink tiers, each measured against --hm-abyss (#0a0a0a):
+       chalk 18.00:1 · mist 7.63:1 · ash 4.65:1 · smoke 2.90:1
+     `smoke` fails WCAG AA and is therefore decorative-only (rules, dividers,
+     disabled glyphs). `ash` is the dimmest tone legal for text. */
   --hm-chalk:   #f0f4ff;
   --hm-mist:    #a0a0a8;
+  --hm-ash:     #7a7a82;
   --hm-smoke:   #5a5a62;
 
   /* ── Signal accents ── */
@@ -33,6 +38,9 @@
   --font-headline: 'Bebas Neue', 'Barlow Condensed', sans-serif;
   --font-ui:       'Barlow Condensed', system-ui, sans-serif;
   --font-mono:     'DM Mono', ui-monospace, monospace;
+  /* Read at runtime by Recharts `fontFamily` in 36 places. Distinct from the
+     `.font-jet` utility class below, which also sets tabular-nums. */
+  --font-jet:      var(--font-mono);
 
   /* ── shadcn/ui compat aliases ── */
   --background:             var(--hm-abyss);
@@ -46,7 +54,7 @@
   --secondary:              var(--hm-dugout);
   --secondary-foreground:   var(--hm-chalk);
   --muted:                  var(--hm-pitch);
-  --muted-foreground:       var(--hm-smoke);
+  --muted-foreground:       var(--hm-ash);
   --accent:                 var(--hm-dugout);
   --accent-foreground:      var(--hm-diamond);
   --destructive:            var(--hm-blood);
@@ -68,15 +76,104 @@
   --ds-panel-2: var(--hm-dugout);
   --ds-ink:     var(--hm-chalk);
   --ds-ink-2:   var(--hm-mist);
-  --ds-muted:   var(--hm-smoke);
-  --ds-dim:     var(--hm-smoke);
+  --ds-fg:      var(--hm-chalk);
+  --ds-muted:   var(--hm-ash);
+  --ds-dim:     var(--hm-ash);
   --ds-line:    var(--hm-fence);
   --ds-cy:      var(--hm-diamond);
   --ds-gr:      var(--hm-grass);
+  --ds-gr-2:    var(--hm-grass2);
   --ds-warn:    var(--hm-gold);
   --ds-bad:     var(--hm-blood);
   --ds-bl:      #5c8bff;
   --ds-tl:      #00bcd4;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Tailwind v4 theme bridge.
+
+   Tailwind v4 generates colour/radius utilities ONLY from a @theme block.
+   Without this, every `text-muted-foreground`, `border-ds-line`, `bg-card`,
+   etc. compiled to zero CSS — ~1,400 usages across app/ and components/.
+   That is why the app relied on inline `style={{ var(--hm-*) }}` in 66 files.
+
+   `inline` keeps the generated utilities pointing at the source variables
+   above rather than snapshotting their values, so retheming stays a one-file
+   change.
+
+   Fonts are deliberately NOT mapped here: globals.css hand-writes
+   .font-mono / .font-display / .font-ui / .font-headline / .font-metric /
+   .font-jet as unlayered classes, and theme-generated utilities would
+   collide with them by name.
+   ────────────────────────────────────────────────────────────────────────── */
+@theme inline {
+  /* shadcn/ui semantic layer */
+  --color-background:          var(--background);
+  --color-foreground:          var(--foreground);
+  --color-card:                var(--card);
+  --color-card-foreground:     var(--card-foreground);
+  --color-popover:             var(--popover);
+  --color-popover-foreground:  var(--popover-foreground);
+  --color-primary:             var(--primary);
+  --color-primary-foreground:  var(--primary-foreground);
+  --color-secondary:           var(--secondary);
+  --color-secondary-foreground:var(--secondary-foreground);
+  --color-muted:               var(--muted);
+  --color-muted-foreground:    var(--muted-foreground);
+  --color-accent:              var(--accent);
+  --color-accent-foreground:   var(--accent-foreground);
+  --color-destructive:         var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border:              var(--border);
+  --color-input:               var(--input);
+  --color-ring:                var(--ring);
+  --color-chart-1:             var(--chart-1);
+  --color-chart-2:             var(--chart-2);
+  --color-chart-3:             var(--chart-3);
+  --color-chart-4:             var(--chart-4);
+  --color-chart-5:             var(--chart-5);
+
+  /* Brand layer — hm-* */
+  --color-hm-void:    var(--hm-void);
+  --color-hm-abyss:   var(--hm-abyss);
+  --color-hm-pitch:   var(--hm-pitch);
+  --color-hm-dugout:  var(--hm-dugout);
+  --color-hm-fence:   var(--hm-fence);
+  --color-hm-chalk:   var(--hm-chalk);
+  --color-hm-mist:    var(--hm-mist);
+  --color-hm-ash:     var(--hm-ash);
+  --color-hm-smoke:   var(--hm-smoke);
+  --color-hm-diamond: var(--hm-diamond);
+  --color-hm-grass:   var(--hm-grass);
+  --color-hm-blood:   var(--hm-blood);
+  --color-hm-gold:    var(--hm-gold);
+  --color-hm-slate:   var(--hm-slate);
+
+  /* Legacy layer — ds-*. Deprecated in favour of hm-*; kept live because
+     components/ensemble/ and components/diamond/ still reference it. */
+  --color-ds-bg:      var(--ds-bg);
+  --color-ds-bg-2:    var(--ds-bg-2);
+  --color-ds-panel:   var(--ds-panel);
+  --color-ds-panel-2: var(--ds-panel-2);
+  --color-ds-ink:     var(--ds-ink);
+  --color-ds-ink-2:   var(--ds-ink-2);
+  --color-ds-fg:      var(--ds-fg);
+  --color-ds-muted:   var(--ds-muted);
+  --color-ds-dim:     var(--ds-dim);
+  --color-ds-line:    var(--ds-line);
+  --color-ds-cy:      var(--ds-cy);
+  --color-ds-gr:      var(--ds-gr);
+  --color-ds-gr-2:    var(--ds-gr-2);
+  --color-ds-warn:    var(--ds-warn);
+  --color-ds-bad:     var(--ds-bad);
+  --color-ds-bl:      var(--ds-bl);
+  --color-ds-tl:      var(--ds-tl);
+
+  /* Radius scale — derived from --radius, which previously derived nothing */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 body {
