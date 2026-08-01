@@ -13,13 +13,27 @@
   --hm-warning: #383838;
 
   /* ── Typography ──
-     Four ink tiers, each measured against --hm-abyss (#0a0a0a):
-       chalk 18.00:1 · mist 7.63:1 · ash 4.65:1 · smoke 2.90:1
-     `smoke` fails WCAG AA and is therefore decorative-only (rules, dividers,
-     disabled glyphs). `ash` is the dimmest tone legal for text. */
+     Four ink tiers. Contrast is measured against all three surfaces text can
+     land on, not just the page ground — muted text mostly renders on cards:
+
+                 abyss #0a0a0a   pitch #141414   dugout #1c1c1c
+       chalk        18.00:1        16.75:1         15.49:1
+       mist          7.63:1         7.10:1          6.56:1
+       ash           5.78:1         5.38:1          4.98:1
+       smoke         2.90:1         2.70:1          2.49:1
+
+     `ash` is the dimmest tone that clears WCAG AA (4.5:1) on every surface, so
+     it is the floor for body and label text. AA on dark cards necessarily
+     compresses this ramp: a dimmer text tier is not available at #1c1c1c.
+
+     `smoke` clears no surface and is not safe for text. It is still used that
+     way in `.hm-section-label` and `.ds-nav-pill` below, and at ~68 inline
+     sites (e.g. components/nav-drawer.tsx) — migrating those is follow-up work
+     and is NOT done here. Treat smoke as decorative (rules, dividers) in new
+     code. */
   --hm-chalk:   #f0f4ff;
   --hm-mist:    #a0a0a8;
-  --hm-ash:     #7a7a82;
+  --hm-ash:     #8a8a92;
   --hm-smoke:   #5a5a62;
 
   /* ── Signal accents ── */
