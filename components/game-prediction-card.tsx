@@ -77,74 +77,85 @@ function ArcGauge({ probability, id }: { probability: number; id: string }) {
   const fillGrad   = isNrfi ? `url(#${id}-grad-nrfi)` : `url(#${id}-grad-yrfi)`
   const textColor  = isNrfi ? "var(--hm-grass)" : "var(--hm-blood)"
   const labelText  = isNrfi ? "NRFI" : "YRFI"
+  // Hero number mirrors the arc's own gradient pair (diamond->grass / gold->blood)
+  // and horizontal sweep, so it reads as sampled from the arc rather than lit separately.
+  const heroGrad = isNrfi
+    ? "linear-gradient(90deg, var(--hm-diamond) 0%, var(--hm-grass) 82%)"
+    : "linear-gradient(90deg, var(--hm-gold) 0%, var(--hm-blood) 82%)"
+  const heroGlow = isNrfi ? "rgba(0,230,118,.42)" : "rgba(255,23,68,.42)"
 
   return (
-    <svg
-      viewBox={`0 0 ${VW} ${VH}`}
-      className="w-[100px] sm:w-[130px] flex-shrink-0"
-      style={{ overflow: "hidden" }}
-    >
-      <defs>
-        <linearGradient id={`${id}-grad-nrfi`} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="var(--hm-diamond)" />
-          <stop offset="100%" stopColor="var(--hm-grass)" />
-        </linearGradient>
-        <linearGradient id={`${id}-grad-yrfi`} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="var(--hm-gold)" />
-          <stop offset="100%" stopColor="var(--hm-blood)" />
-        </linearGradient>
-        <filter id={`${id}-glow`}>
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-
-      {/* Track */}
-      <path d={trackPath} fill="none" stroke={trackColor} strokeWidth="7" strokeLinecap="round" />
-
-      {/* Fill arc */}
-      <path
-        d={fillPath}
-        fill="none"
-        stroke={fillGrad}
-        strokeWidth="7"
-        strokeLinecap="round"
-        filter={`url(#${id}-glow)`}
-      />
-
-      {/* Percentage */}
-      <text
-        x={ARC_CX} y={ARC_CY + 5}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fontFamily="'Bebas Neue', sans-serif"
-        fontSize="28"
-        fill={textColor}
-        letterSpacing="0.5"
+    <div className="relative w-[100px] sm:w-[130px] flex-shrink-0">
+      <svg
+        viewBox={`0 0 ${VW} ${VH}`}
+        className="block w-full"
+        style={{ overflow: "hidden" }}
       >
-        {pctVal}%
-      </text>
+        <defs>
+          <linearGradient id={`${id}-grad-nrfi`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="var(--hm-diamond)" />
+            <stop offset="100%" stopColor="var(--hm-grass)" />
+          </linearGradient>
+          <linearGradient id={`${id}-grad-yrfi`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="var(--hm-gold)" />
+            <stop offset="100%" stopColor="var(--hm-blood)" />
+          </linearGradient>
+          <filter id={`${id}-glow`}>
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-      {/* NRFI / YRFI label */}
-      <text
-        x={ARC_CX} y={ARC_CY + 22}
-        textAnchor="middle"
-        fontFamily="'DM Mono', monospace"
-        fontSize="8"
-        fill={textColor}
-        letterSpacing="2"
-        opacity="0.85"
+        {/* Track */}
+        <path d={trackPath} fill="none" stroke={trackColor} strokeWidth="7" strokeLinecap="round" />
+
+        {/* Fill arc */}
+        <path
+          d={fillPath}
+          fill="none"
+          stroke={fillGrad}
+          strokeWidth="7"
+          strokeLinecap="round"
+          filter={`url(#${id}-glow)`}
+        />
+
+        {/* Axis labels */}
+        <text x={14} y={VH - 3} textAnchor="middle" fontFamily="'DM Mono', monospace" fontSize="7" fill="var(--hm-smoke)">YRFI</text>
+        <text x={VW - 14} y={VH - 3} textAnchor="middle" fontFamily="'DM Mono', monospace" fontSize="7" fill="var(--hm-smoke)">NRFI</text>
+      </svg>
+
+      {/* Hero number — lifted out of the SVG so the spec-locked arc geometry above is untouched */}
+      <div
+        className="absolute flex flex-col items-center pointer-events-none"
+        style={{ left: "50%", top: `${(ARC_CY / VH) * 100}%`, transform: "translate(-50%, -50%)" }}
       >
-        {labelText}
-      </text>
-
-      {/* Axis labels */}
-      <text x={14} y={VH - 3} textAnchor="middle" fontFamily="'DM Mono', monospace" fontSize="7" fill="var(--hm-smoke)">YRFI</text>
-      <text x={VW - 14} y={VH - 3} textAnchor="middle" fontFamily="'DM Mono', monospace" fontSize="7" fill="var(--hm-smoke)">NRFI</text>
-    </svg>
+        <span
+          className="font-headline"
+          style={{
+            fontSize: "42px",
+            lineHeight: 0.9,
+            letterSpacing: "0.01em",
+            fontVariantNumeric: "tabular-nums",
+            backgroundImage: heroGrad,
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            color: "transparent",
+            filter: `drop-shadow(0 0 5px ${heroGlow}) drop-shadow(0 1px 0 rgba(0,0,0,.9))`,
+          }}
+        >
+          {pctVal}%
+        </span>
+        <span
+          className="font-mono uppercase"
+          style={{ fontSize: "9px", letterSpacing: "0.3em", marginTop: "2px", color: textColor }}
+        >
+          {labelText}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -158,26 +169,26 @@ const REC_CFG: Record<NRFIPrediction["recommendation"], { label: string; color: 
 }
 
 function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] }) {
-  const cfg = REC_CFG[rec]
-  return (
-    <span
-      className="inline-flex items-center rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.1em] uppercase"
-      style={{ fontSize: "10px", color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }}
-    >
-      {cfg.label}
-    </span>
-  )
+  if (rec === "TOSS_UP") {
+    const cfg = REC_CFG.TOSS_UP
+    return (
+      <span
+        className="inline-flex items-center rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.1em] uppercase"
+        style={{ fontSize: "10px", color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }}
+      >
+        {cfg.label}
+      </span>
+    )
+  }
+  const isNrfi = rec === "STRONG_NRFI" || rec === "LEAN_NRFI"
+  return <span className={isNrfi ? "hm-stamp" : "hm-stamp-bad"}>{REC_CFG[rec].label}</span>
 }
 
 function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
   const color = level === "High" ? "var(--hm-gold)" : level === "Medium" ? "var(--hm-diamond)" : "var(--hm-smoke)"
-  const bg    = level === "High" ? "rgba(255,214,0,.08)"  : level === "Medium" ? "rgba(0,229,255,.08)" : "rgba(96,125,139,.08)"
-  const bdr   = level === "High" ? "rgba(255,214,0,.35)"  : level === "Medium" ? "rgba(0,229,255,.3)"  : "rgba(96,125,139,.3)"
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
-      style={{ fontSize: "9px", color, background: bg, border: `1px solid ${bdr}` }}
-    >
+    <span className="hm-ghost">
+      <span className="hm-ghost-dot" style={{ background: color }} />
       {level} <span style={{ opacity: 0.7 }}>{score}</span>
     </span>
   )
@@ -188,16 +199,16 @@ function ProbabilityBar({ nrfi }: { nrfi: number }) {
   const nrfiPct = Math.round(nrfi * 100)
   return (
     <div className="w-full">
-      <div className="flex h-2 overflow-hidden rounded-[2px]">
-        <div
-          className="transition-all duration-500"
-          style={{ width: `${nrfiPct}%`, background: "var(--hm-grass)" }}
-        />
-        <div className="flex-1 transition-all duration-500" style={{ background: "var(--hm-blood)" }} />
+      <div
+        className="hm-pbar-stamp flex h-2 overflow-hidden rounded-[2px]"
+        style={{ boxShadow: "0 1px 3px -1px rgba(0,0,0,.9) inset" }}
+      >
+        <div className="hm-pbar-g transition-all duration-500" style={{ width: `${nrfiPct}%` }} />
+        <div className="hm-pbar-r flex-1 transition-all duration-500" />
       </div>
       <div className="mt-1 flex justify-between">
-        <span className="font-mono tracking-[0.08em]" style={{ fontSize: "9px", color: "var(--hm-grass)" }}>NRFI {nrfiPct}%</span>
-        <span className="font-mono tracking-[0.08em]" style={{ fontSize: "9px", color: "var(--hm-blood)" }}>YRFI {100 - nrfiPct}%</span>
+        <span className="font-mono tracking-[0.14em]" style={{ fontSize: "9px", color: "var(--hm-grass)" }}>NRFI {nrfiPct}%</span>
+        <span className="font-mono tracking-[0.14em]" style={{ fontSize: "9px", color: "var(--hm-blood)" }}>YRFI {100 - nrfiPct}%</span>
       </div>
     </div>
   )
@@ -258,13 +269,13 @@ function WeatherBadge({ game }: { game: Game }) {
   const w = game.weather
   if (w.conditions === "dome") {
     return (
-      <span className="flex items-center gap-1 font-mono tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+      <span className="flex items-center gap-1 font-mono tracking-[0.14em]" style={{ fontSize: "9px", color: "var(--hm-mist)" }}>
         <Building2 size={11} /> DOME
       </span>
     )
   }
   return (
-    <span className="flex items-center gap-1 font-mono tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+    <span className="flex items-center gap-1 font-mono tracking-[0.14em]" style={{ fontSize: "9px", color: "var(--hm-mist)" }}>
       <Thermometer size={11} />
       {w.temperature}°F
       {w.windSpeed > 3 && (
@@ -281,14 +292,31 @@ function consensusLabel(score: number) {
   return               { label: "Models Diverge", color: "var(--hm-blood)",  bg: "rgba(255,23,68,.07)",  bdr: "rgba(255,23,68,.3)" }
 }
 
-function ModelConsensusBadge({ consensus }: { consensus: number }) {
-  const c = consensusLabel(consensus)
+/** Per-model P(NRFI) for every active model — 4 base + up to 3 conditional meta-models. */
+function getModelProbabilities(bd: ModelBreakdown): number[] {
+  const hh = bd.homeHalfInning
+  const ah = bd.awayHalfInning
+  const probs = [
+    hh.poissonNrfi * ah.poissonNrfi,
+    hh.zipNrfi * ah.zipNrfi,
+    hh.markovNrfi * ah.markovNrfi,
+    bd.mapreNrfi ?? hh.mapreNrfi * ah.mapreNrfi,
+  ]
+  if (hh.logisticMetaNrfi != null && ah.logisticMetaNrfi != null) probs.push(hh.logisticMetaNrfi * ah.logisticMetaNrfi)
+  if (hh.nnInteractionNrfi != null && ah.nnInteractionNrfi != null) probs.push(hh.nnInteractionNrfi * ah.nnInteractionNrfi)
+  if (hh.hierarchicalBayesNrfi != null && ah.hierarchicalBayesNrfi != null) probs.push(hh.hierarchicalBayesNrfi * ah.hierarchicalBayesNrfi)
+  return probs
+}
+
+function ModelConsensusBadge({ bd }: { bd: ModelBreakdown }) {
+  const probs = getModelProbabilities(bd)
+  const total = probs.length
+  const nrfiCount = probs.filter((p) => p >= 0.5).length
+  const majorityIsNrfi = nrfiCount >= total - nrfiCount
+  const agreeCount = majorityIsNrfi ? nrfiCount : total - nrfiCount
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
-      style={{ fontSize: "9px", color: c.color, background: c.bg, border: `1px solid ${c.bdr}` }}
-    >
-      <BrainCircuit size={10} />{c.label}
+    <span className={majorityIsNrfi ? "hm-stamp" : "hm-stamp-bad"}>
+      <BrainCircuit size={10} />{agreeCount} / {total} Models
     </span>
   )
 }
@@ -446,13 +474,7 @@ export function GamePredictionCard({
     : (isNrfiFavored ? "var(--hm-grass)" : rec === "TOSS_UP" ? "var(--hm-smoke)" : "var(--hm-blood)")
 
   return (
-    <div
-      className="flex flex-col overflow-hidden rounded-[14px] relative"
-      style={{
-        background: "linear-gradient(160deg, var(--hm-pitch) 0%, var(--hm-void) 100%)",
-        border: "1px solid var(--hm-fence)",
-      }}
-    >
+    <div className="hm-panel-lift flex flex-col overflow-hidden relative">
       {/* Top accent stripe */}
       <div aria-hidden style={{ height: "2px", background: stripeColor, opacity: 0.75 }} />
 
@@ -479,15 +501,15 @@ export function GamePredictionCard({
         {/* Away team */}
         <div className="flex flex-col items-start gap-[3px] flex-1 min-w-0">
           <span
-            className="font-headline leading-none tracking-[0.03em]"
-            style={{ fontSize: "22px", color: "var(--hm-chalk)" }}
+            className="font-ui font-semibold leading-none"
+            style={{ fontSize: "22px", letterSpacing: "0.005em", color: "var(--hm-chalk)" }}
           >
             {awayTeam.abbreviation}
           </span>
           <span className="font-ui truncate max-w-full" style={{ fontSize: "11px", color: "var(--hm-mist)" }}>
             {awayPitcher.name}
           </span>
-          <span className="font-mono uppercase tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+          <span className="font-mono uppercase tracking-[0.14em]" style={{ fontSize: "9px", color: "var(--hm-mist)" }}>
             {awayPitcher.throws}HP · {pct(awayPitcher.firstInning.nrfiRate)} NRFI
           </span>
         </div>
@@ -498,15 +520,15 @@ export function GamePredictionCard({
         {/* Home team */}
         <div className="flex flex-col items-end gap-[3px] flex-1 min-w-0">
           <span
-            className="font-headline leading-none tracking-[0.03em]"
-            style={{ fontSize: "22px", color: "var(--hm-chalk)" }}
+            className="font-ui font-semibold leading-none"
+            style={{ fontSize: "22px", letterSpacing: "0.005em", color: "var(--hm-chalk)" }}
           >
             {homeTeam.abbreviation}
           </span>
           <span className="font-ui truncate max-w-full text-right" style={{ fontSize: "11px", color: "var(--hm-mist)" }}>
             {homePitcher.name}
           </span>
-          <span className="font-mono uppercase tracking-[0.06em]" style={{ fontSize: "9px", color: "var(--hm-smoke)" }}>
+          <span className="font-mono uppercase tracking-[0.14em]" style={{ fontSize: "9px", color: "var(--hm-mist)" }}>
             {pct(homePitcher.firstInning.nrfiRate)} NRFI · {homePitcher.throws}HP
           </span>
         </div>
@@ -535,9 +557,9 @@ export function GamePredictionCard({
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: "9px",
-                letterSpacing: "0.12em",
+                letterSpacing: "0.14em",
                 textTransform: "uppercase",
-                color: "var(--hm-smoke)",
+                color: "var(--hm-mist)",
               }}
             >
               {tab.icon}{tab.label}
@@ -605,13 +627,11 @@ export function GamePredictionCard({
             )}
 
             {!isFreeTease && prediction.modelBreakdown && (
-              <ModelConsensusBadge consensus={prediction.modelBreakdown.modelConsensus} />
+              <ModelConsensusBadge bd={prediction.modelBreakdown} />
             )}
             {!isFreeTease && va && va.recommendedBet !== "NO_BET" && (
-              <span
-                className="inline-flex items-center gap-1 rounded-[4px] px-[8px] py-[3px] font-mono tracking-[0.08em] uppercase"
-                style={{ fontSize: "9px", color: "#a855f7", background: "rgba(168,85,247,.08)", border: "1px solid rgba(168,85,247,.3)" }}
-              >
+              <span className="hm-ghost">
+                <span className="hm-ghost-dot" style={{ background: "#a855f7" }} />
                 <DollarSign size={10} />
                 Value {formatOdds(va.recommendedBet === "NRFI" ? va.nrfiOdds : va.yrfiOdds)}
                 {" "}+{((va.recommendedBet === "NRFI" ? va.nrfiEdge : va.yrfiEdge) * 100).toFixed(1)}%
@@ -833,6 +853,7 @@ export function GamePredictionCard({
               key={i}
               className="hm-chip"
               style={{
+                letterSpacing: "0.14em",
                 borderColor: f.impact === "positive" ? "rgba(0,230,118,.3)"  : f.impact === "negative" ? "rgba(255,23,68,.3)"  : undefined,
                 color:       f.impact === "positive" ? "var(--hm-grass)"     : f.impact === "negative" ? "var(--hm-blood)"     : undefined,
               }}
@@ -843,10 +864,10 @@ export function GamePredictionCard({
         </div>
         <Link
           href={`/ensemble/${game.id}`}
-          className="font-mono uppercase tracking-[0.15em] transition-colors"
-          style={{ fontSize: "9px", color: "var(--hm-smoke)" }}
+          className="font-mono uppercase tracking-[0.14em] transition-colors"
+          style={{ fontSize: "9px", color: "var(--hm-mist)" }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--hm-diamond)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hm-smoke)" }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hm-mist)" }}
         >
           Ensemble ›
         </Link>

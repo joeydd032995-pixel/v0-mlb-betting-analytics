@@ -12,12 +12,8 @@ export function PaywallCard() {
 
   return (
     <div
-      className="relative rounded-[14px] overflow-hidden cursor-pointer"
-      style={{
-        height: "220px",
-        background: "var(--hm-pitch, #0d1117)",
-        border: "1px solid var(--hm-fence, rgba(255,255,255,0.06))",
-      }}
+      className="hm-panel-lift relative overflow-hidden cursor-pointer"
+      style={{ height: "220px" }}
       onClick={() => router.push("/pricing")}
       role="button"
       tabIndex={0}

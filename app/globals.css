@@ -101,6 +101,51 @@
   --ds-bad:     var(--hm-blood);
   --ds-bl:      #5c8bff;
   --ds-tl:      #00bcd4;
+
+  /* ── Elevation & lighting (Phase 1 redesign) ──
+     Dark UI cannot get elevation from shadow alone — nothing is darker than
+     --hm-abyss, so a drop shadow lands on the page and disappears. Elevation
+     is carried by light instead: surfaces get lighter as they rise, with a
+     bright edge catching the implied source. Light is FROM BELOW, consistently
+     — gradient, sheen, and edge highlight all agree (an earlier iteration had
+     these contradicting each other: gradient implying light from above while
+     the sheen implied the opposite).
+     --hm-lift-top sits 30 levels above the page (3x the 10-level lift the old
+     --hm-pitch/--hm-dugout ramp gave a card); --hm-lift-base sits 2 levels
+     BELOW the page ground, which reads as the card's far edge receding rather
+     than as a bug. */
+  --hm-lift-top:  #28282f;
+  --hm-lift-mid:  #1a1a21;
+  --hm-lift-base: #08080b;
+
+  --hm-edge-hi: rgba(255,255,255,.15);   /* bottom edge — near the light */
+  --hm-edge-lo: rgba(255,255,255,.10);
+
+  --hm-sheen: radial-gradient(130% 58% at 50% 110%, rgba(255,255,255,.05), transparent 64%);
+
+  --hm-shadow-lift:
+     0 -1px 0 0 var(--hm-edge-hi) inset,   /* highlight, bottom edge */
+     0  1px 0 0 rgba(0,0,0,.65) inset,     /* dark lip, top edge */
+     0 28px 52px -20px rgba(0,0,0,1),      /* ambient */
+     0  2px  5px  -1px rgba(0,0,0,.9);     /* contact */
+
+  /* Consequence, discovered once already — don't reintroduce it: --hm-ash
+     measures 4.27:1 against --hm-lift-top, below WCAG AA (4.5:1). Anywhere
+     text sits on a lifted surface, remap ash to mist locally:
+       .my-lifted-thing { --hm-ash: var(--hm-mist); }
+     rather than reading --hm-ash directly. */
+
+  /* Dominant panel radius in actual use (22 grep hits, more than any other
+     single value) — --radius/-sm/-md/-lg/-xl above derive from 0.5rem and
+     don't reach it. Added rather than redefining --radius, to avoid shifting
+     the ~51 files already consuming rounded-lg/-sm/-md/-xl. */
+  --hm-radius-panel: 14px;
+
+  /* Pill/chip padding was already a de facto consistent pattern (6 uses each
+     of py-[3px] / px-[8px] as literal Tailwind brackets) — naming it, not
+     inventing a new scale. */
+  --hm-space-chip-y: 3px;
+  --hm-space-chip-x: 8px;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -241,6 +286,22 @@ body {
   overflow: hidden;
 }
 
+/* ── Lifted panel (Phase 1 redesign) ──
+   Opt-in sibling to .hm-panel — the old 160deg wash stays the default
+   everywhere else; this is for surfaces explicitly moved to the new
+   elevation system (game-prediction-card.tsx, home slate panels). Text on
+   this surface needs --hm-ash remapped to --hm-mist locally (see the token
+   comment in :root above) — this class does NOT do that for you, since not
+   every consumer necessarily reads --hm-ash. */
+.hm-panel-lift {
+  background: var(--hm-sheen),
+    linear-gradient(180deg, var(--hm-lift-base) 0%, var(--hm-lift-mid) 58%, var(--hm-lift-top) 100%);
+  border: 1px solid var(--hm-edge-lo);
+  border-radius: var(--hm-radius-panel);
+  box-shadow: var(--hm-shadow-lift);
+  position: relative;
+}
+
 /* ── KPI accent bars ── */
 .ds-kpi-bar { position: relative; }
 .ds-kpi-bar::after {
@@ -303,6 +364,81 @@ body {
 .ds-pill-cy      { border-color: rgba(0,229,255,.4);   color: var(--hm-diamond); background: rgba(0,229,255,.08); }
 .ds-pill-gr      { border-color: rgba(0,230,118,.4);   color: var(--hm-grass);   background: rgba(0,230,118,.08); }
 .ds-pill-bad     { border-color: rgba(255,23,68,.4);   color: var(--hm-blood);   background: rgba(255,23,68,.08); }
+
+/* ── Stamps (Phase 1 redesign) ──
+   Verdict-grade badges: solid gradient fill, dark text, top-lit — deliberately
+   different lighting from .hm-panel-lift's bottom-lit surfaces. A small glossy
+   badge reads as a specular object with its own highlight, not a large surface
+   catching the room's ambient light. Reserved for VERDICTS (recommendation,
+   model consensus) — metrics (confidence, value/edge) use .hm-ghost instead,
+   so the two tiers stay visually distinct rather than four identical pills.
+
+   Also fixes a real WCAG bug, not just a look: the old YRFI pill put #ff1744
+   text on a 10% tint of itself — 4.19:1, fails AA. Near-black on the solid
+   fill below clears AA on all four signal colours (worst case 5.30:1). */
+.hm-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 4px;
+  padding: var(--hm-space-chip-y) var(--hm-space-chip-x);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: #050505;
+  background: linear-gradient(180deg, #2bf58f 0%, #00c853 100%);
+  box-shadow:
+    0 1px 0 0 rgba(255,255,255,.38) inset,
+    0 -1px 0 0 rgba(0,0,0,.28) inset,
+    0 3px 9px -3px rgba(0,230,118,.55);
+}
+.hm-stamp-bad {
+  background: linear-gradient(180deg, #ff5c78 0%, #d50000 100%);
+  box-shadow:
+    0 1px 0 0 rgba(255,255,255,.32) inset,
+    0 -1px 0 0 rgba(0,0,0,.32) inset,
+    0 3px 9px -3px rgba(255,23,68,.55);
+}
+/* Metric-grade — outline + a small colour dot carries the semantic, no fill. */
+.hm-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--hm-edge-lo);
+  background: transparent;
+  border-radius: 4px;
+  padding: var(--hm-space-chip-y) var(--hm-space-chip-x);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hm-mist);
+}
+.hm-ghost-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Stamped probability bar ──
+   Same gradient stops as .hm-stamp/.hm-stamp-bad — not new colours — so the
+   bar and the verdict pills read as one glossy substance rather than two
+   different treatments of "green means NRFI." Track stays a plain recessed
+   channel (unchanged); only the fill is stamped material. No external glow:
+   the track's overflow:hidden would clip it. */
+.hm-pbar-stamp .hm-pbar-g {
+  background: linear-gradient(180deg, #2bf58f 0%, #00c853 100%);
+  box-shadow: 0 1px 0 0 rgba(255,255,255,.35) inset, 0 -1px 0 0 rgba(0,0,0,.3) inset;
+}
+.hm-pbar-stamp .hm-pbar-r {
+  background: linear-gradient(180deg, #ff5c78 0%, #d50000 100%);
+  box-shadow: 0 1px 0 0 rgba(255,255,255,.3) inset, 0 -1px 0 0 rgba(0,0,0,.3) inset;
+}
 
 /* ── Chips ── */
 .hm-chip {
