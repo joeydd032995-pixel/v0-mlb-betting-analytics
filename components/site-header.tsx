@@ -5,7 +5,6 @@ import Link from "next/link"
 import { Search, Menu, X } from "lucide-react"
 import dynamic from "next/dynamic"
 import { GlobalSearch } from "@/components/global-search"
-import { HEADER_NAV_LINKS } from "@/lib/constants/nav-links"
 
 const AuthNav = dynamic(
   () => import("@/components/auth-nav").then((m) => ({ default: m.AuthNav })),
@@ -130,32 +129,6 @@ export function SiteHeader() {
               </div>
             </div>
           </Link>
-
-          {/* ── Desktop nav (lg+) ── */}
-          <nav className="hidden lg:flex items-center gap-0.5">
-            {HEADER_NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="font-mono uppercase px-[10px] py-[5px] rounded-[3px] transition-colors"
-                style={{
-                  fontSize: "11px",
-                  letterSpacing: "0.18em",
-                  color: "var(--hm-smoke)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--hm-diamond)"
-                  e.currentTarget.style.background = "rgba(0,229,255,0.06)"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--hm-smoke)"
-                  e.currentTarget.style.background = "transparent"
-                }}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
 
           {/* ── Right cluster ── */}
           <div className="flex items-center gap-2 shrink-0">

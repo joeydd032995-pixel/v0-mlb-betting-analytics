@@ -699,7 +699,7 @@ export default function HomePage() {
             {loading ? (
               <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="rounded-[14px] h-64 animate-pulse" style={{ background: "var(--hm-pitch)", border: "1px solid var(--hm-fence)" }} />
+                  <div key={i} className="hm-panel-lift h-64 animate-pulse" />
                 ))}
               </div>
             ) : tierUnresolved ? (

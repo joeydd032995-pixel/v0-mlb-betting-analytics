@@ -58,22 +58,6 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
-/** Condensed inline row shown in the header on lg+ screens. */
-export const HEADER_NAV_LINKS: NavItem[] = [
-  { href: "/",          label: "Dashboard" },
-  { href: "/grid",      label: "Grid" },
-  { href: "/pitcher",   label: "Pitchers" },
-  { href: "/staff",     label: "Staff" },
-  { href: "/ensemble",  label: "Ensemble" },
-  { href: "/history",   label: "History" },
-  { href: "/accuracy",  label: "Accuracy" },
-  { href: "/insights",  label: "Insights" },
-  { href: "/odds",      label: "Odds" },
-  { href: "/weather",   label: "Weather" },
-  { href: "/resources", label: "Resources" },
-  { href: "/pricing",   label: "Pricing" },
-]
-
 export function isActive(href: string, pathname: string) {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/")
 }
