@@ -26,6 +26,22 @@ function getRowBorderColor(rec: NRFIPrediction["recommendation"]) {
   return "border-l-zinc-500"
 }
 
+function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] }) {
+  if (!rec) return <span className="hm-ghost">—</span>
+  if (rec === "STRONG_NRFI" || rec === "LEAN_NRFI") {
+    return <span className="hm-stamp">{rec.replace(/_/g, " ")}</span>
+  }
+  if (rec === "STRONG_YRFI" || rec === "LEAN_YRFI") {
+    return <span className="hm-stamp-bad">{rec.replace(/_/g, " ")}</span>
+  }
+  return (
+    <span className="hm-ghost">
+      <span className="hm-ghost-dot" style={{ background: "var(--hm-smoke)" }} />
+      {rec.replace(/_/g, " ")}
+    </span>
+  )
+}
+
 function SortHeader({
   label,
   sortKey,
@@ -113,22 +129,7 @@ export function GridView({ items, sortBy, onSortChange }: GridViewProps) {
 
                   {/* Recommendation */}
                   <td className="px-4 py-3 text-center">
-                    <span
-                      className={cn(
-                        "inline-block rounded px-2 py-1 text-[10px] font-semibold whitespace-nowrap",
-                        pred.recommendation === "STRONG_NRFI"
-                          ? "bg-emerald-500/20 text-emerald-300"
-                          : pred.recommendation === "LEAN_NRFI"
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : pred.recommendation === "TOSS_UP"
-                              ? "bg-zinc-500/20 text-zinc-300"
-                              : pred.recommendation === "LEAN_YRFI"
-                                ? "bg-rose-500/10 text-rose-400"
-                                : "bg-rose-500/20 text-rose-300"
-                      )}
-                    >
-                      {pred.recommendation?.replace(/_/g, " ") ?? "—"}
-                    </span>
+                    <RecommendationBadge rec={pred.recommendation} />
                   </td>
 
                   {/* NRFI % */}

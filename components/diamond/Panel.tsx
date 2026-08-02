@@ -29,7 +29,7 @@ export function Panel({
   const topColor = ACCENT_COLOR[accent]
   return (
     <div
-      className={cn("hm-panel p-[18px]", className)}
+      className={cn("hm-panel-lift overflow-hidden p-[18px]", className)}
       style={{ "--panel-accent": topColor } as React.CSSProperties}
     >
       {/* Top accent edge */}
@@ -47,7 +47,7 @@ export function Panel({
       {title && (
         <div className={cn("flex items-center justify-between gap-2", description ? "mb-[6px]" : "mb-[14px]")}>
           <h3
-            className="flex items-center gap-1 font-mono uppercase tracking-[0.24em]"
+            className="flex items-center gap-1 font-mono uppercase tracking-[0.14em]"
             style={{ fontSize: "10px", color: "var(--hm-smoke)" }}
           >
             {title}
