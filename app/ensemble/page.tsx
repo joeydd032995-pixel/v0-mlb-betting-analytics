@@ -6,7 +6,6 @@ import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { mockGames, mockPitchers, mockTeams } from "@/lib/mock-data"
 import type { Game, Pitcher, Team } from "@/lib/types"
 import Link from "next/link"
-import { cn } from "@/lib/utils"
 import { getPageTier } from "@/lib/require-tier"
 import { hasAccess } from "@/lib/tiers"
 import { TierGateNotice, TierUnresolvedNotice } from "@/components/tier-gate-notice"
@@ -99,16 +98,8 @@ export default async function EnsembleListPage() {
                       </p>
                       <p className="font-jet text-[11px] text-ds-muted mt-0.5">{game.venue} · {game.time}</p>
                     </div>
-                    <span
-                      className={cn(
-                        "font-jet text-[11px] font-semibold px-2.5 py-1 rounded-full border",
-                        isTossUp
-                          ? "text-ds-warn border-ds-warn/40 bg-ds-warn/10"
-                          : isNrfi
-                          ? "text-ds-gr border-ds-gr/40 bg-ds-gr/10"
-                          : "text-ds-bad border-ds-bad/40 bg-ds-bad/10"
-                      )}
-                    >
+                    <span className={isTossUp ? "hm-ghost" : isNrfi ? "hm-stamp" : "hm-stamp-bad"}>
+                      {isTossUp && <span className="hm-ghost-dot" style={{ background: "var(--hm-smoke)" }} />}
                       {isTossUp ? "TOSS UP" : `${isStrong ? "STRONG " : "LEAN "}${isNrfi ? "NRFI" : "YRFI"}`}
                     </span>
                   </div>
