@@ -302,18 +302,20 @@ body {
   position: relative;
 }
 
-/* ── KPI accent bars ── */
-.ds-kpi-bar { position: relative; }
-.ds-kpi-bar::after {
-  content: '';
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--hm-diamond), var(--hm-grass));
-  opacity: 0.8;
+/* Additive modifier for clickable .hm-panel-lift surfaces (nav tiles, etc.) —
+   the ambient game-card/KpiCard surfaces stay static; only opt-in consumers
+   get the lift-on-hover affordance. */
+.hm-panel-lift.hm-interactive {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.ds-kpi-bar-gr::after { background: linear-gradient(90deg, var(--hm-grass), var(--hm-diamond)); }
-.ds-kpi-bar-bl::after { background: linear-gradient(90deg, #5c8bff, var(--hm-diamond)); }
+.hm-panel-lift.hm-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 -1px 0 0 var(--hm-edge-hi) inset,
+    0  1px 0 0 rgba(0,0,0,.65) inset,
+    0 34px 60px -20px rgba(0,0,0,1),
+    0  3px  7px  -1px rgba(0,0,0,.9);
+}
 
 /* ── Section labels ── */
 .hm-section-label,

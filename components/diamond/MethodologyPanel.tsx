@@ -39,11 +39,7 @@ export function MethodologyPanel({
 }: MethodologyPanelProps) {
   return (
     <details
-      className={cn(
-        "group rounded-[14px] border border-ds-line overflow-hidden",
-        className
-      )}
-      style={{ background: "var(--ds-panel)" }}
+      className={cn("hm-panel-lift group overflow-hidden", className)}
     >
       <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 list-none [&::-webkit-details-marker]:hidden hover:bg-white/[0.02] transition-colors">
         <span

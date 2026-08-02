@@ -21,17 +21,17 @@ interface KpiCardProps {
   info?: string
 }
 
-const VARIANT_CFG: Record<KpiVariant, { bar: string; hover: string; text: string }> = {
-  diamond: { bar: "linear-gradient(90deg, var(--hm-diamond), transparent)", hover: "rgba(0,229,255,0.15)", text: "var(--hm-diamond)" },
-  grass:   { bar: "linear-gradient(90deg, var(--hm-grass), transparent)",   hover: "rgba(0,230,118,0.15)", text: "var(--hm-grass)" },
-  blood:   { bar: "linear-gradient(90deg, var(--hm-blood), transparent)",   hover: "rgba(255,23,68,0.15)",  text: "var(--hm-blood)" },
-  gold:    { bar: "linear-gradient(90deg, var(--hm-gold), transparent)",    hover: "rgba(255,214,0,0.15)",  text: "var(--hm-gold)" },
-  slate:   { bar: "linear-gradient(90deg, var(--hm-slate), transparent)",   hover: "rgba(96,125,139,0.15)", text: "var(--hm-mist)" },
+const VARIANT_CFG: Record<KpiVariant, { bar: string; text: string }> = {
+  diamond: { bar: "linear-gradient(90deg, var(--hm-diamond), transparent)", text: "var(--hm-diamond)" },
+  grass:   { bar: "linear-gradient(90deg, var(--hm-grass), transparent)",   text: "var(--hm-grass)" },
+  blood:   { bar: "linear-gradient(90deg, var(--hm-blood), transparent)",   text: "var(--hm-blood)" },
+  gold:    { bar: "linear-gradient(90deg, var(--hm-gold), transparent)",    text: "var(--hm-gold)" },
+  slate:   { bar: "linear-gradient(90deg, var(--hm-slate), transparent)",   text: "var(--hm-mist)" },
   // legacy aliases
-  cy:      { bar: "linear-gradient(90deg, var(--hm-diamond), transparent)", hover: "rgba(0,229,255,0.15)", text: "var(--hm-diamond)" },
-  gr:      { bar: "linear-gradient(90deg, var(--hm-grass), transparent)",   hover: "rgba(0,230,118,0.15)", text: "var(--hm-grass)" },
-  bl:      { bar: "linear-gradient(90deg, #5c8bff, transparent)",           hover: "rgba(92,139,255,0.15)", text: "#5c8bff" },
-  tl:      { bar: "linear-gradient(90deg, #00bcd4, transparent)",           hover: "rgba(0,188,212,0.15)",  text: "#00bcd4" },
+  cy:      { bar: "linear-gradient(90deg, var(--hm-diamond), transparent)", text: "var(--hm-diamond)" },
+  gr:      { bar: "linear-gradient(90deg, var(--hm-grass), transparent)",   text: "var(--hm-grass)" },
+  bl:      { bar: "linear-gradient(90deg, #5c8bff, transparent)",           text: "#5c8bff" },
+  tl:      { bar: "linear-gradient(90deg, #00bcd4, transparent)",           text: "#00bcd4" },
 }
 
 export function KpiCard({
@@ -39,13 +39,7 @@ export function KpiCard({
 }: KpiCardProps) {
   const cfg = VARIANT_CFG[variant]
   return (
-    <div
-      className={cn("relative overflow-hidden rounded-xl px-4 py-[14px] group transition-colors", className)}
-      style={{
-        background: "linear-gradient(160deg, var(--hm-pitch) 0%, var(--hm-void) 100%)",
-        border: "1px solid var(--hm-fence)",
-      }}
-    >
+    <div className={cn("hm-panel-lift overflow-hidden px-4 py-[14px] group transition-colors", className)}>
       {/* Top-right icon */}
       {icon && (
         <div className="absolute top-3 right-3 opacity-40" style={{ color: cfg.text }}>
@@ -66,7 +60,7 @@ export function KpiCard({
       />
 
       <div
-        className={cn("flex items-center gap-1 font-mono uppercase tracking-[0.24em]", icon && "pr-5")}
+        className={cn("flex items-center gap-1 font-mono uppercase tracking-[0.14em]", icon && "pr-5")}
         style={{ fontSize: "9px", color: "var(--hm-smoke)" }}
       >
         {metric}
@@ -82,7 +76,7 @@ export function KpiCard({
 
       {subtext && (
         <div
-          className="font-mono uppercase tracking-[0.16em] mt-[4px]"
+          className="font-mono uppercase tracking-[0.14em] mt-[4px]"
           style={{ fontSize: "8px", color: "var(--hm-smoke)" }}
         >
           {subtext}
@@ -100,7 +94,7 @@ export function KpiCard({
 
       {delta && (
         <div
-          className={cn("font-mono mt-[5px] uppercase tracking-[0.05em]")}
+          className={cn("font-mono mt-[5px] uppercase tracking-[0.14em]")}
           style={{
             fontSize: "9px",
             color: deltaPositive === true

@@ -14,13 +14,26 @@ function fmtMoney(n: number): string {
 }
 
 const NAV_TILES = [
-  { href: "/bets",      label: "Bet Tracker",   desc: "Log and track wagers",        color: "text-amber-400 bg-amber-400/10 border-amber-400/20" },
-  { href: "/bankroll",  label: "Bankroll",       desc: "Balance & transaction ledger", color: "text-sky-400 bg-sky-400/10 border-sky-400/20" },
-  { href: "/watchlist", label: "Watchlist",      desc: "Games you're following",       color: "text-rose-400 bg-rose-400/10 border-rose-400/20" },
-  { href: "/history",   label: "History",        desc: "Prediction log & results",     color: "text-violet-400 bg-violet-400/10 border-violet-400/20" },
-  { href: "/accuracy",  label: "Accuracy",       desc: "Model performance metrics",    color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
-  { href: "/insights",  label: "Insights",       desc: "Feature importance & SHAP",    color: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20" },
+  { href: "/bets",      label: "Bet Tracker",   desc: "Log and track wagers",        dot: "#fbbf24" },
+  { href: "/bankroll",  label: "Bankroll",       desc: "Balance & transaction ledger", dot: "#38bdf8" },
+  { href: "/watchlist", label: "Watchlist",      desc: "Games you're following",       dot: "#fb7185" },
+  { href: "/history",   label: "History",        desc: "Prediction log & results",     dot: "#a78bfa" },
+  { href: "/accuracy",  label: "Accuracy",       desc: "Model performance metrics",    dot: "#34d399" },
+  { href: "/insights",  label: "Insights",       desc: "Feature importance & SHAP",    dot: "#22d3ee" },
 ]
+
+/** WIN/LOSS are verdicts (stamped); PUSH/PENDING/SETTLED are neutral/in-progress states (ghosted). */
+function BetOutcomeBadge({ outcome }: { outcome: "WIN" | "LOSS" | "PUSH" | "PENDING" | "SETTLED" }) {
+  if (outcome === "WIN") return <span className="hm-stamp">{outcome}</span>
+  if (outcome === "LOSS") return <span className="hm-stamp-bad">{outcome}</span>
+  const dot = outcome === "PUSH" ? "#38bdf8" : outcome === "PENDING" ? "#fbbf24" : "var(--hm-smoke)"
+  return (
+    <span className="hm-ghost">
+      <span className="hm-ghost-dot" style={{ background: dot }} />
+      {outcome}
+    </span>
+  )
+}
 
 export default async function DashboardPage() {
   const { userId } = await auth()
@@ -131,15 +144,11 @@ export default async function DashboardPage() {
             // to sit under the Total P/L figure, where it read as a P/L delta.
             const count = TILE_COUNTS[tile.href]
             return (
-              <Link
-                key={tile.href}
-                href={tile.href}
-                className="rounded-[14px] border border-ds-line p-5 hover:border-ds-line/80 hover:bg-white/[0.02] transition-colors"
-                style={{ background: "var(--ds-panel)" }}
-              >
-                <div className={`inline-flex items-center rounded-[6px] border px-2 py-1 font-jet text-[10px] uppercase tracking-[0.12em] mb-3 ${tile.color}`}>
+              <Link key={tile.href} href={tile.href} className="hm-panel-lift hm-interactive p-5 block">
+                <span className="hm-ghost mb-3">
+                  <span className="hm-ghost-dot" style={{ background: tile.dot }} />
                   {tile.label}
-                </div>
+                </span>
                 <p className="font-jet text-[11px] text-ds-muted">
                   {tile.desc}
                   {count !== undefined && ` · ${count}`}
@@ -158,10 +167,7 @@ export default async function DashboardPage() {
                 View all →
               </Link>
             </div>
-            <div
-              className="rounded-[14px] border border-ds-line overflow-hidden"
-              style={{ background: "var(--ds-panel)" }}
-            >
+            <div className="hm-panel-lift overflow-hidden">
               {recentBets.map((bet, i) => {
                 const outcome = !bet.result
                   ? "PENDING"
@@ -172,13 +178,6 @@ export default async function DashboardPage() {
                       : bet.pnl < 0
                         ? "LOSS"
                         : "PUSH"
-                const outcomeStyle = {
-                  WIN:     "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-                  LOSS:    "border-red-500/30 bg-red-500/10 text-red-400",
-                  PUSH:    "border-sky-500/30 bg-sky-500/10 text-sky-400",
-                  PENDING: "border-amber-500/30 bg-amber-500/10 text-amber-400",
-                  SETTLED: "border-ds-line bg-white/[0.03] text-ds-muted",
-                }[outcome]
 
                 return (
                   <div
@@ -186,9 +185,7 @@ export default async function DashboardPage() {
                     className={`flex items-center justify-between px-4 py-3 ${i < recentBets.length - 1 ? "border-b border-ds-line/50" : ""}`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className={`rounded border px-1.5 py-0.5 font-jet text-[10px] uppercase tracking-[0.1em] ${outcomeStyle}`}>
-                        {outcome}
-                      </span>
+                      <BetOutcomeBadge outcome={outcome} />
                       <span className="font-jet text-[11px] text-ds-fg">{bet.prediction}</span>
                       <span className="font-jet text-[11px] text-ds-muted">{bet.gameId}</span>
                     </div>
