@@ -152,6 +152,14 @@ export const CONFIG = {
     maxToolIterations: 4,
     dailyMessageLimit: 40,
     rateLimitPerMinute: 10,
+    // Free-tier failover models (Groq, then OpenRouter) used when Anthropic
+    // is unset/invalid/unavailable — see lib/ai/chat-provider-chain.ts.
+    // Free-tier model slugs get deprecated/renamed by providers over time;
+    // override via env if a default 404s.
+    fallbackModels: {
+      groq: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      openrouter: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
+    },
   },
 
   // League averages (2024 MLB — pitch clock era; update annually)
