@@ -1,0 +1,72 @@
+import type Anthropic from "@anthropic-ai/sdk"
+import { SYSTEM_PROMPT } from "@/lib/ai/chat-system-prompt"
+import { CHAT_TOOLS, runTool } from "@/lib/ai/chat-tools"
+import { CONFIG } from "@/lib/config"
+
+export interface ChatLoopMessage {
+  role: "user" | "assistant"
+  content: string
+}
+
+export interface ChatLoopResult {
+  reply: string
+  toolCalls: { name: string; input: unknown }[]
+}
+
+/** Runs the Anthropic tool-call loop (content-block based) for one provider attempt. */
+export async function runAnthropicChatLoop(
+  client: Anthropic,
+  userMessages: ChatLoopMessage[]
+): Promise<ChatLoopResult> {
+  const messages: Anthropic.MessageParam[] = userMessages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }))
+
+  const toolCallLog: { name: string; input: unknown }[] = []
+
+  for (let iteration = 0; iteration < CONFIG.chat.maxToolIterations; iteration++) {
+    const response = await client.messages.create({
+      model: CONFIG.chat.model,
+      max_tokens: CONFIG.chat.maxTokens,
+      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      tools: CHAT_TOOLS,
+      messages,
+    })
+
+    if (response.stop_reason !== "tool_use") {
+      const reply = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+      return { reply, toolCalls: toolCallLog }
+    }
+
+    const toolUseBlocks = response.content.filter(
+      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+    )
+
+    messages.push({ role: "assistant", content: response.content })
+
+    const results = await Promise.all(
+      toolUseBlocks.map(async (block) => {
+        toolCallLog.push({ name: block.name, input: block.input })
+        const result = await runTool(block.name, block.input)
+        const isError = typeof result === "object" && result !== null && "error" in result
+        return {
+          type: "tool_result" as const,
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+          is_error: isError,
+        }
+      })
+    )
+
+    messages.push({ role: "user", content: results })
+  }
+
+  return {
+    reply: "I wasn't able to finish looking that up within my tool-call budget — try narrowing the question.",
+    toolCalls: toolCallLog,
+  }
+}
