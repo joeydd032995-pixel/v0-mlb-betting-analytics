@@ -6,6 +6,13 @@ import { CONFIG } from "@/lib/config"
 
 export type ChatProvider = "anthropic" | "groq" | "openrouter"
 
+/** A user's own key per provider, from /account — each is independent and optional. */
+export interface UserProviderKeys {
+  anthropic?: string | null
+  groq?: string | null
+  openrouter?: string | null
+}
+
 export interface ChatFailoverResult {
   reply: string
   toolCalls: { name: string; input: unknown }[]
@@ -38,18 +45,18 @@ function isRetryableProviderError(err: unknown): boolean {
  */
 export async function runChatWithFailover(
   userMessages: ChatLoopMessage[],
-  userApiKey: string | null
+  userKeys: UserProviderKeys
 ): Promise<ChatFailoverResult> {
   const attempts: ChatAttempt[] = []
 
-  if (userApiKey || process.env.ANTHROPIC_API_KEY) {
+  if (userKeys.anthropic || process.env.ANTHROPIC_API_KEY) {
     attempts.push({
       provider: "anthropic",
-      run: () => runAnthropicChatLoop(getAnthropicClient(userApiKey), userMessages),
+      run: () => runAnthropicChatLoop(getAnthropicClient(userKeys.anthropic ?? null), userMessages),
     })
   }
 
-  const groq = getGroqClient()
+  const groq = getGroqClient(userKeys.groq)
   if (groq) {
     attempts.push({
       provider: "groq",
@@ -57,7 +64,7 @@ export async function runChatWithFailover(
     })
   }
 
-  const openrouter = getOpenRouterClient()
+  const openrouter = getOpenRouterClient(userKeys.openrouter)
   if (openrouter) {
     attempts.push({
       provider: "openrouter",

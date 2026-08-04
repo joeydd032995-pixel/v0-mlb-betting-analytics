@@ -38,8 +38,16 @@ const InitBankrollSchema = z.object({
   startingBalance: z.number().positive(),
 })
 
+const ChatProviderSchema = z.enum(["anthropic", "groq", "openrouter"])
+export type ChatProvider = z.infer<typeof ChatProviderSchema>
+
 const SetChatApiKeySchema = z.object({
-  apiKey: z.string().min(20).max(200), // Anthropic keys are sk-ant-... ~100+ chars; loose bound
+  provider: ChatProviderSchema,
+  apiKey: z.string().min(20).max(200), // loose bound covering all three providers' key formats
+})
+
+const ClearChatApiKeySchema = z.object({
+  provider: ChatProviderSchema,
 })
 
 // ─── Bets ─────────────────────────────────────────────────────────────────────
@@ -485,17 +493,17 @@ export async function setChatApiKeyAction(
   if (!userId) return { ok: false, error: "Unauthorized" }
 
   const parsed = SetChatApiKeySchema.safeParse(input)
-  if (!parsed.success) return { ok: false, error: "Enter a valid Anthropic API key" }
+  if (!parsed.success) return { ok: false, error: "Enter a valid API key" }
 
-  const { apiKey } = parsed.data
+  const { provider, apiKey } = parsed.data
   const lastFour = apiKey.slice(-4)
 
   try {
     const encryptedKey = encryptApiKey(apiKey)
     await prisma.userApiKey.upsert({
-      where: { userId },
+      where: { userId_provider: { userId, provider } },
       update: { encryptedKey, lastFour },
-      create: { userId, encryptedKey, lastFour },
+      create: { userId, provider, encryptedKey, lastFour },
     })
   } catch (err) {
     console.error("[setChatApiKeyAction]", err)
@@ -506,12 +514,17 @@ export async function setChatApiKeyAction(
   return { ok: true }
 }
 
-export async function clearChatApiKeyAction(): Promise<ActionResult> {
+export async function clearChatApiKeyAction(
+  input: z.infer<typeof ClearChatApiKeySchema>
+): Promise<ActionResult> {
   const { userId } = await auth()
   if (!userId) return { ok: false, error: "Unauthorized" }
 
+  const parsed = ClearChatApiKeySchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: "Invalid provider" }
+
   try {
-    await prisma.userApiKey.deleteMany({ where: { userId } })
+    await prisma.userApiKey.deleteMany({ where: { userId, provider: parsed.data.provider } })
   } catch (err) {
     console.error("[clearChatApiKeyAction]", err)
     return { ok: false, error: "Failed to remove API key" }

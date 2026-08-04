@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { runChatWithFailover } from "@/lib/ai/chat-provider-chain"
+import { runChatWithFailover, type UserProviderKeys } from "@/lib/ai/chat-provider-chain"
 import { getChatRateLimiter, checkDailyChatCap } from "@/lib/ai/chat-rate-limit"
 import { decryptApiKey } from "@/lib/crypto/api-key-encryption"
 import { prisma } from "@/lib/prisma"
@@ -47,25 +47,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
   }
 
-  let userKeyRow: { encryptedKey: string } | null
+  let userKeyRows: { provider: string; encryptedKey: string }[]
   try {
-    userKeyRow = await prisma.userApiKey.findUnique({ where: { userId }, select: { encryptedKey: true } })
+    userKeyRows = await prisma.userApiKey.findMany({ where: { userId }, select: { provider: true, encryptedKey: true } })
   } catch (err) {
-    console.error("[/api/chat] failed to look up stored API key", err)
+    console.error("[/api/chat] failed to look up stored API keys", err)
     return NextResponse.json({ error: "Chat request failed" }, { status: 500 })
   }
 
-  let userApiKey: string | null = null
-  if (userKeyRow) {
+  const userKeys: UserProviderKeys = {}
+  for (const row of userKeyRows) {
     try {
-      userApiKey = decryptApiKey(userKeyRow.encryptedKey)
+      const decrypted = decryptApiKey(row.encryptedKey)
+      if (row.provider === "anthropic" || row.provider === "groq" || row.provider === "openrouter") {
+        userKeys[row.provider] = decrypted
+      }
     } catch (err) {
-      console.error("[/api/chat] failed to decrypt stored key, falling back to env", err)
+      console.error(`[/api/chat] failed to decrypt stored ${row.provider} key, skipping`, err)
     }
   }
 
   try {
-    const { reply, toolCalls, provider } = await runChatWithFailover(body.messages, userApiKey)
+    const { reply, toolCalls, provider } = await runChatWithFailover(body.messages, userKeys)
     return NextResponse.json({ reply, toolCalls, provider })
   } catch (err) {
     console.error("[/api/chat] all providers failed", err instanceof Error ? err.message : err)

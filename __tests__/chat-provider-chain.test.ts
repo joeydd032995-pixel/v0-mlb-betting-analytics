@@ -10,8 +10,8 @@ vi.mock("@/lib/ai/anthropic-client", () => ({
   getAnthropicClient: (...args: unknown[]) => getAnthropicClient(...args),
 }))
 vi.mock("@/lib/ai/openai-compatible-client", () => ({
-  getGroqClient: () => getGroqClient(),
-  getOpenRouterClient: () => getOpenRouterClient(),
+  getGroqClient: (...args: unknown[]) => getGroqClient(...args),
+  getOpenRouterClient: (...args: unknown[]) => getOpenRouterClient(...args),
 }))
 vi.mock("@/lib/ai/chat-loop-anthropic", () => ({
   runAnthropicChatLoop: (...args: unknown[]) => runAnthropicChatLoop(...args),
@@ -49,7 +49,7 @@ describe("runChatWithFailover", () => {
     getAnthropicClient.mockReturnValue({})
     runAnthropicChatLoop.mockResolvedValue({ reply: "hi", toolCalls: [] })
 
-    const result = await runChatWithFailover(messages, null)
+    const result = await runChatWithFailover(messages, {})
 
     expect(result).toEqual({ reply: "hi", toolCalls: [], provider: "anthropic" })
     expect(runOpenAICompatibleChatLoop).not.toHaveBeenCalled()
@@ -64,7 +64,7 @@ describe("runChatWithFailover", () => {
     runAnthropicChatLoop.mockRejectedValue(apiError(401))
     runOpenAICompatibleChatLoop.mockResolvedValue({ reply: "groq reply", toolCalls: [] })
 
-    const result = await runChatWithFailover(messages, null)
+    const result = await runChatWithFailover(messages, {})
 
     expect(result).toEqual({ reply: "groq reply", toolCalls: [], provider: "groq" })
   })
@@ -81,7 +81,7 @@ describe("runChatWithFailover", () => {
       .mockRejectedValueOnce(apiError(429))
       .mockResolvedValueOnce({ reply: "openrouter reply", toolCalls: [] })
 
-    const result = await runChatWithFailover(messages, null)
+    const result = await runChatWithFailover(messages, {})
 
     expect(result).toEqual({ reply: "openrouter reply", toolCalls: [], provider: "openrouter" })
   })
@@ -93,14 +93,28 @@ describe("runChatWithFailover", () => {
     getOpenRouterClient.mockReturnValue(null)
     runAnthropicChatLoop.mockRejectedValue(apiError(503))
 
-    await expect(runChatWithFailover(messages, null)).rejects.toThrow("upstream 503")
+    await expect(runChatWithFailover(messages, {})).rejects.toThrow("upstream 503")
   })
 
   it("throws immediately when no provider is configured", async () => {
     getGroqClient.mockReturnValue(null)
     getOpenRouterClient.mockReturnValue(null)
 
-    await expect(runChatWithFailover(messages, null)).rejects.toThrow(/No chat provider is configured/)
+    await expect(runChatWithFailover(messages, {})).rejects.toThrow(/No chat provider is configured/)
     expect(runAnthropicChatLoop).not.toHaveBeenCalled()
+  })
+
+  it("passes each provider's user key through independently, preferring it over the env var", async () => {
+    process.env.GROQ_API_KEY = "env-groq-key"
+    getAnthropicClient.mockReturnValue({})
+    getGroqClient.mockReturnValue({})
+    getOpenRouterClient.mockReturnValue(null)
+    runAnthropicChatLoop.mockResolvedValue({ reply: "hi", toolCalls: [] })
+
+    await runChatWithFailover(messages, { anthropic: "user-anthropic-key", groq: "user-groq-key" })
+
+    expect(getAnthropicClient).toHaveBeenCalledWith("user-anthropic-key")
+    expect(getGroqClient).toHaveBeenCalledWith("user-groq-key")
+    expect(getOpenRouterClient).toHaveBeenCalledWith(undefined)
   })
 })

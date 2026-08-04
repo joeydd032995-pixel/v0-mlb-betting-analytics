@@ -18,9 +18,9 @@ export default async function AccountPage() {
   const { userId } = await auth()
   if (!userId) redirect("/sign-in")
 
-  const [tierInfo, apiKeyRow] = await Promise.all([
+  const [tierInfo, apiKeyRows] = await Promise.all([
     getUserTierInfo(userId),
-    prisma.userApiKey.findUnique({ where: { userId }, select: { lastFour: true, updatedAt: true } }),
+    prisma.userApiKey.findMany({ where: { userId }, select: { provider: true, lastFour: true, updatedAt: true } }),
   ])
 
   return (
@@ -29,7 +29,7 @@ export default async function AccountPage() {
         {/* Telling a paying subscriber "You're on the free plan" because the
             lookup failed is worse than telling them we couldn't check. */}
         {tierInfo.resolved
-          ? <AccountClient tierInfo={tierInfo} userId={userId} apiKeyInfo={apiKeyRow} />
+          ? <AccountClient tierInfo={tierInfo} userId={userId} apiKeyInfo={apiKeyRows} />
           : <TierUnresolvedNotice />}
       </main>
     </div>
