@@ -29,20 +29,23 @@ model User {
   backtestRuns         BacktestRun[]
   modelPredictions     ModelPrediction[]
   subscription         Subscription?
-  apiKey               UserApiKey?
+  apiKeys              UserApiKey[]
 
   @@map("users")
 }
 
-// ─── UserApiKey (user-supplied Anthropic key, encrypted at rest) ────────────
-// One row per Clerk userId, created/updated when the user sets a key on
-// /account. encryptedKey is never selected into any broad User query — only
-// read and decrypted inside app/api/chat/route.ts immediately before
-// constructing the per-request Anthropic client.
+// ─── UserApiKey (user-supplied provider keys, encrypted at rest) ────────────
+// One row per (Clerk userId, provider), created/updated when the user sets a
+// key on /account for that provider. "provider" defaults to "anthropic" so
+// existing rows (all saved before Groq/OpenRouter BYOK existed) backfill
+// correctly via `prisma db push`. encryptedKey is never selected into any
+// broad User query — only read and decrypted inside app/api/chat/route.ts
+// immediately before constructing the per-request provider client.
 model UserApiKey {
   id           String   @id @default(cuid())
-  userId       String   @unique
+  userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String   @default("anthropic") // "anthropic" | "groq" | "openrouter"
 
   encryptedKey String   // AES-256-GCM ciphertext, base64: iv:authTag:ciphertext
   lastFour     String   // last 4 chars of the plaintext key, for the masked UI indicator
@@ -50,6 +53,7 @@ model UserApiKey {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  @@unique([userId, provider])
   @@map("user_api_keys")
 }
 

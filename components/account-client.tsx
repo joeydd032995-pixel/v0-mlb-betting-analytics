@@ -11,7 +11,7 @@ import { ChatApiKeyForm } from "@/components/chat-api-key-form"
 interface Props {
   tierInfo: UserTierInfo
   userId: string
-  apiKeyInfo: { lastFour: string; updatedAt: Date } | null
+  apiKeyInfo: { provider: string; lastFour: string; updatedAt: Date }[]
 }
 
 const TIER_CONFIG = {
