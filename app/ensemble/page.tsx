@@ -98,7 +98,7 @@ export default async function EnsembleListPage() {
                       </p>
                       <p className="font-jet text-[11px] text-ds-muted mt-0.5">{game.venue} · {game.time}</p>
                     </div>
-                    <span className={isTossUp ? "hm-ghost" : isNrfi ? "hm-stamp" : "hm-stamp-bad"}>
+                    <span className={isTossUp ? "hm-ghost" : isNrfi ? "hm-stamp" : "hm-stamp hm-stamp-bad"}>
                       {isTossUp && <span className="hm-ghost-dot" style={{ background: "var(--hm-smoke)" }} />}
                       {isTossUp ? "TOSS UP" : `${isStrong ? "STRONG " : "LEAN "}${isNrfi ? "NRFI" : "YRFI"}`}
                     </span>

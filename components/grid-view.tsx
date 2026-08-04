@@ -32,7 +32,7 @@ function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] })
     return <span className="hm-stamp">{rec.replace(/_/g, " ")}</span>
   }
   if (rec === "STRONG_YRFI" || rec === "LEAN_YRFI") {
-    return <span className="hm-stamp-bad">{rec.replace(/_/g, " ")}</span>
+    return <span className="hm-stamp hm-stamp-bad">{rec.replace(/_/g, " ")}</span>
   }
   return (
     <span className="hm-ghost">

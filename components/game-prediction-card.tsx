@@ -181,7 +181,7 @@ function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] })
     )
   }
   const isNrfi = rec === "STRONG_NRFI" || rec === "LEAN_NRFI"
-  return <span className={isNrfi ? "hm-stamp" : "hm-stamp-bad"}>{REC_CFG[rec].label}</span>
+  return <span className={isNrfi ? "hm-stamp" : "hm-stamp hm-stamp-bad"}>{REC_CFG[rec].label}</span>
 }
 
 function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
@@ -315,7 +315,7 @@ function ModelConsensusBadge({ bd }: { bd: ModelBreakdown }) {
   const majorityIsNrfi = nrfiCount >= total - nrfiCount
   const agreeCount = majorityIsNrfi ? nrfiCount : total - nrfiCount
   return (
-    <span className={majorityIsNrfi ? "hm-stamp" : "hm-stamp-bad"}>
+    <span className={majorityIsNrfi ? "hm-stamp" : "hm-stamp hm-stamp-bad"}>
       <BrainCircuit size={10} />{agreeCount} / {total} Models
     </span>
   )
