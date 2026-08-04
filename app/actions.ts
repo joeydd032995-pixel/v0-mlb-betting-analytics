@@ -41,9 +41,18 @@ const InitBankrollSchema = z.object({
 const ChatProviderSchema = z.enum(["anthropic", "groq", "openrouter"])
 export type ChatProvider = z.infer<typeof ChatProviderSchema>
 
-const SetChatApiKeySchema = z.object({
+export const SetChatApiKeySchema = z.object({
   provider: ChatProviderSchema,
-  apiKey: z.string().min(20).max(200), // loose bound covering all three providers' key formats
+  // Strip ALL whitespace (not just edges) before the length check — a key
+  // pasted with embedded newlines (e.g. from a UI that hard-wraps long
+  // strings) would otherwise be stored corrupted. API keys never legitimately
+  // contain whitespace, so this is a defense-in-depth mirror of the same
+  // sanitization in chat-api-key-form.tsx, applied here so any other caller
+  // of this action gets it too.
+  apiKey: z
+    .string()
+    .transform((s) => s.replace(/\s+/g, ""))
+    .pipe(z.string().min(20).max(200)), // loose bound covering all three providers' key formats
 })
 
 const ClearChatApiKeySchema = z.object({
