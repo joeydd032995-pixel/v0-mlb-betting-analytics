@@ -25,7 +25,7 @@ const NAV_TILES = [
 /** WIN/LOSS are verdicts (stamped); PUSH/PENDING/SETTLED are neutral/in-progress states (ghosted). */
 function BetOutcomeBadge({ outcome }: { outcome: "WIN" | "LOSS" | "PUSH" | "PENDING" | "SETTLED" }) {
   if (outcome === "WIN") return <span className="hm-stamp">{outcome}</span>
-  if (outcome === "LOSS") return <span className="hm-stamp-bad">{outcome}</span>
+  if (outcome === "LOSS") return <span className="hm-stamp hm-stamp-bad">{outcome}</span>
   const dot = outcome === "PUSH" ? "#38bdf8" : outcome === "PENDING" ? "#fbbf24" : "var(--hm-smoke)"
   return (
     <span className="hm-ghost">
