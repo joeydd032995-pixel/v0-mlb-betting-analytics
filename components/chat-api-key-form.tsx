@@ -35,7 +35,11 @@ export function ChatApiKeyForm({ apiKeyInfo }: Props) {
 
   function handleSave(provider: ChatProvider, e: React.FormEvent) {
     e.preventDefault()
-    const value = inputs[provider].trim()
+    // Strip ALL whitespace, not just leading/trailing — a key copied from a
+    // UI that hard-wraps long strings can carry embedded newlines, which
+    // corrupts the Authorization header once the key is used (surfaces as a
+    // provider-side "missing/invalid credential" error, not a local one).
+    const value = inputs[provider].replace(/\s+/g, "")
     if (!value) return
 
     startTransition(async () => {
