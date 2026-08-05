@@ -2,6 +2,7 @@ import { getAnthropicClient } from "@/lib/ai/anthropic-client"
 import { getGroqClient, getOpenRouterClient } from "@/lib/ai/openai-compatible-client"
 import { runAnthropicChatLoop, type ChatLoopMessage } from "@/lib/ai/chat-loop-anthropic"
 import { runOpenAICompatibleChatLoop } from "@/lib/ai/chat-loop-openai-compatible"
+import type { ToolContext } from "@/lib/ai/chat-tools"
 import { CONFIG } from "@/lib/config"
 
 export type ChatProvider = "anthropic" | "groq" | "openrouter"
@@ -54,14 +55,15 @@ function isRetryableProviderError(err: unknown): boolean {
  */
 export async function runChatWithFailover(
   userMessages: ChatLoopMessage[],
-  userKeys: UserProviderKeys
+  userKeys: UserProviderKeys,
+  ctx: ToolContext
 ): Promise<ChatFailoverResult> {
   const attempts: ChatAttempt[] = []
 
   if (userKeys.anthropic || process.env.ANTHROPIC_API_KEY) {
     attempts.push({
       provider: "anthropic",
-      run: () => runAnthropicChatLoop(getAnthropicClient(userKeys.anthropic ?? null), userMessages),
+      run: () => runAnthropicChatLoop(getAnthropicClient(userKeys.anthropic ?? null), userMessages, ctx),
     })
   }
 
@@ -69,7 +71,7 @@ export async function runChatWithFailover(
   if (groq) {
     attempts.push({
       provider: "groq",
-      run: () => runOpenAICompatibleChatLoop(groq, CONFIG.chat.fallbackModels.groq, userMessages),
+      run: () => runOpenAICompatibleChatLoop(groq, CONFIG.chat.fallbackModels.groq, userMessages, ctx),
     })
   }
 
@@ -77,7 +79,7 @@ export async function runChatWithFailover(
   if (openrouter) {
     attempts.push({
       provider: "openrouter",
-      run: () => runOpenAICompatibleChatLoop(openrouter, CONFIG.chat.fallbackModels.openrouter, userMessages),
+      run: () => runOpenAICompatibleChatLoop(openrouter, CONFIG.chat.fallbackModels.openrouter, userMessages, ctx),
     })
   }
 

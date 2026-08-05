@@ -4,6 +4,7 @@ import { z } from "zod"
 import { runChatWithFailover, type UserProviderKeys } from "@/lib/ai/chat-provider-chain"
 import { getChatRateLimiter, checkDailyChatCap } from "@/lib/ai/chat-rate-limit"
 import { decryptApiKey } from "@/lib/crypto/api-key-encryption"
+import { resolveUserTierWithRetry } from "@/lib/subscription"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -47,6 +48,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
   }
 
+  // The assistant can now read tier-gated predictions, so it needs the caller's
+  // tier before any tool runs. Fail closed exactly like /api/predictions: if the
+  // lookup itself fails for a signed-in user, refuse rather than silently
+  // downgrading them to FREE (which would under-serve a paying subscriber).
+  const { tier, resolved } = await resolveUserTierWithRetry(userId)
+  if (!resolved) {
+    return NextResponse.json(
+      { error: "Couldn't verify your subscription just now — please try again in a moment." },
+      { status: 503 }
+    )
+  }
+
   let userKeyRows: { provider: string; encryptedKey: string }[]
   try {
     userKeyRows = await prisma.userApiKey.findMany({ where: { userId }, select: { provider: true, encryptedKey: true } })
@@ -70,7 +83,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { reply, toolCalls, provider } = await runChatWithFailover(body.messages, userKeys)
+    const { reply, toolCalls, provider } = await runChatWithFailover(body.messages, userKeys, {
+      userId,
+      tier,
+    })
     return NextResponse.json({ reply, toolCalls, provider })
   } catch (err) {
     console.error("[/api/chat] all providers failed", err instanceof Error ? err.message : err)

@@ -39,9 +39,9 @@ describe("runOpenAICompatibleChatLoop", () => {
 
     const result = await runOpenAICompatibleChatLoop(client, "llama-3.3-70b-versatile", [
       { role: "user", content: "who's pitching tonight?" },
-    ])
+    ], { userId: "user_test", tier: "FREE" })
 
-    expect(runTool).toHaveBeenCalledWith("get_todays_starters", {})
+    expect(runTool).toHaveBeenCalledWith("get_todays_starters", {}, { userId: "user_test", tier: "FREE" })
     expect(result.reply).toBe("Here are tonight's starters.")
     expect(result.toolCalls).toEqual([{ name: "get_todays_starters", input: {} }])
     expect(create).toHaveBeenCalledTimes(2)
@@ -61,7 +61,7 @@ describe("runOpenAICompatibleChatLoop", () => {
 
     const result = await runOpenAICompatibleChatLoop(client, "llama-3.3-70b-versatile", [
       { role: "user", content: "what's a balk?" },
-    ])
+    ], { userId: "user_test", tier: "FREE" })
 
     expect(result.reply).toBe("A balk is...")
     expect(result.toolCalls).toEqual([])

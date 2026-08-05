@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { toast } from "sonner"
+import ReactMarkdown from "react-markdown"
 
 type ChatMessage = { role: "user" | "assistant"; content: string }
 
@@ -10,14 +11,45 @@ interface Props {
   heightClassName?: string
 }
 
+// Transcript is persisted to localStorage only — deliberately never server-side.
+// The bubble unmounts when closed, which used to wipe the conversation mid-thread.
+const STORAGE_KEY = "hm:chat:transcript"
+const MAX_PERSISTED = 50 // matches the server's per-request message cap
+
 export function ChatMessages({ heightClassName = "h-[600px]" }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [isPending, setIsPending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Restore on mount. Guarded: a corrupt or hand-edited entry must not brick the
+  // widget, so anything unparseable is dropped rather than thrown.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY)
+      if (!saved) return
+      const parsed: unknown = JSON.parse(saved)
+      if (!Array.isArray(parsed)) return
+      const restored = parsed.filter(
+        (m): m is ChatMessage =>
+          typeof m === "object" && m !== null &&
+          (m as ChatMessage).role !== undefined &&
+          typeof (m as ChatMessage).content === "string"
+      )
+      if (restored.length > 0) setMessages(restored)
+    } catch {
+      // Ignore — start with an empty transcript.
+    }
+  }, [])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    try {
+      if (messages.length === 0) window.localStorage.removeItem(STORAGE_KEY)
+      else window.localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-MAX_PERSISTED)))
+    } catch {
+      // Quota or private-mode failures are non-fatal; chat still works in-session.
+    }
   }, [messages])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -82,19 +114,26 @@ export function ChatMessages({ heightClassName = "h-[600px]" }: Props) {
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 && (
           <p className="text-sm opacity-60">
-            Ask about today&apos;s games, a pitcher&apos;s first-inning stats, or general baseball questions.
+            Ask about tonight&apos;s picks, why the model likes a game, how your bets are doing, or
+            general baseball questions.
           </p>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`text-sm ${m.role === "user" ? "text-right" : "text-left"}`}>
             <span
-              className="inline-block rounded-lg px-3 py-2 max-w-[85%] whitespace-pre-wrap"
+              className={`inline-block rounded-lg px-3 py-2 max-w-[85%] ${
+                m.role === "user" ? "whitespace-pre-wrap" : "hm-chat-md"
+              }`}
               style={{
                 background: m.role === "user" ? "var(--ds-accent)" : "var(--ds-surface)",
                 color: m.role === "user" ? "var(--ds-accent-fg, #fff)" : "inherit",
               }}
             >
-              {m.content}
+              {/* Assistant replies render as markdown — tool results are often
+                  tabular (slates, records), and raw pipes/asterisks were being
+                  shown literally. User text stays plain so nothing they type is
+                  reinterpreted as formatting. */}
+              {m.role === "user" ? m.content : <ReactMarkdown>{m.content}</ReactMarkdown>}
             </span>
           </div>
         ))}
@@ -118,6 +157,20 @@ export function ChatMessages({ heightClassName = "h-[600px]" }: Props) {
         >
           Send
         </button>
+        {/* The transcript now survives closing the bubble, so there has to be a
+            way to start over. */}
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setMessages([])}
+            disabled={isPending}
+            className="rounded-md px-2 py-2 text-xs opacity-60 hover:opacity-100 disabled:opacity-30"
+            title="Clear conversation"
+            aria-label="Clear conversation"
+          >
+            Clear
+          </button>
+        )}
       </form>
     </div>
   )

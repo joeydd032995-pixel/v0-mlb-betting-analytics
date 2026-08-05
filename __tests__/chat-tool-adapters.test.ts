@@ -16,4 +16,25 @@ describe("OPENAI_TOOLS", () => {
       expect(derived.function.parameters).toEqual(tool.input_schema)
     })
   })
+
+  // The product/account tools are the reason the assistant is useful beyond raw
+  // MLB stats — if one is dropped from either format, Groq/OpenRouter silently
+  // lose it while Anthropic keeps it, which is hard to spot in conversation.
+  it("exposes the prediction and account tools in both formats", () => {
+    const expected = [
+      "get_predictions",
+      "get_game_analysis",
+      "get_model_accuracy",
+      "get_my_bets",
+      "get_my_bankroll",
+      "get_my_watchlist",
+    ]
+    const anthropicNames = CHAT_TOOLS.map((t) => t.name)
+    const openaiNames = OPENAI_TOOLS.map((t) => (t.type === "function" ? t.function.name : ""))
+
+    for (const name of expected) {
+      expect(anthropicNames).toContain(name)
+      expect(openaiNames).toContain(name)
+    }
+  })
 })

@@ -148,8 +148,11 @@ export const CONFIG = {
   // AI chat assistant — model, tool-loop, and cost-control caps.
   chat: {
     model: "claude-haiku-4-5",
-    maxTokens: 1024,
-    maxToolIterations: 4,
+    // Raised from 1024/4 when the assistant gained prediction, ensemble and
+    // account tools: answering "compare tonight's top picks" needs several
+    // lookups plus a real explanation, and the old budget truncated both.
+    maxTokens: 4096,
+    maxToolIterations: 6,
     dailyMessageLimit: 40,
     rateLimitPerMinute: 10,
     // Free-tier failover models (Groq, then OpenRouter) used when Anthropic
