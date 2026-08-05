@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk"
-import { SYSTEM_PROMPT } from "@/lib/ai/chat-system-prompt"
-import { CHAT_TOOLS, runTool } from "@/lib/ai/chat-tools"
+import { SYSTEM_PROMPT, tierContextLine } from "@/lib/ai/chat-system-prompt"
+import { CHAT_TOOLS, runTool, type ToolContext } from "@/lib/ai/chat-tools"
 import { CONFIG } from "@/lib/config"
 
 export interface ChatLoopMessage {
@@ -16,7 +16,8 @@ export interface ChatLoopResult {
 /** Runs the Anthropic tool-call loop (content-block based) for one provider attempt. */
 export async function runAnthropicChatLoop(
   client: Anthropic,
-  userMessages: ChatLoopMessage[]
+  userMessages: ChatLoopMessage[],
+  ctx: ToolContext
 ): Promise<ChatLoopResult> {
   const messages: Anthropic.MessageParam[] = userMessages.map((m) => ({
     role: m.role,
@@ -29,7 +30,12 @@ export async function runAnthropicChatLoop(
     const response = await client.messages.create({
       model: CONFIG.chat.model,
       max_tokens: CONFIG.chat.maxTokens,
-      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      // SYSTEM_PROMPT stays byte-stable so the ephemeral cache entry keeps
+      // hitting; per-user tier goes in a second, uncached block after it.
+      system: [
+        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+        { type: "text", text: tierContextLine(ctx.tier) },
+      ],
       tools: CHAT_TOOLS,
       messages,
     })
@@ -51,7 +57,7 @@ export async function runAnthropicChatLoop(
     const results = await Promise.all(
       toolUseBlocks.map(async (block) => {
         toolCallLog.push({ name: block.name, input: block.input })
-        const result = await runTool(block.name, block.input)
+        const result = await runTool(block.name, block.input, ctx)
         const isError = typeof result === "object" && result !== null && "error" in result
         return {
           type: "tool_result" as const,

@@ -1,9 +1,10 @@
 import type OpenAI from "openai"
 import { OPENAI_TOOLS } from "@/lib/ai/chat-tool-adapters"
 import { SYSTEM_PROMPT } from "@/lib/ai/chat-system-prompt"
-import { runTool } from "@/lib/ai/chat-tools"
+import { runTool, type ToolContext } from "@/lib/ai/chat-tools"
 import { CONFIG } from "@/lib/config"
 import type { ChatLoopMessage, ChatLoopResult } from "@/lib/ai/chat-loop-anthropic"
+import { tierContextLine } from "@/lib/ai/chat-system-prompt"
 
 /**
  * Runs the tool-call loop for any OpenAI-compatible provider (Groq, OpenRouter).
@@ -15,10 +16,14 @@ import type { ChatLoopMessage, ChatLoopResult } from "@/lib/ai/chat-loop-anthrop
 export async function runOpenAICompatibleChatLoop(
   client: OpenAI,
   model: string,
-  userMessages: ChatLoopMessage[]
+  userMessages: ChatLoopMessage[],
+  ctx: ToolContext
 ): Promise<ChatLoopResult> {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
+    // Tier context is a SEPARATE message, never interpolated into SYSTEM_PROMPT
+    // — that constant is kept byte-stable so Anthropic prompt caching works.
+    { role: "system", content: tierContextLine(ctx.tier) },
     ...userMessages,
   ]
 
@@ -52,7 +57,7 @@ export async function runOpenAICompatibleChatLoop(
       }
 
       toolCallLog.push({ name: call.function.name, input: args })
-      const result = await runTool(call.function.name, args)
+      const result = await runTool(call.function.name, args, ctx)
       messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) })
     }
   }

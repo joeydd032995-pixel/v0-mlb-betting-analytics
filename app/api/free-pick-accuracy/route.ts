@@ -31,9 +31,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { computeFreePickAccuracy, type FreePickRow } from "@/lib/free-pick-accuracy"
-import type { PinnedPickRow } from "@/lib/types"
+import { loadFreePickAccuracy } from "@/lib/server/free-pick-accuracy-query"
 
 export const dynamic = "force-dynamic"
 
@@ -54,26 +52,9 @@ export async function GET() {
     // both the pinned-row settlement lookup and the legacy fallback below, so a
     // pinned game whose only row happens to be backtested is correctly treated
     // as "not yet settled" rather than graded off a backtest-quality row.
-    const [pins, allRows] = await Promise.all([
-      prisma.freePick.findMany({ select: { date: true, gameId: true } }),
-      prisma.modelPrediction.findMany({
-        where: { backtested: false },
-        select: { id: true, date: true, confidenceScore: true, status: true, correct: true },
-      }),
-    ])
-
-    const byId = new Map(allRows.map((r) => [r.id, r]))
-    const pinnedRows: PinnedPickRow[] = pins.map((p) => {
-      const row = byId.get(p.gameId)
-      return { date: p.date, status: row?.status ?? null, correct: row?.correct ?? null }
-    })
-
-    const pinnedDates = new Set(pins.map((p) => p.date))
-    const legacyRows: FreePickRow[] = allRows
-      .filter((r) => !pinnedDates.has(r.date))
-      .map((r) => ({ date: r.date, confidenceScore: r.confidenceScore, status: r.status, correct: r.correct }))
-
-    return NextResponse.json(computeFreePickAccuracy(pinnedRows, legacyRows), { headers: PUBLIC_CACHE_HEADERS })
+    // Query + reconstruction live in lib/server/free-pick-accuracy-query.ts so
+    // the chat assistant's get_model_accuracy tool reports the same number.
+    return NextResponse.json(await loadFreePickAccuracy(), { headers: PUBLIC_CACHE_HEADERS })
   } catch (err) {
     console.error("[free-pick-accuracy]", err)
     return NextResponse.json({ error: "Failed to compute free pick accuracy" }, { status: 500 })
