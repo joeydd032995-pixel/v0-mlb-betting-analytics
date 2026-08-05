@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma"
 import { z } from "zod"
 import type { TrackedPrediction } from "@/lib/prediction-store"
 import { encryptApiKey } from "@/lib/crypto/api-key-encryption"
+import { SetChatApiKeySchema, ClearChatApiKeySchema } from "@/lib/validation/chat-api-key"
+export type { ChatProvider } from "@/lib/validation/chat-api-key"
 
 // ─── Shared result type ────────────────────────────────────────────────────────
 
@@ -38,26 +40,9 @@ const InitBankrollSchema = z.object({
   startingBalance: z.number().positive(),
 })
 
-const ChatProviderSchema = z.enum(["anthropic", "groq", "openrouter"])
-export type ChatProvider = z.infer<typeof ChatProviderSchema>
-
-export const SetChatApiKeySchema = z.object({
-  provider: ChatProviderSchema,
-  // Strip ALL whitespace (not just edges) before the length check — a key
-  // pasted with embedded newlines (e.g. from a UI that hard-wraps long
-  // strings) would otherwise be stored corrupted. API keys never legitimately
-  // contain whitespace, so this is a defense-in-depth mirror of the same
-  // sanitization in chat-api-key-form.tsx, applied here so any other caller
-  // of this action gets it too.
-  apiKey: z
-    .string()
-    .transform((s) => s.replace(/\s+/g, ""))
-    .pipe(z.string().min(20).max(200)), // loose bound covering all three providers' key formats
-})
-
-const ClearChatApiKeySchema = z.object({
-  provider: ChatProviderSchema,
-})
+// ChatProviderSchema / SetChatApiKeySchema / ClearChatApiKeySchema live in
+// lib/validation/chat-api-key.ts — see the comment there for why they can't
+// be defined (or exported as non-function values) in this "use server" file.
 
 // ─── Bets ─────────────────────────────────────────────────────────────────────
 
