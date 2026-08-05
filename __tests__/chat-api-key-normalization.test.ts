@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { SetChatApiKeySchema } from "@/app/actions"
+import { SetChatApiKeySchema } from "@/lib/validation/chat-api-key"
 
 describe("SetChatApiKeySchema apiKey normalization", () => {
   it("strips embedded whitespace/newlines before validating length", () => {
