@@ -148,11 +148,14 @@ export const CONFIG = {
   // AI chat assistant — model, tool-loop, and cost-control caps.
   chat: {
     model: "claude-haiku-4-5",
-    // Raised from 1024/4 when the assistant gained prediction, ensemble and
-    // account tools: answering "compare tonight's top picks" needs several
-    // lookups plus a real explanation, and the old budget truncated both.
-    maxTokens: 4096,
-    maxToolIterations: 6,
+    // Sized against the tightest provider budget in the chain: Groq's free tier
+    // allows 12k tokens/MINUTE across all requests. Both values below multiply
+    // TPM usage — requested completion tokens count toward the estimate, and
+    // each tool iteration is a separate charged request carrying the whole
+    // conversation so far. Raising them to 4096/6 produced 413 "Request too
+    // large" in production. Raise only alongside a paid tier or a smaller model.
+    maxTokens: 1536,
+    maxToolIterations: 4,
     dailyMessageLimit: 40,
     rateLimitPerMinute: 10,
     // Free-tier failover models (Groq, then OpenRouter) used when Anthropic

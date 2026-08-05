@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk"
 import { SYSTEM_PROMPT, tierContextLine } from "@/lib/ai/chat-system-prompt"
 import { CHAT_TOOLS, runTool, type ToolContext } from "@/lib/ai/chat-tools"
 import { CONFIG } from "@/lib/config"
+import { serializeToolResult } from "@/lib/ai/chat-loop-openai-compatible"
 
 export interface ChatLoopMessage {
   role: "user" | "assistant"
@@ -62,7 +63,7 @@ export async function runAnthropicChatLoop(
         return {
           type: "tool_result" as const,
           tool_use_id: block.id,
-          content: JSON.stringify(result),
+          content: serializeToolResult(result),
           is_error: isError,
         }
       })

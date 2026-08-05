@@ -7,6 +7,23 @@ import type { ChatLoopMessage, ChatLoopResult } from "@/lib/ai/chat-loop-anthrop
 import { tierContextLine } from "@/lib/ai/chat-system-prompt"
 
 /**
+ * Hard cap on a serialized tool result before it enters the conversation.
+ *
+ * Tool results are re-sent on every subsequent loop iteration, so one oversized
+ * result is charged against the provider's tokens-per-minute budget repeatedly —
+ * that is how a fat get_predictions payload produced a 413 on Groq's free tier.
+ * Individual tools should return compact data; this is the backstop so a future
+ * one cannot silently blow the request budget again.
+ */
+const MAX_TOOL_RESULT_CHARS = 6000
+
+export function serializeToolResult(result: unknown): string {
+  const json = JSON.stringify(result) ?? "null"
+  if (json.length <= MAX_TOOL_RESULT_CHARS) return json
+  return `${json.slice(0, MAX_TOOL_RESULT_CHARS)}… [truncated: result too large to send in full]`
+}
+
+/**
  * Runs the tool-call loop for any OpenAI-compatible provider (Groq, OpenRouter).
  * Structural difference from the Anthropic loop: all tool calls from one turn
  * live in a single assistant message's `tool_calls` array, and each result is
@@ -58,7 +75,7 @@ export async function runOpenAICompatibleChatLoop(
 
       toolCallLog.push({ name: call.function.name, input: args })
       const result = await runTool(call.function.name, args, ctx)
-      messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) })
+      messages.push({ role: "tool", tool_call_id: call.id, content: serializeToolResult(result) })
     }
   }
 

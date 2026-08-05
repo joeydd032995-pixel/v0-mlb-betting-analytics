@@ -105,6 +105,24 @@ describe("runChatWithFailover", () => {
     expect(result).toEqual({ reply: "openrouter reply", toolCalls: [], provider: "openrouter" })
   })
 
+  // Groq's free tier rejects an over-budget request with 413 ("Request too
+  // large … tokens per minute"). Another provider may have room for the same
+  // payload, so the chain should move on instead of dead-ending.
+  it("falls over to the next provider on a 413 request-too-large error", async () => {
+    process.env.GROQ_API_KEY = "groq-key"
+    process.env.OPENROUTER_API_KEY = "or-key"
+    getAnthropicClient.mockReturnValue(null)
+    getGroqClient.mockReturnValue({})
+    getOpenRouterClient.mockReturnValue({})
+    runOpenAICompatibleChatLoop
+      .mockRejectedValueOnce(apiError(413))
+      .mockResolvedValueOnce({ reply: "openrouter reply", toolCalls: [] })
+
+    const result = await runChatWithFailover(messages, {}, { userId: "user_test", tier: "FREE" })
+
+    expect(result).toEqual({ reply: "openrouter reply", toolCalls: [], provider: "openrouter" })
+  })
+
   it("throws the last error when every configured provider fails", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-bad"
     getAnthropicClient.mockReturnValue({})

@@ -101,13 +101,17 @@ describe("get_predictions tier gating", () => {
     }
   })
 
-  it("gives ELITE the full breakdown", async () => {
+  // The slate view is compact for every tier — see the payload-size tests below.
+  // ELITE's extra depth is delivered through get_game_analysis (one game at a
+  // time), which is asserted in the paywall-bypass block.
+  it("gives ELITE every game in the slate", async () => {
     const res = (await runTool("get_predictions", {}, ctx("ELITE"))) as {
-      predictions: Record<string, unknown>[]
+      predictions: { gameId: string; recommendation?: string }[]
     }
 
     expect(res.predictions).toHaveLength(2)
-    expect(res.predictions[0]).toHaveProperty("modelBreakdown")
+    expect(res.predictions.map((p) => p.gameId)).toEqual([TOP_GAME, LOW_GAME])
+    expect(res.predictions[0].recommendation).toBe("STRONG_NRFI")
   })
 })
 
@@ -168,6 +172,47 @@ describe("account tools are scoped to the calling user", () => {
     expect(getUserBetsSummary).toHaveBeenCalledWith("user_test", "settled")
     expect(getUserBankrollSummary).toHaveBeenCalledWith("user_test")
     expect(getUserWatchlist).toHaveBeenCalledWith("user_test")
+  })
+})
+
+describe("get_predictions payload size", () => {
+  // Groq's free tier is 12k tokens/minute, counted across every request in a
+  // rolling minute — and a tool result is re-sent on each subsequent loop
+  // iteration. Returning full NRFIPrediction objects for a whole slate blew
+  // past that with a 413 in production. Keep the slate view compact; depth
+  // belongs in get_game_analysis, which covers one game.
+  const BIG_SLATE = Array.from({ length: 15 }, (_, i) => pred(String(776100 + i), 100 - i))
+
+  it("stays well under the request budget for a full slate", async () => {
+    computeAllPredictions.mockReturnValue(BIG_SLATE)
+    const res = await runTool("get_predictions", {}, ctx("ELITE"))
+    // ~6 KB ≈ 1.5k tokens, leaving room for the conversation and tool schemas.
+    expect(JSON.stringify(res).length).toBeLessThan(6000)
+  })
+
+  it("omits the heavy per-model fields from the slate view", async () => {
+    computeAllPredictions.mockReturnValue(BIG_SLATE)
+    const serialized = JSON.stringify(await runTool("get_predictions", {}, ctx("ELITE")))
+
+    expect(serialized).not.toContain("modelBreakdown")
+    expect(serialized).not.toContain("featurePresence")
+    expect(serialized).not.toContain("modelInputs")
+  })
+})
+
+describe("date argument validation", () => {
+  it("normalises a natural-language date the model is likely to send", async () => {
+    await runTool("get_predictions", { date: "today" }, ctx("FREE"))
+    const [dateArg] = getLiveGameSlate.mock.calls[0] as [string]
+    expect(dateArg).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it("rejects junk instead of forwarding it to the MLB API", async () => {
+    const res = (await runTool("get_predictions", { date: "sometime next week" }, ctx("FREE"))) as {
+      error?: string
+    }
+    expect(res.error).toBeTruthy()
+    expect(getLiveGameSlate).not.toHaveBeenCalled()
   })
 })
 

@@ -36,6 +36,70 @@ function todayET(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Resolves a model-supplied date argument to an ET `YYYY-MM-DD` string.
+ *
+ * Models naturally answer "today"/"tonight" rather than a formatted date, and
+ * the raw value used to be forwarded straight into the MLB Stats API — which
+ * answered `HTTP 400 for /schedule?...&date=today`. Normalise what's meaningful
+ * and reject the rest here rather than letting it reach an upstream API.
+ */
+function resolveDateArg(raw: string | undefined): { date: string } | { error: string } {
+  if (!raw) return { date: todayET() }
+
+  const value = raw.trim().toLowerCase()
+  if (value === "today" || value === "tonight" || value === "now") return { date: todayET() }
+  if (ISO_DATE.test(value)) return { date: value }
+
+  return {
+    error: `Unrecognised date "${raw}". Use YYYY-MM-DD (ET), or omit it for today.`,
+  }
+}
+
+/** Serialized size guard for a single prediction row in the slate view. */
+interface SlatePredictionView {
+  gameId: string
+  calibratedNrfiPct?: number
+  nrfiProbability?: number
+  confidence?: string
+  recommendation?: string
+  edge?: number
+  kelly?: number
+}
+
+/**
+ * Projects a gated prediction down to what a chat reply actually needs.
+ *
+ * Full NRFIPrediction objects carry `factors[]` (with prose descriptions),
+ * `modelInputs`, `modelBreakdown` and raw `features` vectors. Returning those
+ * for a whole slate is what pushed requests past Groq's 12k tokens/minute
+ * ceiling and produced a 413 — and because tool results are re-sent on every
+ * subsequent loop iteration, the cost compounds. Per-game depth belongs in
+ * get_game_analysis, which only ever covers one game.
+ */
+function toSlateView(p: Record<string, unknown>): SlatePredictionView {
+  const value = p.valueAnalysis as { edge?: number; kelly?: number } | undefined
+  return {
+    gameId: String(p.gameId),
+    calibratedNrfiPct: p.calibratedNrfiPct as number | undefined,
+    nrfiProbability: p.nrfiProbability as number | undefined,
+    confidence: p.confidence as string | undefined,
+    recommendation: p.recommendation as string | undefined,
+    edge: value?.edge,
+    kelly: value?.kelly,
+  }
+}
+
+/** Raw feature vectors are pure token cost to a language model. */
+function stripFeatureVectors(p: Record<string, unknown>): Record<string, unknown> {
+  const { features: _f, featurePresence: _fp, ...rest } = p
+  void _f
+  void _fp
+  return rest
+}
+
 // ─── Tool definitions (Anthropic tool-use schema) ─────────────────────────────
 
 export const CHAT_TOOLS: Anthropic.Tool[] = [
@@ -289,10 +353,15 @@ export async function runTool(name: string, rawInput: unknown, ctx: ToolContext)
 
       case "get_predictions": {
         const { date } = schemas.get_predictions.parse(rawInput)
-        const result = await gatedPredictionsForDate(date ?? todayET(), ctx.tier)
+        const resolved = resolveDateArg(date)
+        if ("error" in resolved) return { error: resolved.error }
+
+        const result = await gatedPredictionsForDate(resolved.date, ctx.tier)
         if (result.empty) return { date: result.date, games: [], note: "No games scheduled for that date." }
 
-        const visible = result.gated.filter((p) => !isLocked(p))
+        const visible = result.gated
+          .filter((p) => !isLocked(p))
+          .map((p) => toSlateView(p as unknown as Record<string, unknown>))
         return {
           date: result.date,
           tier: ctx.tier,
@@ -309,7 +378,10 @@ export async function runTool(name: string, rawInput: unknown, ctx: ToolContext)
 
       case "get_game_analysis": {
         const { gamePk, date } = schemas.get_game_analysis.parse(rawInput)
-        const result = await gatedPredictionsForDate(date ?? todayET(), ctx.tier)
+        const resolved = resolveDateArg(date)
+        if ("error" in resolved) return { error: resolved.error }
+
+        const result = await gatedPredictionsForDate(resolved.date, ctx.tier)
         if (result.empty) return { error: "No games scheduled for that date." }
 
         // Filter the GATED output — never gate a single-game slice (see
@@ -328,7 +400,7 @@ export async function runTool(name: string, rawInput: unknown, ctx: ToolContext)
 
         return {
           tier: ctx.tier,
-          prediction: match,
+          prediction: stripFeatureVectors(match as unknown as Record<string, unknown>),
           modelBreakdownIncluded: hasAccess(ctx.tier, "model_breakdown"),
           note: hasAccess(ctx.tier, "model_breakdown")
             ? undefined
