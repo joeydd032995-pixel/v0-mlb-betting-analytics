@@ -37,11 +37,14 @@ interface ChatAttempt {
  * bug here, so the remaining providers still deserve a turn. OpenRouter
  * dropping `meta-llama/llama-3.3-70b-instruct:free` from its free tier is the
  * case that prompted this.
+ *
+ * 413 counts for the same reason: a payload over one provider's per-minute token
+ * budget may fit the next one's, so the chain should move on rather than stop.
  */
 function isRetryableProviderError(err: unknown): boolean {
   const status = (err as { status?: number } | null)?.status
   if (status !== undefined) {
-    return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500
+    return status === 401 || status === 403 || status === 404 || status === 413 || status === 429 || status >= 500
   }
   return true
 }
