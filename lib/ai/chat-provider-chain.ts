@@ -26,13 +26,22 @@ interface ChatAttempt {
 
 /**
  * Retryable errors move to the next provider in the chain: auth failures,
- * rate limits, server errors, and anything without an HTTP status (network
- * errors, timeouts, JSON parse failures). Anything else (a programmer error)
- * is rethrown immediately — falling through would just mask a real bug.
+ * rate limits, retired models, server errors, and anything without an HTTP
+ * status (network errors, timeouts, JSON parse failures). Anything else (a
+ * programmer error) is rethrown immediately — falling through would just mask
+ * a real bug.
+ *
+ * 404 counts because that's what providers return when a model slug has been
+ * retired or renamed out from under us — a provider-side config failure, not a
+ * bug here, so the remaining providers still deserve a turn. OpenRouter
+ * dropping `meta-llama/llama-3.3-70b-instruct:free` from its free tier is the
+ * case that prompted this.
  */
 function isRetryableProviderError(err: unknown): boolean {
   const status = (err as { status?: number } | null)?.status
-  if (status !== undefined) return status === 401 || status === 403 || status === 429 || status >= 500
+  if (status !== undefined) {
+    return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500
+  }
   return true
 }
 

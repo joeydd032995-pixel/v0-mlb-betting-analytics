@@ -48,11 +48,27 @@ export function ChatMessages({ heightClassName = "h-[600px]" }: Props) {
       }
 
       if (!res.ok) {
-        toast.error("The assistant couldn't respond. Please try again.")
+        // Show what the server actually said. /api/chat returns a specific
+        // `error` (a retired provider model, a key that needs re-entering on
+        // /account, …); collapsing all of it into one generic string is what
+        // turned a one-line config fix into a log-diving session.
+        const body = await res.json().catch(() => ({}))
+        toast.error(
+          typeof body.error === "string" && body.error
+            ? body.error
+            : "The assistant couldn't respond. Please try again."
+        )
         return
       }
 
-      const data = await res.json()
+      // Parse defensively: a non-JSON body (e.g. an auth redirect returning
+      // HTML) would otherwise throw into the catch below and be reported as a
+      // connectivity problem, which it isn't.
+      const data = await res.json().catch(() => null)
+      if (!data || typeof data.reply !== "string") {
+        toast.error("The assistant returned an unreadable response. Please try again.")
+        return
+      }
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }])
     } catch {
       toast.error("Network error reaching the assistant.")

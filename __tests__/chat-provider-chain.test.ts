@@ -86,6 +86,25 @@ describe("runChatWithFailover", () => {
     expect(result).toEqual({ reply: "openrouter reply", toolCalls: [], provider: "openrouter" })
   })
 
+  // Providers return 404 when a model slug is retired or renamed — which is a
+  // provider-side config failure, not a bug in our code, so the next provider
+  // should still get a turn. A live example: OpenRouter dropped
+  // meta-llama/llama-3.3-70b-instruct:free from its free tier.
+  it("falls over to the next provider on a 404 retired-model error", async () => {
+    process.env.GROQ_API_KEY = "groq-key"
+    process.env.OPENROUTER_API_KEY = "or-key"
+    getAnthropicClient.mockReturnValue(null)
+    getGroqClient.mockReturnValue({})
+    getOpenRouterClient.mockReturnValue({})
+    runOpenAICompatibleChatLoop
+      .mockRejectedValueOnce(apiError(404))
+      .mockResolvedValueOnce({ reply: "openrouter reply", toolCalls: [] })
+
+    const result = await runChatWithFailover(messages, {})
+
+    expect(result).toEqual({ reply: "openrouter reply", toolCalls: [], provider: "openrouter" })
+  })
+
   it("throws the last error when every configured provider fails", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-bad"
     getAnthropicClient.mockReturnValue({})
