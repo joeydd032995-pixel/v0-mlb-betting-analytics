@@ -6,7 +6,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { z } from "zod"
 import type { TrackedPrediction } from "@/lib/prediction-store"
-import { encryptApiKey } from "@/lib/crypto/api-key-encryption"
+import { encryptApiKey, getEncryptionKeyStatus } from "@/lib/crypto/api-key-encryption"
 import { SetChatApiKeySchema, ClearChatApiKeySchema } from "@/lib/validation/chat-api-key"
 export type { ChatProvider } from "@/lib/validation/chat-api-key"
 
@@ -491,6 +491,19 @@ export async function setChatApiKeyAction(
 
   const { provider, apiKey } = parsed.data
   const lastFour = apiKey.slice(-4)
+
+  // Check the server's own encryption config BEFORE touching the user's key, so
+  // a server misconfiguration doesn't surface as "your key is bad" — that
+  // mismatch sent a user re-checking a perfectly good key more than once.
+  const keyStatus = getEncryptionKeyStatus()
+  if (!keyStatus.ok) {
+    console.error(`[setChatApiKeyAction] ENCRYPTION_KEY unusable: ${keyStatus.detail}`)
+    return {
+      ok: false,
+      error:
+        "The server isn't set up to store API keys yet (ENCRYPTION_KEY is missing or invalid). This is a server setting — your key is fine.",
+    }
+  }
 
   try {
     const encryptedKey = encryptApiKey(apiKey)

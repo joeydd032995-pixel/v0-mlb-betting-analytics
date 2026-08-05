@@ -119,7 +119,7 @@ MLB Stats API is always available and free; The Odds API, OpenWeatherMap, and Sp
 - `GET/POST /api/bankroll` — bankroll management
 - `POST /api/webhooks/clerk` — Clerk user sync to DB (uses `svix` for webhook verification)
 - `GET /api/export-data` — downloads full history as CSV (joins `GameResult` + `ModelPrediction` on gamePk)
-- `GET /api/db-status` — deployment diagnostic: DB connectivity check + env var presence report
+- `GET /api/db-status` — deployment diagnostic (auth required): DB connectivity check + env var presence report + `encryptionKey` status (`ok`, or `reason: "missing" | "wrong_length" | "non_hex"` from `getEncryptionKeyStatus()`). Use the `encryptionKey` field to tell an unset `ENCRYPTION_KEY` apart from one that's set but malformed — the two need opposite fixes and are otherwise indistinguishable. Values are never exposed, only derived status
 - `GET /api/debug` — deployment diagnostic: MLB Stats API connectivity + today's schedule
 - `POST /api/contact` — stub enterprise inquiry handler (logs only, no CRM wired yet)
 - `POST /api/chat` — AI chat assistant (auth required); see "AI Chat Assistant" above
