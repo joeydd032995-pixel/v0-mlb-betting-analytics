@@ -56,6 +56,7 @@ export async function POST(request: Request) {
   }
 
   const userKeys: UserProviderKeys = {}
+  let hadUndecryptableKey = false
   for (const row of userKeyRows) {
     try {
       const decrypted = decryptApiKey(row.encryptedKey)
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
         userKeys[row.provider] = decrypted
       }
     } catch (err) {
+      hadUndecryptableKey = true
       console.error(`[/api/chat] failed to decrypt stored ${row.provider} key, skipping`, err)
     }
   }
@@ -72,6 +74,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ reply, toolCalls, provider })
   } catch (err) {
     console.error("[/api/chat] all providers failed", err instanceof Error ? err.message : err)
-    return NextResponse.json({ error: "Chat assistant is not configured" }, { status: 500 })
+    // If the user has saved keys that no longer decrypt, that's almost certainly
+    // why nothing was configured — point at the fix instead of a dead end.
+    const error =
+      hadUndecryptableKey && Object.keys(userKeys).length === 0
+        ? "Your saved API key can no longer be read — re-enter it on the Account page."
+        : "Chat assistant is not configured"
+    return NextResponse.json({ error }, { status: 500 })
   }
 }
