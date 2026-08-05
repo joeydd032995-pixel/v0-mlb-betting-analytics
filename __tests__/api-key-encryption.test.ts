@@ -1,5 +1,10 @@
 import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest"
-import { encryptApiKey, decryptApiKey, getEncryptionKeyStatus } from "@/lib/crypto/api-key-encryption"
+import {
+  encryptApiKey,
+  decryptApiKey,
+  getEncryptionKeyStatus,
+  canDecryptApiKey,
+} from "@/lib/crypto/api-key-encryption"
 
 const originalEncryptionKey = process.env.ENCRYPTION_KEY
 
@@ -33,6 +38,39 @@ describe("api-key-encryption", () => {
     const [iv, authTag, ciphertext] = encrypted.split(":")
     const tampered = [iv, authTag, ciphertext.slice(0, -2) + "AA"].join(":")
     expect(() => decryptApiKey(tampered)).toThrow()
+  })
+})
+
+describe("canDecryptApiKey", () => {
+  const validKey = "0".repeat(64)
+
+  afterEach(() => {
+    process.env.ENCRYPTION_KEY = validKey
+  })
+
+  it("returns true for a value encrypted under the current key", () => {
+    process.env.ENCRYPTION_KEY = validKey
+    expect(canDecryptApiKey(encryptApiKey("sk-or-v1-still-good"))).toBe(true)
+  })
+
+  // The real-world case: ENCRYPTION_KEY was rotated after the key was saved.
+  // AES-GCM is authenticated, so the stored row is permanently unreadable —
+  // the UI must be able to detect that instead of showing it as "Configured".
+  it("returns false for a value encrypted under a different key", () => {
+    process.env.ENCRYPTION_KEY = validKey
+    const encryptedUnderOldKey = encryptApiKey("sk-or-v1-encrypted-before-rotation")
+    process.env.ENCRYPTION_KEY = "1".repeat(64)
+    expect(canDecryptApiKey(encryptedUnderOldKey)).toBe(false)
+  })
+
+  it("returns false for a malformed payload", () => {
+    expect(canDecryptApiKey("not-a-valid-payload")).toBe(false)
+  })
+
+  it("returns false when ENCRYPTION_KEY is unusable rather than throwing", () => {
+    const encrypted = encryptApiKey("sk-or-v1-key-goes-missing")
+    delete process.env.ENCRYPTION_KEY
+    expect(canDecryptApiKey(encrypted)).toBe(false)
   })
 })
 

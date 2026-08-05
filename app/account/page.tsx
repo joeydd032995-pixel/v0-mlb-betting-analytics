@@ -8,6 +8,7 @@ import { getUserTierInfo } from "@/lib/subscription"
 import { prisma } from "@/lib/prisma"
 import { AccountClient } from "@/components/account-client"
 import { TierUnresolvedNotice } from "@/components/tier-gate-notice"
+import { canDecryptApiKey } from "@/lib/crypto/api-key-encryption"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
@@ -20,8 +21,20 @@ export default async function AccountPage() {
 
   const [tierInfo, apiKeyRows] = await Promise.all([
     getUserTierInfo(userId),
-    prisma.userApiKey.findMany({ where: { userId }, select: { provider: true, lastFour: true, updatedAt: true } }),
+    prisma.userApiKey.findMany({
+      where: { userId },
+      select: { provider: true, lastFour: true, updatedAt: true, encryptedKey: true },
+    }),
   ])
+
+  // A row encrypted under a previous ENCRYPTION_KEY is permanently unreadable,
+  // but still looks configured (it keeps its lastFour). Resolve that here so the
+  // form can prompt for re-entry instead of showing a key that silently fails.
+  // The ciphertext is dropped before crossing to the client — only the boolean.
+  const apiKeyInfo = apiKeyRows.map(({ encryptedKey, ...row }) => ({
+    ...row,
+    usable: canDecryptApiKey(encryptedKey),
+  }))
 
   return (
     <div className="min-h-screen" style={{ background: "var(--hm-abyss)" }}>
@@ -29,7 +42,7 @@ export default async function AccountPage() {
         {/* Telling a paying subscriber "You're on the free plan" because the
             lookup failed is worse than telling them we couldn't check. */}
         {tierInfo.resolved
-          ? <AccountClient tierInfo={tierInfo} userId={userId} apiKeyInfo={apiKeyRows} />
+          ? <AccountClient tierInfo={tierInfo} userId={userId} apiKeyInfo={apiKeyInfo} />
           : <TierUnresolvedNotice />}
       </main>
     </div>

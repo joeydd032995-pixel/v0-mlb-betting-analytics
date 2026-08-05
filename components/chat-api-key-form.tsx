@@ -2,13 +2,15 @@
 
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
-import { KeyRound, Trash2 } from "lucide-react"
+import { KeyRound, Trash2, AlertTriangle } from "lucide-react"
 import { setChatApiKeyAction, clearChatApiKeyAction, type ChatProvider } from "@/app/actions"
 
 interface ApiKeyRow {
   provider: string
   lastFour: string
   updatedAt: Date
+  /** False when the stored key can no longer be decrypted (ENCRYPTION_KEY changed). */
+  usable: boolean
 }
 
 interface Props {
@@ -81,7 +83,7 @@ export function ChatApiKeyForm({ apiKeyInfo }: Props) {
               <p className="text-[10px] font-medium" style={{ color: "rgba(255,255,255,0.4)" }}>
                 {label}
               </p>
-              {row ? (
+              {row && row.usable ? (
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <KeyRound size={14} style={{ color: "rgba(0,229,255,0.6)" }} />
@@ -100,25 +102,51 @@ export function ChatApiKeyForm({ apiKeyInfo }: Props) {
                   </button>
                 </div>
               ) : (
-                <form onSubmit={(e) => handleSave(id, e)} className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    value={inputs[id]}
-                    onChange={(e) => setInputs((prev) => ({ ...prev, [id]: e.target.value }))}
-                    placeholder={placeholder}
-                    disabled={isPending}
-                    className="flex-1 rounded-md px-3 py-2 text-xs bg-transparent"
-                    style={{ border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isPending || !inputs[id].trim()}
-                    className="shrink-0 rounded-md px-3 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
-                    style={{ background: "rgba(0,229,255,0.1)", color: "#00e5ff" }}
-                  >
-                    Save
-                  </button>
-                </form>
+                <>
+                  {/* A stored-but-unreadable key would otherwise look configured
+                      while silently failing every chat request. Say so, and show
+                      the input — saving over it upserts the same row. */}
+                  {row && !row.usable && (
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={13} className="mt-0.5 shrink-0" style={{ color: "rgba(255,180,0,0.8)" }} />
+                      <span className="text-[11px]" style={{ color: "rgba(255,180,0,0.8)" }}>
+                        The saved key (••••{row.lastFour}) can no longer be read — the server&apos;s encryption key
+                        changed since it was stored. Enter it again to restore access.
+                      </span>
+                    </div>
+                  )}
+                  <form onSubmit={(e) => handleSave(id, e)} className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      value={inputs[id]}
+                      onChange={(e) => setInputs((prev) => ({ ...prev, [id]: e.target.value }))}
+                      placeholder={placeholder}
+                      disabled={isPending}
+                      className="flex-1 rounded-md px-3 py-2 text-xs bg-transparent"
+                      style={{ border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={isPending || !inputs[id].trim()}
+                      className="shrink-0 rounded-md px-3 py-2 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+                      style={{ background: "rgba(0,229,255,0.1)", color: "#00e5ff" }}
+                    >
+                      Save
+                    </button>
+                    {row && !row.usable && (
+                      <button
+                        type="button"
+                        onClick={() => handleClear(id)}
+                        disabled={isPending}
+                        className="shrink-0 rounded-md p-1.5 transition-opacity hover:opacity-80 disabled:opacity-50"
+                        style={{ background: "rgba(255,255,255,0.06)" }}
+                        aria-label={`Remove ${label} API key`}
+                      >
+                        <Trash2 size={13} style={{ color: "rgba(255,255,255,0.4)" }} />
+                      </button>
+                    )}
+                  </form>
+                </>
               )}
             </div>
           )

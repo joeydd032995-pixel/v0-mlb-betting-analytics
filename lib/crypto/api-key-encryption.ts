@@ -66,6 +66,24 @@ export function encryptApiKey(plaintext: string): string {
   return [iv.toString("base64"), authTag.toString("base64"), ciphertext.toString("base64")].join(":")
 }
 
+/**
+ * True if `encrypted` can be decrypted with the ENCRYPTION_KEY currently in the
+ * environment. Never throws, and never returns the plaintext.
+ *
+ * Rotating ENCRYPTION_KEY permanently orphans every previously stored key —
+ * AES-GCM is authenticated, so the old ciphertext can't be read by the new key.
+ * Callers use this to tell a working stored key from a dead one, which is
+ * otherwise invisible: the row still exists and still has its lastFour.
+ */
+export function canDecryptApiKey(encrypted: string): boolean {
+  try {
+    decryptApiKey(encrypted)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Decrypts a value produced by encryptApiKey. Throws on tamper/format mismatch. */
 export function decryptApiKey(encrypted: string): string {
   const key = getKey()
