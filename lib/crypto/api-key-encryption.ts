@@ -4,13 +4,55 @@ const ALGORITHM = "aes-256-gcm"
 const IV_LENGTH = 12
 
 const HEX_KEY_PATTERN = /^[0-9a-f]{64}$/i
+const HEX_KEY_LENGTH = 64
+
+export type EncryptionKeyStatus =
+  | { ok: true }
+  | { ok: false; reason: "missing" | "wrong_length" | "non_hex"; detail: string }
+
+/**
+ * Reports whether ENCRYPTION_KEY is usable, and if not, precisely why.
+ *
+ * This is the single source of truth for the key's validity rule — `getKey()`
+ * and the /api/db-status diagnostic both go through it so they can't drift.
+ *
+ * Two things matter here, both learned the hard way in production:
+ *  - The value is TRIMMED before validation. The pattern is anchored, so a
+ *    correct key pasted into a hosting provider's env-var textarea with a
+ *    trailing newline is present and correct but would otherwise be rejected.
+ *  - The failure modes are DISTINGUISHED. Collapsing "not set" and
+ *    "set but malformed" into one message makes the difference between a
+ *    30-second fix and hours of guessing, because they need opposite actions.
+ *
+ * `detail` is safe to log and to return to an authenticated caller: it
+ * describes the shape of the problem and never contains the key itself.
+ */
+export function getEncryptionKeyStatus(): EncryptionKeyStatus {
+  const hex = process.env.ENCRYPTION_KEY?.trim()
+  if (!hex) {
+    return { ok: false, reason: "missing", detail: "ENCRYPTION_KEY is not set" }
+  }
+  if (hex.length !== HEX_KEY_LENGTH) {
+    return {
+      ok: false,
+      reason: "wrong_length",
+      detail: `expected ${HEX_KEY_LENGTH} hex chars, got ${hex.length}`,
+    }
+  }
+  if (!HEX_KEY_PATTERN.test(hex)) {
+    return { ok: false, reason: "non_hex", detail: "contains non-hexadecimal characters" }
+  }
+  return { ok: true }
+}
 
 function getKey(): Buffer {
-  const hex = process.env.ENCRYPTION_KEY
-  if (!hex || !HEX_KEY_PATTERN.test(hex)) {
-    throw new Error("ENCRYPTION_KEY must be set to a 32-byte hex string (64 hex chars) — generate with `openssl rand -hex 32`")
+  const status = getEncryptionKeyStatus()
+  if (!status.ok) {
+    throw new Error(
+      `ENCRYPTION_KEY is unusable (${status.detail}) — it must be a 32-byte hex string (${HEX_KEY_LENGTH} hex chars), generate with \`openssl rand -hex 32\``
+    )
   }
-  return Buffer.from(hex, "hex")
+  return Buffer.from((process.env.ENCRYPTION_KEY as string).trim(), "hex")
 }
 
 /** Encrypts a plaintext API key for storage. Returns `${iv}:${authTag}:${ciphertext}`, all base64. */
