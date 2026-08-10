@@ -1,3 +1,11 @@
+// lib/server/free-pick.ts
+// pinFreePick() — writes the FreePick table's insert-only pin for the FREE
+// tier's one daily pick. Called from every /api/predictions request with a
+// non-empty slate; `update: {}` on the upsert guarantees the first write for
+// a date wins and later requests can never move it as odds/lineups shift the
+// ranking during the day. See CLAUDE.md's FreePick entry for the read-side
+// (lib/free-pick-accuracy.ts) fallback story.
+
 import { prisma } from "@/lib/prisma"
 import { selectFreePick } from "@/lib/tier-gating"
 import { withTimeout } from "@/lib/subscription"

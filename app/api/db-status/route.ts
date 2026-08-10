@@ -1,3 +1,14 @@
+/**
+ * GET /api/db-status — deployment diagnostic (auth required).
+ *
+ * Reports DB connectivity, which DB URL env var is set (names only, never
+ * values), Statcast cache row counts (a 0 count here while a backfill run
+ * reported success means the app and the backfill point at different
+ * databases), and `encryptionKey` status via getEncryptionKeyStatus() — see
+ * that function for why "missing" vs "set but malformed" are reported
+ * separately rather than collapsed into one generic failure.
+ */
+
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"

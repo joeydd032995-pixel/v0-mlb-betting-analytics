@@ -1,3 +1,9 @@
+// lib/pitcher/build-pitcher.ts
+// buildPitcherFromStats() converts raw MLB Stats API season stats into the
+// domain `Pitcher` shape (deriving first-inning NRFI estimate, K%/BB%, etc.),
+// shared by the pitcher deep-dive page and the staff page so both render
+// identical figures from the same source data.
+
 import type { MLBPitcherSeasonStats } from "@/lib/api/mlb-stats"
 import type { Pitcher, StatcastPitcherSummary } from "@/lib/types"
 

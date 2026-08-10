@@ -1,3 +1,10 @@
+// lib/prisma.ts
+// Prisma client singleton — always `import { prisma } from "@/lib/prisma"`,
+// never `new PrismaClient()` directly (avoids exhausting connections under
+// Next.js dev hot-reload). Supports an opt-in Neon-over-HTTPS adapter
+// (PRISMA_NEON_HTTP=true, dev-only — see the comment below for why it's
+// refused in production) for sandboxes that block the Postgres wire port.
+
 import { PrismaClient } from "@prisma/client"
 import { PrismaNeonHTTP } from "@prisma/adapter-neon"
 import { neon } from "@neondatabase/serverless"

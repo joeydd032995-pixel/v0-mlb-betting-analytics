@@ -1,3 +1,9 @@
+// lib/ai/anthropic-client.ts
+// Anthropic SDK client — a dev-mode-cached singleton (`anthropic`, keyed off
+// the shared ANTHROPIC_API_KEY) plus getAnthropicClient() for building a
+// per-request client when the caller has their own key. Used by the primary
+// leg of the chat provider chain (lib/ai/chat-provider-chain.ts).
+
 import Anthropic from "@anthropic-ai/sdk"
 
 const globalForAnthropic = global as unknown as { anthropic?: Anthropic }

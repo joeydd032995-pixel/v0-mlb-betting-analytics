@@ -1,11 +1,14 @@
+// GET /api/debug-tier — diagnostic endpoint reporting the caller's resolved
+// tier and ADMIN_USER_IDS membership. Gated behind the same DEBUG_SECRET /
+// ENABLE_DEBUG_ENDPOINT checks used by /api/debug. Pass the token via:
+// x-debug-token: <DEBUG_SECRET>
+
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { getUserTier } from "@/lib/subscription"
 
 export const dynamic = "force-dynamic"
 
-// Diagnostic endpoint — gated behind the same DEBUG_SECRET / ENABLE_DEBUG_ENDPOINT
-// checks used by /api/debug. Pass the token via: x-debug-token: <DEBUG_SECRET>
 export async function GET(request: Request) {
   const debugToken = request.headers.get("x-debug-token")
   const isProduction = process.env.NODE_ENV === "production"

@@ -1,3 +1,8 @@
+// lib/ai/chat-tool-adapters.ts
+// Format-conversion layer only — derives the OpenAI-format tool list
+// (OPENAI_TOOLS) from lib/ai/chat-tools.ts's CHAT_TOOLS, the single
+// hand-written source of truth for tool schemas. Add a new tool there, not here.
+
 import type OpenAI from "openai"
 import { CHAT_TOOLS } from "@/lib/ai/chat-tools"
 

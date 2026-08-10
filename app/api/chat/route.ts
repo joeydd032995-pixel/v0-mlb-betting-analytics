@@ -1,3 +1,13 @@
+/**
+ * POST /api/chat — AI chat assistant (auth required).
+ *
+ * Resolves the caller's tier (fail-closed on an unresolved lookup), applies
+ * per-user rate limit + daily message cap, decrypts any saved per-provider
+ * API keys, then delegates to runChatWithFailover() for the actual
+ * Anthropic → Groq → OpenRouter tool-calling loop. See CLAUDE.md
+ * "AI Chat Assistant" for the full picture.
+ */
+
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"

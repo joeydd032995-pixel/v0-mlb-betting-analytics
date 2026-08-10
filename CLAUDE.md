@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+For a full index of this project's docs (setup guides, audit reports, specs) and a "where things live" map for onboarding, see [`HANDOFF.md`](./HANDOFF.md).
+
 ## Commands
 
 ```bash
@@ -63,7 +65,9 @@ Key tables in `prisma/schema.prisma`:
 - `FreePick` — one row per ET date, the pinned FREE-tier daily pick; written by `lib/server/free-pick.ts` on the first non-empty `/api/predictions` slate for that date, insert-only so later requests can't move it
 - `EnsembleDiagnostic` — written only when `ENABLE_DIAGNOSTICS=true`
 - `BacktestRun` — walk-forward validation results
-- `UserApiKey` — per-user Anthropic API key for the chat assistant, encrypted at rest (see "AI Chat Assistant" above)
+- `UserApiKey` — per-user Anthropic/Groq/OpenRouter API key for the chat assistant, encrypted at rest (see "AI Chat Assistant" above)
+- `Subscription` — one row per Clerk userId, Stripe-backed tier state (`tier`: "FREE"\|"PRO"\|"ELITE"; `status` mirrors the Stripe subscription status); created on first checkout, kept in sync by `app/api/webhooks/stripe/route.ts` (see "Subscriptions & Tier Gating" below)
+- `PitcherStatcast` / `BatterStatcast` — per-player, per-date Statcast payload cache (`payload` is a raw JSON blob), unique on `(mlbamId, date)`; populated weekly by `scripts/data/refresh_statcast.py`, read via `lib/api/statcast.ts`
 
 ### External APIs
 
@@ -90,6 +94,17 @@ MLB Stats API is always available and free; The Odds API, OpenWeatherMap, and Sp
 - **Per-user API keys:** users can optionally set their own key for each provider (Anthropic, Groq, OpenRouter) on `/account` (`components/chat-api-key-form.tsx` → `setChatApiKeyAction`/`clearChatApiKeyAction` in `app/actions.ts`), encrypted at rest via `lib/crypto/api-key-encryption.ts` (AES-256-GCM, keyed by `ENCRYPTION_KEY`) in the `UserApiKey` Prisma model — one row per `(userId, provider)`, unique on that pair. `app/api/chat/route.ts` decrypts every row for the user into a `UserProviderKeys` map and passes it to `runChatWithFailover`; `getAnthropicClient`/`getGroqClient`/`getOpenRouterClient` all accept an optional per-user key and prefer it over the shared env var for that provider only — a saved key has no effect on a different provider or on an earlier step of the chain that already succeeded. The decrypted key is never sent to the client — only a masked `lastFour` indicator is.
 - **Auth:** `/api/chat` is in `middleware.ts`'s `isProtectedRoute` — cost control is the reason, not just personalization. The bubble itself is unauthenticated UI (renders everywhere) but gates on Clerk's `useAuth()` client-side before calling the API.
 - Do not add another LLM integration path outside this one (e.g. Vercel AI SDK, a bespoke HTTP client per provider) — fold any new provider into `lib/ai/chat-provider-chain.ts` and its adapter layer instead.
+
+### Subscriptions & Tier Gating (Stripe)
+
+Three tiers — `"FREE" | "PRO" | "ELITE"` — gate both prediction fields (via `applyTierGating`, see "AI Chat Assistant" above) and whole routes/pages.
+
+- **Rules vs. lookup split:** `lib/tiers.ts` is the pure, client-safe rulebook — `Tier`, the `Feature` union, and `FEATURE_MIN_TIER` (the single source of truth for what each tier unlocks) plus `hasAccess(tier, feature)`. No Prisma/Clerk imports, so it's safe in client components. `lib/subscription.ts` is the server-only *lookup* — `getUserTier`, `getUserTierInfo`, `resolveUserTierWithRetry` (reads the `Subscription` table) — and re-exports the `lib/tiers.ts` rules so existing server imports keep working.
+- **Route guard:** `lib/require-tier.ts`'s `requireFeature(feature)` is the standard guard for any API route serving PRO/ELITE-only data — a bare `auth()` signed-in check is not enough, it only proves the user is logged in, not that they've paid. Returns `{ ok: false, response }` (401 unauthenticated, 503 `tier_unresolved` on a failed DB lookup — fails closed rather than silently downgrading a paying user to FREE, 403 `upgrade_required` when the tier is too low) or `{ ok: true, tier, userId }`. `getPageTier()` is the server-component equivalent for gating whole pages.
+- **Checkout & billing:** `POST /api/stripe/checkout` creates a Stripe Checkout session for an upgrade (price ID allowlisted against `NEXT_PUBLIC_STRIPE_*_PRICE_ID` env vars); `POST /api/stripe/portal` creates a Stripe Customer Portal session for self-service billing management. Both require a `Subscription.stripeCustomerId`, created lazily on first checkout.
+- **Webhook sync:** `POST /api/webhooks/stripe` (`app/api/webhooks/stripe/route.ts`) is the only writer of subscription state — `checkout.session.completed`, `customer.subscription.created`/`updated` upsert the `Subscription` row (tier derived from the Stripe price ID via `priceIdToTier`); `customer.subscription.deleted` resets the row to `tier: "FREE"`. Must read the raw request body (`req.text()`, never `req.json()`) for Stripe signature verification, and must bypass Clerk middleware (no Clerk session on a Stripe-originated request).
+- **`lib/stripe.ts`:** lazily-initialized Stripe client (`getStripe()` / the `stripe` proxy) so the module can be imported at build time without `STRIPE_SECRET_KEY` set. Server-only.
+- **Admin bypass:** `ADMIN_USER_IDS` (comma-separated Clerk user IDs) grants unrestricted access outside the normal tier lookup — checked ad hoc (e.g. `app/api/debug-tier/route.ts`), not baked into `hasAccess`.
 
 ### Key Source Files
 
@@ -123,8 +138,19 @@ MLB Stats API is always available and free; The Odds API, OpenWeatherMap, and Sp
 - `GET /api/export-data` — downloads full history as CSV (joins `GameResult` + `ModelPrediction` on gamePk)
 - `GET /api/db-status` — deployment diagnostic (auth required): DB connectivity check + env var presence report + `encryptionKey` status (`ok`, or `reason: "missing" | "wrong_length" | "non_hex"` from `getEncryptionKeyStatus()`). Use the `encryptionKey` field to tell an unset `ENCRYPTION_KEY` apart from one that's set but malformed — the two need opposite fixes and are otherwise indistinguishable. Values are never exposed, only derived status
 - `GET /api/debug` — deployment diagnostic: MLB Stats API connectivity + today's schedule
+- `GET /api/debug-tier` — diagnostic: reports the caller's resolved tier + whether they're in `ADMIN_USER_IDS`; gated by `x-debug-token: <DEBUG_SECRET>` header, same as `/api/debug`
 - `POST /api/contact` — stub enterprise inquiry handler (logs only, no CRM wired yet)
 - `POST /api/chat` — AI chat assistant (auth required); see "AI Chat Assistant" above
+- `POST /api/backtest`, `GET /api/backtest` — walk-forward backtest runner: POST computes Brier/accuracy/ROI-Kelly/Sharpe/max-drawdown over a season range (joining `ModelPrediction` to `GameResult` for ground truth) and persists a `BacktestRun` row; GET lists the caller's 20 most recent runs. Both auth required
+- `GET /api/cron/daily-sync` — Vercel Cron (09:00 UTC daily): fans out to `/api/historical-sync` for the current month (+ previous month during the first 3 days of a month), then settles every pending prediction via `settlePendingPredictions()`. `Authorization: Bearer <CRON_SECRET>`, dev-only bypass when `CRON_SECRET` is unset
+- `GET /api/cron/settle-results` — attaches first-inning results to pending predictions without regenerating them (`?lookbackDays=N`, `?dryRun=true`); also runs at the end of `/api/cron/daily-sync` — this route exists for manual backlog sweeps. Same `CRON_SECRET` auth
+- `GET /api/feature-importance` — `?gameId=...` returns the persisted per-game DeepNRFI top feature contributions (`ModelPrediction.deepNrfiTopFeatures`); `?global=true` returns the model artifact's global gain/SHAP report from `scripts/deepnrfi/artifacts/`. ELITE-only (`requireFeature("deepnrfi")`); degrades to `{ available: false }` rather than 500 when data/artifacts are missing
+- `GET /api/monte-carlo?gameId=...&nSims=...` — first-inning run distribution for a game: reads the persisted `ModelPrediction.monteCarloDistribution` when available, otherwise resimulates live (capped at 50k sims) via `lib/monte-carlo.ts`. ELITE-only (`requireFeature("montecarlo")`)
+- `GET /api/weekly-recap` — **public** (no auth): DB-backed weekly performance for the most recent Mon–Sun window containing a completed, scored system-wide prediction (`userId: null` only); auto-advances over time. Uses the same Kelly/flat metrics as the backtester
+- `POST /api/stripe/checkout` — creates a Stripe Checkout session for a tier upgrade; price ID allowlisted against `NEXT_PUBLIC_STRIPE_*_PRICE_ID`; auth required
+- `POST /api/stripe/portal` — creates a Stripe Customer Portal session for billing self-service; requires an existing `Subscription.stripeCustomerId`; auth required
+- `GET /api/subscription/me` — the caller's resolved tier info (`{ tier, isActive, cancelAtPeriodEnd, currentPeriodEnd, stripeCustomerId, stripeSubscriptionId }`); returns FREE defaults when signed out, `503 { error: "tier_unresolved" }` on a failed DB lookup (never silently answers FREE for a real error — see "Subscriptions & Tier Gating" above)
+- `POST /api/webhooks/stripe` — Stripe webhook receiver; sole writer of `Subscription` state (see "Subscriptions & Tier Gating" above). Bypasses Clerk middleware; verifies `stripe-signature` against `STRIPE_WEBHOOK_SECRET` using the raw request body
 
 ### Environment Variables
 
@@ -136,6 +162,12 @@ See `.env.example` for full documentation. Required for full functionality:
 - `ANTHROPIC_API_KEY` — AI chat assistant (floating bubble, all pages)
 - `ENCRYPTION_KEY` — required only if users are allowed to store their own Anthropic key on `/account`
 - `GROQ_API_KEY` / `OPENROUTER_API_KEY` — optional, enables chat failover to free providers when Anthropic is unavailable
+- `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` — required for subscriptions/billing (`lib/stripe.ts`, `/api/webhooks/stripe`)
+- `NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PRICE_ID` / `_PRO_ANNUAL_PRICE_ID` / `_ELITE_MONTHLY_PRICE_ID` / `_ELITE_ANNUAL_PRICE_ID` — Stripe price IDs allowlisted by `/api/stripe/checkout`
+- `CRON_SECRET` — bearer token required by `/api/cron/*` routes (dev-only bypass when unset)
+- `RECOMPUTE_TOKEN` — bearer token `/api/cron/daily-sync` uses to call `/api/historical-sync` server-to-server (no Clerk session available between crons)
+- `ADMIN_USER_IDS` — comma-separated Clerk user IDs with an unrestricted-access bypass (checked ad hoc, e.g. `/api/debug-tier`)
+- `DEBUG_SECRET` + `ENABLE_DEBUG_ENDPOINT` — gate `/api/debug` and `/api/debug-tier` in production
 
 ## Important Patterns
 

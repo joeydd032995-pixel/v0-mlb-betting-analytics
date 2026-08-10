@@ -1,3 +1,11 @@
+// lib/ai/chat-provider-chain.ts
+// runChatWithFailover() — the single entry point /api/chat calls. Tries
+// Anthropic → Groq → OpenRouter in order, using each provider's own key when
+// the user has one saved, else the shared env var; only attempts a provider
+// that's configured, and falls through to the next on a retryable error (see
+// isRetryableProviderError). See CLAUDE.md "AI Chat Assistant" for the full
+// picture — do not add another LLM integration path outside this file.
+
 import { getAnthropicClient } from "@/lib/ai/anthropic-client"
 import { getGroqClient, getOpenRouterClient } from "@/lib/ai/openai-compatible-client"
 import { runAnthropicChatLoop, type ChatLoopMessage } from "@/lib/ai/chat-loop-anthropic"

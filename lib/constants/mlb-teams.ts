@@ -1,3 +1,9 @@
+// lib/constants/mlb-teams.ts
+// Static registry of all 30 MLB teams, keyed by lowercase team code. `apiId`
+// is the MLB Stats API's numeric team ID — required for team hitting-stats
+// lookups (lib/api/mlb-stats.ts) since the Stats API doesn't accept the
+// abbreviation directly.
+
 import type { League, Division } from "../types"
 
 export interface MLBTeamInfo {

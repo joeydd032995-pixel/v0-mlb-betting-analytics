@@ -250,6 +250,13 @@ function computeSliceMetrics(
   }
 }
 
+/**
+ * Computes the full backtest metric suite (Brier, log-loss, accuracy, AUC,
+ * ROI-Kelly, ROI-flat, Sharpe, max drawdown, calibration bins, per-confidence
+ * breakdown) for a set of scored predictions. Shared by /api/backtest,
+ * /api/weekly-recap, and the mlb-backtester agent so every surface reports
+ * the same numbers off the same formulas.
+ */
 export function computeBacktestMetrics(
   rows: BacktestRow[],
   /** Pass true when rows are already sorted chronologically (enables drawdown). */

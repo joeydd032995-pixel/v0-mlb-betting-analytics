@@ -1,3 +1,10 @@
+// lib/constants/mlb-stadiums.ts
+// Static per-venue registry keyed by MLB Stats API venue name: lat/lon (for
+// weather lookups), dome flag, park factor, and center-field compass bearing
+// (used by the vector wind model — see lib/api/weather.ts's mapWindDirection).
+// STADIUM_PARK_FACTORS is consumed directly by the prediction engine;
+// lib/features/park-factors-extended.ts layers additional splits on top.
+
 import { getTeamByName } from "./mlb-teams"
 
 export interface StadiumInfo {

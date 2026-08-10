@@ -1,3 +1,10 @@
+// lib/crypto/api-key-encryption.ts
+// AES-256-GCM encrypt/decrypt for per-user chat provider API keys
+// (UserApiKey.encryptedKey), keyed by the ENCRYPTION_KEY env var (64 hex
+// chars / 32 bytes). getEncryptionKeyStatus() is the single source of truth
+// for whether that key is usable, distinguishing "missing" from "set but
+// malformed" since the two need opposite fixes (see app/api/db-status).
+
 import crypto from "crypto"
 
 const ALGORITHM = "aes-256-gcm"

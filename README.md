@@ -6,6 +6,8 @@ Predicts whether a game's first inning will produce zero runs (NRFI) or at least
 
 A full quantitative audit of the engine (June 2026) and its remediation are documented in [`AUDIT_REPORT.md`](AUDIT_REPORT.md) and [`AUDIT_FIXES.md`](AUDIT_FIXES.md). Regression tests guarding the audited properties live in [`__tests__/audit-regression.test.ts`](__tests__/audit-regression.test.ts).
 
+> **New to this repo?** [`HANDOFF.md`](HANDOFF.md) indexes every doc in this project (setup guides, audit reports, specs) and maps out where things live — start there if you're onboarding.
+
 ---
 
 ## Table of Contents

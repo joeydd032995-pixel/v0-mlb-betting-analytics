@@ -1,3 +1,10 @@
+// lib/api/live-data.ts
+// getLiveGameSlate(date) is the top-level slate builder: fans out to MLB Stats
+// API (games/pitchers/teams), The Odds API (odds), OpenWeatherMap (weather),
+// SportsBlaze (optional splits), and Statcast, then assembles the typed Game/
+// Pitcher/Team maps the prediction engine consumes. See CLAUDE.md's
+// "Prediction Engine" section for where this sits in the data flow.
+
 import {
   fetchGamesByDate,
   fetchPitcherStats,
@@ -363,6 +370,14 @@ export interface LiveGameSlate {
   teams: Map<string, Team>
 }
 
+/**
+ * Top-level slate builder for a given ET date: fetches games from the MLB
+ * Stats API, fans out to odds/weather/splits/Statcast for all of them, and
+ * assembles the typed Game/Pitcher/Team maps the prediction engine consumes.
+ * Returns an empty slate (not an error) on a no-game day. This is the sole
+ * entry point `/api/predictions` and `/api/games` call — see CLAUDE.md's
+ * "Prediction Engine" data-flow section.
+ */
 export async function getLiveGameSlate(date: string): Promise<LiveGameSlate> {
   // 1. Fetch today's games
   const apiGames = await fetchGamesByDate(date)

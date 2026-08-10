@@ -1,3 +1,10 @@
+// lib/server/tracked-predictions.ts
+// Shared query layer for the accuracy/history dashboards: pulls ModelPrediction
+// rows through a narrow column select (TRACKED_SELECT — only what
+// toTrackedPrediction reads) and caps the result at TRACKED_PREDICTION_CAP,
+// ordered by game date (not createdAt, which is backfill-insertion time and
+// would evict recent live predictions from the window).
+
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { computeProfitLoss, type TrackedPrediction } from "@/lib/prediction-store"

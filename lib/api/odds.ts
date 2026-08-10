@@ -1,3 +1,10 @@
+// lib/api/odds.ts
+// NRFI/YRFI live odds. Primary source is The Odds API (market key
+// batter_first_inning_scored); SportsGameOdds is a secondary/free-tier source,
+// normalised to the same OddsEvent shape so downstream matching/extraction
+// code is source-agnostic. Falls back to mock data in lib/mock-data.ts when
+// no API key is configured.
+
 const BASE_URL = "https://api.the-odds-api.com/v4"
 const API_KEY = process.env.THE_ODDS_API_KEY ?? ""
 

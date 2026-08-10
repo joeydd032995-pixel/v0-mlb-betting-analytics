@@ -244,6 +244,13 @@ function applyCalibration(p: number, knots: [number, number][] | null): number {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+/**
+ * Loads (and caches) the active DeepNRFI LightGBM artifact from
+ * scripts/deepnrfi/artifacts/manifest.json. Returns null when running in a
+ * browser context (no fs/path) or when the artifact is missing — callers
+ * treat null as "fall back to the legacy 7-model ensemble", not an error.
+ * Result is memoized in CACHED_HANDLE for the process lifetime.
+ */
 export function loadDeepNrfiModel(): LoadedHandle | null {
   if (CACHED_HANDLE !== undefined) return CACHED_HANDLE
   const fs = getFs()

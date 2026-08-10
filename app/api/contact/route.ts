@@ -1,8 +1,10 @@
+// POST /api/contact — enterprise inquiry stub. Logs the request and returns
+// 200; no CRM/email/ticketing system is wired up yet. Replace the console.log
+// below with a real integration when one exists.
+
 import { type NextRequest, NextResponse } from "next/server"
 import { sanitizeForLog } from "@/lib/utils/log"
 
-// Stub — logs the contact request and returns 200.
-// Replace with your CRM, email, or ticketing system integration.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as {

@@ -1,3 +1,9 @@
+// lib/advanced-stats.ts
+// Sabermetric calculators consuming raw counting stats: HittingStatsCalculator
+// (wOBA, ISO, BABIP, etc.) and PitchingStatsCalculator (FIP, xFIP, SIERA, K%/BB%).
+// Formula constants (wOBA weights, FIP constant, league averages) live in
+// lib/config.ts (CONFIG) so they stay in one place across the codebase.
+
 import { CONFIG } from "./config"
 
 // ==================== HITTING STATS ====================
