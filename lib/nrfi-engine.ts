@@ -163,6 +163,7 @@ function getMonthlyLambdaFactor(date: string): number {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Converts an implied probability (0–1) to American odds notation (e.g. 0.6 → -150). */
 export function impliedToAmerican(prob: number): number {
   // Clamp away from {0, 1} to avoid division by zero / ±Infinity.
   const p = Math.max(0.0001, Math.min(0.9999, prob))
@@ -525,6 +526,15 @@ function outlierNote(
 
 // ─── Main Engine ──────────────────────────────────────────────────────────────
 
+/**
+ * Computes a full NRFIPrediction for a single game: looks up its pitchers/teams
+ * from the provided maps, runs the 7-model ensemble per half-inning (via
+ * lib/nrfi-models.ts), applies calibration and the final league-anchor blend,
+ * and attaches confidence/recommendation/value-analysis. Returns null (and
+ * logs) when any of the four required entities is missing from its map —
+ * callers should skip the game rather than throw. See CLAUDE.md's "Prediction
+ * Engine" section for the full formula.
+ */
 export function computeNRFIPrediction(
   game:     Game,
   pitchers: Map<string, Pitcher>,

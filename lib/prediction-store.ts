@@ -321,6 +321,13 @@ function halfNrfiProb(
 
 // ─── Build a TrackedPrediction from live API data ─────────────────────────────
 
+/**
+ * Converts a live NRFIPrediction + its game/pitcher/team context into the
+ * flat TrackedPrediction shape used by the client-side accuracy/history
+ * dashboards (localStorage-backed) — see CLAUDE.md's Key Source Files entry.
+ * Not the same pipeline as the DB-backed ModelPrediction table; this is the
+ * `/api/backfill` path.
+ */
 export function buildTrackedPrediction(
   pred: NRFIPrediction,
   game: Game,

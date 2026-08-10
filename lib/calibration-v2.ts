@@ -34,6 +34,12 @@ const CALIBRATION_KNOTS_V2: [number, number][] = [
   [0.95, 0.95],
 ]
 
+/**
+ * Calibrate a raw v2.9 (9-model) ensemble probability using monotone linear
+ * interpolation over CALIBRATION_KNOTS_V2. Values outside [first knot, last
+ * knot] are clamped to the corresponding boundary calibrated value. Mirrors
+ * calibrateWithMonotonicSpline() in lib/calibration.ts exactly.
+ */
 export function calibrateV2(rawProb: number): number {
   if (rawProb <= CALIBRATION_KNOTS_V2[0][0]) return CALIBRATION_KNOTS_V2[0][1]
   const last = CALIBRATION_KNOTS_V2[CALIBRATION_KNOTS_V2.length - 1]

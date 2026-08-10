@@ -1,3 +1,14 @@
+/**
+ * GET /api/predictions — today's live predictions (force-dynamic).
+ *
+ * The main entry point: getLiveGameSlate() → computeAllPredictions() →
+ * applyTierGating() → pinFreePick() (see CLAUDE.md "Prediction Engine" for
+ * the full data flow). Tier-gates the response per caller; unauthenticated
+ * requests get the FREE teaser. Fails closed (503 `tier_unresolved`) rather
+ * than silently downgrading a signed-in user to FREE when the DB lookup
+ * itself fails.
+ */
+
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { getLiveGameSlate } from "@/lib/api/live-data"

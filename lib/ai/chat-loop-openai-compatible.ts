@@ -1,3 +1,9 @@
+// lib/ai/chat-loop-openai-compatible.ts
+// The Groq/OpenRouter leg of the chat provider chain: a bounded tool-call loop
+// using the shared OpenAI `tool_calls` / `role: "tool"` wire format. Also
+// exports serializeToolResult(), used by both loops to cap oversized tool
+// payloads before they re-enter the conversation.
+
 import type OpenAI from "openai"
 import { OPENAI_TOOLS } from "@/lib/ai/chat-tool-adapters"
 import { SYSTEM_PROMPT } from "@/lib/ai/chat-system-prompt"

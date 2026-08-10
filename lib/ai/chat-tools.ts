@@ -1,3 +1,12 @@
+// lib/ai/chat-tools.ts
+// Single hand-written source of truth for the chat assistant's tool surface:
+// CHAT_TOOLS (Anthropic-format schemas) and runTool() (the dispatcher both
+// provider loops call). lib/ai/chat-tool-adapters.ts derives the OpenAI-format
+// tool list from CHAT_TOOLS — never hand-write a second copy of a schema.
+// Wraps existing product/data functions only; no new data-fetching logic
+// belongs here. Any tool returning predictions MUST route through
+// applyTierGating (see CLAUDE.md "AI Chat Assistant" for why).
+
 import { z } from "zod"
 import type Anthropic from "@anthropic-ai/sdk"
 import { getLiveGameSlate } from "@/lib/api/live-data"

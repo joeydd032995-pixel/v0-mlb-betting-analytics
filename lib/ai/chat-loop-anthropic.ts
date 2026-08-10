@@ -1,3 +1,9 @@
+// lib/ai/chat-loop-anthropic.ts
+// The Anthropic leg of the chat provider chain: a bounded tool-call loop using
+// Anthropic's content-block message format. See chat-loop-openai-compatible.ts
+// for the Groq/OpenRouter equivalent (different wire format, same ToolContext
+// and CHAT_TOOLS dispatch underneath).
+
 import type Anthropic from "@anthropic-ai/sdk"
 import { SYSTEM_PROMPT, tierContextLine } from "@/lib/ai/chat-system-prompt"
 import { CHAT_TOOLS, runTool, type ToolContext } from "@/lib/ai/chat-tools"

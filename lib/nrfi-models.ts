@@ -495,6 +495,15 @@ export interface MAPREHalfResult {
   nrfiProb: number
 }
 
+// Treat babip values outside plausible range as missing-data sentinels.
+// APIs frequently return 0 for null numeric fields; a genuine BABIP of 0 over
+// any real sample is essentially impossible, and values above 0.60 likewise.
+function sanitizeBabip(raw: number | undefined): number | undefined {
+  if (raw == null || !Number.isFinite(raw)) return undefined
+  if (raw < 0.10 || raw > 0.60)            return undefined
+  return raw
+}
+
 /**
  * MODEL 4: MAPRE — per-half-inning computation.
  *
@@ -514,16 +523,6 @@ export interface MAPREHalfResult {
  * @param baseLambda  −ln(shrunkNrfiRate) — the raw Poisson λ before offense/park
  * @param inputs      MAPRE context inputs (all optional; defaults to league avg)
  */
-
-// Treat babip values outside plausible range as missing-data sentinels.
-// APIs frequently return 0 for null numeric fields; a genuine BABIP of 0 over
-// any real sample is essentially impossible, and values above 0.60 likewise.
-function sanitizeBabip(raw: number | undefined): number | undefined {
-  if (raw == null || !Number.isFinite(raw)) return undefined
-  if (raw < 0.10 || raw > 0.60)            return undefined
-  return raw
-}
-
 export function computeMAPREHalfInning(
   baseLambda: number,
   inputs: MAPREInputs = {}
@@ -633,6 +632,8 @@ const RAW_ENSEMBLE_WEIGHTS = {
   hierarchicalBayes: 0,
 }
 const _rawWeightSum = Object.values(RAW_ENSEMBLE_WEIGHTS).reduce((a, b) => a + b, 0)
+
+/** RAW_ENSEMBLE_WEIGHTS normalized to sum to 1.0 — the actual per-model blend weights used by compute7ModelEnsemble(). */
 export const ENSEMBLE_WEIGHTS: EnsembleWeights = Object.fromEntries(
   Object.entries(RAW_ENSEMBLE_WEIGHTS).map(([k, v]) => [k, v / _rawWeightSum])
 ) as EnsembleWeights
@@ -691,6 +692,7 @@ export interface PitcherContext {
   rawBaseLambda: number   // −ln(shrunkRate), used by MAPRE
 }
 
+/** Runs Opt #5 dynamic Bayesian shrinkage once per pitcher and caches the result in a PitcherContext, so callers evaluating both half-innings don't recompute it. */
 export function precomputePitcherContext(pitcher: Pitcher): PitcherContext {
   const priorWeight   = getDynamicPriorWeight(pitcher)
   const shrunkRate    = applyDynamicShrinkage(pitcher, priorWeight)

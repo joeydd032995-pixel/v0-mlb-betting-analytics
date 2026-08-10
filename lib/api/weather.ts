@@ -1,3 +1,11 @@
+// lib/api/weather.ts
+// Stadium weather via OpenWeatherMap (live) and Open-Meteo (historical
+// archive, for backfill). Domes short-circuit to a fixed DOME_WEATHER value.
+// mapWindDirection() converts a compass wind degree into a park-relative
+// in/out/crosswind/calm label using each stadium's center-field bearing
+// (lib/constants/mlb-stadiums.ts) — consumed by lib/weather.ts's vector wind
+// multiplier (Opt #3).
+
 import { STADIUM_COORDS, STADIUM_IS_DOME, STADIUM_CF_BEARING } from "@/lib/constants/mlb-stadiums"
 import type { Weather, WindDirection, WeatherCondition } from "@/lib/types"
 

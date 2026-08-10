@@ -1,3 +1,9 @@
+// lib/rate-limit.ts
+// General-purpose IP-based Upstash rate limiter (100 req/60s sliding window)
+// for public API routes. Separate instance/prefix from lib/ai/chat-rate-limit.ts,
+// which is per-user and much tighter since chat spends real LLM tokens.
+// Returns null (no-op — allow everything) when Upstash isn't configured.
+
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 

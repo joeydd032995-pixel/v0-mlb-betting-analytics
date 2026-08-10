@@ -1,3 +1,10 @@
+// lib/ai/openai-compatible-client.ts
+// Groq/OpenRouter equivalent of anthropic-client.ts — both fallback providers
+// speak the OpenAI wire format, so both are built on the official `openai`
+// SDK with a custom baseURL rather than a bespoke HTTP client per provider.
+// getGroqClient()/getOpenRouterClient() return null (not throw) when
+// unconfigured, so the failover chain can just skip them.
+
 import OpenAI from "openai"
 
 /**

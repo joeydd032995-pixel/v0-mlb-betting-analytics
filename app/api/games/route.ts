@@ -1,3 +1,13 @@
+/**
+ * GET /api/games — game list, optionally scoped to a single game.
+ *
+ * `?date=YYYY-MM-DD` (defaults to today ET) and optional `?gameId=...` for a
+ * single game's detail. Tier-gated identically to /api/predictions: even the
+ * single-game lookup computes and gates predictions for the FULL slate first,
+ * then picks out the requested game — never gate a one-element array (see
+ * CLAUDE.md's tier-gating warning for why that would leak the paywall).
+ */
+
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { getLiveGameSlate } from "@/lib/api/live-data"

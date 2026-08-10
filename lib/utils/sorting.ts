@@ -1,3 +1,8 @@
+// lib/utils/sorting.ts
+// useSortableRows() — client-side hook that zips parallel predictions/games/
+// teams/pitchers arrays into row objects, applies the grid view's confidence/
+// recommendation filters, and sorts. Memoized on its inputs.
+
 import { useMemo } from "react"
 import type { Game, NRFIPrediction, Team, Pitcher, FilterOptions } from "@/lib/types"
 

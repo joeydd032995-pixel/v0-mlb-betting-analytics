@@ -1,3 +1,10 @@
+// lib/ai/chat-rate-limit.ts
+// Cost controls for /api/chat: a per-user sliding-window Upstash rate limiter
+// plus a per-user daily message cap (ET-day counter). Separate instance from
+// the IP-based limiter in lib/rate-limit.ts — chat spends real LLM tokens per
+// call, so it needs a per-identity cap. Both no-op (allow everything) when
+// Upstash isn't configured.
+
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { CONFIG } from "@/lib/config"
