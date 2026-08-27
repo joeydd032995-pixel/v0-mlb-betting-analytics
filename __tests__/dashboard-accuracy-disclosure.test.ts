@@ -13,7 +13,7 @@ import {
 } from "@/lib/prediction-store"
 import { summariseBetRecord } from "@/lib/bet-record"
 import { CALIBRATION_IS_IDENTITY, CALIBRATION_KNOT_COUNT } from "@/lib/calibration"
-import { CONFIDENCE_THRESHOLDS } from "@/lib/nrfi-engine"
+import { CONVICTION_THRESHOLDS } from "@/lib/nrfi-engine"
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -365,8 +365,11 @@ describe("summariseBetRecord", () => {
 // values so a drift shows up here rather than silently in user-facing copy.
 
 describe("engine constants exported for display", () => {
-  it("exposes the real confidence cutoffs", () => {
-    expect(CONFIDENCE_THRESHOLDS).toEqual({ high: 62, medium: 45 })
+  it("exposes the real tier cutoffs, on the conviction scale", () => {
+    // Tiers key off conviction (|p - 0.5| x 2), not the reliability score.
+    // These are the only 3-tier cutoffs monotone in both 2023 and 2026 and
+    // pooled — see CONVICTION_THRESHOLDS in lib/nrfi-engine.ts.
+    expect(CONVICTION_THRESHOLDS).toEqual({ high: 0.180, medium: 0.110 })
   })
 
   it("reports the calibration table as an identity map", () => {

@@ -9,12 +9,15 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { subscription: { findUnique: (...args: unknown[]) => findUnique(...args) } },
 }))
 
-function makePrediction(gameId: string, confidenceScore: number): NRFIPrediction {
+// nrfiProbability drives the ranking (conviction = |p - 0.5|), so it must vary
+// across the fixture; confidenceScore is carried but deliberately ordered
+// AGAINST conviction in the slate below to prove it no longer ranks.
+function makePrediction(gameId: string, confidenceScore: number, nrfiProbability = 0.6): NRFIPrediction {
   return {
     gameId,
     confidenceScore,
-    nrfiProbability:   0.6,
-    yrfiProbability:   0.4,
+    nrfiProbability,
+    yrfiProbability:   1 - nrfiProbability,
     calibratedNrfiPct: 60,
     homeExpectedRuns:  0.25,
     awayExpectedRuns:  0.25,
@@ -34,12 +37,12 @@ function makePrediction(gameId: string, confidenceScore: number): NRFIPrediction
 
 describe("applyTierGating", () => {
   const slate = [
-    makePrediction("game-low", 40),
-    makePrediction("game-high", 90),
-    makePrediction("game-mid", 65),
+    makePrediction("game-low",  90, 0.52), // highest reliability, lowest conviction
+    makePrediction("game-high", 40, 0.70), // lowest reliability,  highest conviction
+    makePrediction("game-mid",  65, 0.60),
   ]
 
-  it("FREE exposes exactly one teaser (highest confidence) and ghosts the rest", () => {
+  it("FREE exposes exactly one teaser (highest conviction) and ghosts the rest", () => {
     const { gated, lockedCount } = applyTierGating(slate, "FREE")
 
     expect(lockedCount).toBe(2)
@@ -114,6 +117,28 @@ describe("applyTierGating", () => {
 // /api/free-pick-accuracy reconstructs the historical free pick from stored
 // rows. If that reconstruction and the live paywall ever disagree, the card
 // reports the track record of a pick nobody was shown.
+describe("free-pick ranking is conviction-based", () => {
+  // Regression guard for the 2026-08 retier. Ranking by confidenceScore picked
+  // a game that hit 0.5019 across 259 historical dates — below the 0.5183
+  // all-games average. Conviction picked 0.5714. If someone re-points the
+  // ranker at confidenceScore, this fails.
+  it("ignores confidenceScore and ranks by distance from 50%", () => {
+    const slate = [
+      makePrediction("high-score-coinflip", 98, 0.505),
+      makePrediction("low-score-conviction", 11, 0.68),
+    ]
+    expect(selectFreePick(slate)?.gameId).toBe("low-score-conviction")
+  })
+
+  it("treats an under-50% prediction as equally convicted as its mirror", () => {
+    const slate = [
+      makePrediction("strong-yrfi", 50, 0.32),
+      makePrediction("weak-nrfi",   50, 0.55),
+    ]
+    expect(selectFreePick(slate)?.gameId).toBe("strong-yrfi")
+  })
+})
+
 describe("selectFreePick", () => {
   it("agrees with the teaser applyTierGating exposes to FREE", () => {
     const slates = [

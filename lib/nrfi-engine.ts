@@ -133,10 +133,31 @@ export const NRFI_CALL_THRESHOLD_PUBLIC = NRFI_CALL_THRESHOLD
  * Exported so the UI can render the real numbers instead of restating them —
  * the Insights "How It Works" tab previously advertised ≥68 for High while the
  * engine used ≥62, and contradicted its own Performance tab in the process.
+ *
+ * ── 2026-08 retier ───────────────────────────────────────────────────────────
+ * These are CONVICTION cutoffs (|p − 0.5| × 2), not reliability-score cutoffs.
+ * The tier used to key off the reliability score, which measured input quality
+ * (sample size, form stability, model agreement) rather than how likely the
+ * pick was to be right.  Measured on 3,444 verified post-fix predictions it
+ * carried no signal — top-vs-bottom quintile hit-rate gap −0.006 (z = −0.22) —
+ * and the free pick it selected hit 0.5019, BELOW the 0.5183 slate average.
+ *
+ * Conviction is the calibration-consistent measure: for a calibrated
+ * probability, distance from 0.5 IS the expected hit rate.  It is also the only
+ * candidate with a positive, sign-stable relationship to being correct
+ * (+0.043 in 2023, +0.040 in 2026).
+ *
+ * These cutoffs are the only 3-tier split monotone in BOTH seasons and pooled:
+ *   High   ≥ 0.180  → 0.5804 hit (n = 398)
+ *   Medium ≥ 0.110  → 0.5155
+ *   Low            → 0.5086
+ * Honest caveat: only the High-vs-rest split carries real evidence (+7.0pp,
+ * stable across seasons).  Medium-vs-Low separation is within noise — treat
+ * those two as presentational granularity, not a ranking claim.
  */
-export const CONFIDENCE_THRESHOLDS = {
-  high:   62,
-  medium: 45,
+export const CONVICTION_THRESHOLDS = {
+  high:   0.180,
+  medium: 0.110,
 } as const
 
 // Monthly lambda multiplier: accounts for the cold-weather / heat run-environment
@@ -402,12 +423,19 @@ function computeConfidence(
   nrfiProbability: number,
   homePitcher:     Pitcher,
   awayPitcher:     Pitcher,
-  modelConsensus   = 0.5,
+  /**
+   * Retained so the positional call sites (and mcVariance after it) keep their
+   * shape, but deliberately unused: the term it fed was inverted in both
+   * measured seasons. See the removal note in the body.
+   */
+  _modelConsensus  = 0.5,
   mcVariance?:     number,
 ): { level: ConfidenceLevel; score: number; conviction: number } {
-  // ── Reliability score (true confidence) ──────────────────────────────────
-  // Driven by sample size, model agreement, and form stability — NOT by how
-  // far the prediction is from 50%. That's conviction, a separate concept.
+  // ── Reliability score — INPUT QUALITY ONLY ───────────────────────────────
+  // Driven by sample size and form stability. This is NOT a hit-rate forecast
+  // and must not be used to rank or tier picks: measured against outcomes it
+  // has ~zero correlation with being correct (−0.006). It answers "how much
+  // data stands behind this number", not "how likely is it to be right".
   let score = 50
 
   const minStarts = Math.min(
@@ -426,7 +454,11 @@ function computeConfidence(
     return r.reduce((s, v) => s + (Number(v) - avg) ** 2, 0) / r.length
   }
   score -= (consistency(homePitcher) + consistency(awayPitcher)) * 15
-  score += (modelConsensus - 0.5) * 16
+  // modelConsensus term removed 2026-08: `score += (modelConsensus - 0.5) * 16`
+  // was inverted in BOTH independent seasons — the lowest-agreement quintile
+  // outhit the highest (0.5247 vs 0.4815 in 2023; 0.5693 vs 0.5347 in 2026),
+  // so agreement among seven views of the same thin feature set signals shared
+  // blind spots, not reliability. It was pushing the score the wrong way.
 
   // Monte Carlo uncertainty: variance > ~1.5 (very volatile inning) → confidence penalty.
   if (mcVariance !== undefined && mcVariance > 0) {
@@ -436,14 +468,19 @@ function computeConfidence(
   }
 
   score = Math.max(10, Math.min(98, Math.round(score)))
-  const level: ConfidenceLevel =
-    score >= CONFIDENCE_THRESHOLDS.high   ? "High"
-    : score >= CONFIDENCE_THRESHOLDS.medium ? "Medium"
-    : "Low"
 
-  // ── Conviction (strength of the prediction, separate from reliability) ────
+  // ── Conviction (strength of the prediction) ───────────────────────────────
   // 0.0 = coin-flip, 1.0 = maximum certainty.
   const conviction = Math.abs(nrfiProbability - 0.5) * 2
+
+  // The user-facing tier is driven by CONVICTION, not the reliability score.
+  // "High confidence" is read as "likely to be right", and only conviction
+  // tracks that (see CONVICTION_THRESHOLDS). `score` is still returned and
+  // displayed as an input-quality indicator, but it no longer ranks or tiers.
+  const level: ConfidenceLevel =
+    conviction >= CONVICTION_THRESHOLDS.high   ? "High"
+    : conviction >= CONVICTION_THRESHOLDS.medium ? "Medium"
+    : "Low"
 
   return { level, score, conviction }
 }

@@ -85,8 +85,10 @@ export interface EngineFacts {
   clampMin: number
   clampMax: number
   callThreshold: number
-  confidenceHigh: number
-  confidenceMedium: number
+  /** Conviction cutoff for the High tier, on the |p-0.5|x2 scale. */
+  convictionHigh: number
+  /** Conviction cutoff for the Medium tier, same scale. */
+  convictionMedium: number
   weights: {
     poisson: number
     zip: number
@@ -834,24 +836,24 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <div className="space-y-2">
               <p className="text-sm font-semibold text-foreground">Confidence Score (0–100)</p>
               <div className="rounded-lg border border-border/30 bg-card/50 p-4 font-mono text-xs text-muted-foreground space-y-1">
-                <p>score = 50                                <span className="text-foreground">(reliability only — distance from 50% is &quot;conviction&quot;, tracked separately)</span></p>
+                <p>score = 50                                <span className="text-foreground">(input quality only — does NOT set the tier)</span></p>
                 <p>      + sampleBonus                        <span className="text-foreground">(+12 if ≥18 starts, −14 if &lt;3)</span></p>
                 <p>      − formVariance × 15                  <span className="text-foreground">(high variance in last 5 = penalty)</span></p>
-                <p>      + (modelConsensus − 0.5) × 16        <span className="text-foreground">(all models agree = bonus)</span></p>
                 <p>      ± monteCarloVariance                 <span className="text-foreground">(−8 if var &gt;1.8, −4 if &gt;1.4, +3 if &lt;0.6)</span></p>
                 <p>clamped to [10, 98]</p>
+                <p className="pt-2 text-foreground">tier = conviction = |p − 50%| × 2 <span className="text-muted-foreground">(the reliability score above had no measurable relationship to being correct, so it no longer sets the tier)</span></p>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs text-center">
                 <div className="rounded border border-emerald-500/30 bg-emerald-500/5 p-2">
-                  <p className="font-semibold text-emerald-400">≥{engineFacts.confidenceHigh}</p>
+                  <p className="font-semibold text-emerald-400">≤{(50 - engineFacts.convictionHigh * 50).toFixed(1)}% or ≥{(50 + engineFacts.convictionHigh * 50).toFixed(1)}%</p>
                   <p className="text-muted-foreground">High</p>
                 </div>
                 <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2">
-                  <p className="font-semibold text-amber-400">{engineFacts.confidenceMedium}–{engineFacts.confidenceHigh - 1}</p>
+                  <p className="font-semibold text-amber-400">≤{(50 - engineFacts.convictionMedium * 50).toFixed(1)}% or ≥{(50 + engineFacts.convictionMedium * 50).toFixed(1)}%</p>
                   <p className="text-muted-foreground">Medium</p>
                 </div>
                 <div className="rounded border border-rose-500/30 bg-rose-500/5 p-2">
-                  <p className="font-semibold text-rose-400">&lt;{engineFacts.confidenceMedium}</p>
+                  <p className="font-semibold text-rose-400">everything closer to 50%</p>
                   <p className="text-muted-foreground">Low</p>
                 </div>
               </div>
@@ -1195,7 +1197,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                       <div>
                         {/* Read from the engine rather than hard-coded, so the
                             label cannot drift from the actual tier cutoff. */}
-                        <p className="text-xs text-muted-foreground mb-1">Confidence ≥{engineFacts.confidenceHigh}</p>
+                        <p className="text-xs text-muted-foreground mb-1">Conviction ≥{(engineFacts.convictionHigh * 50).toFixed(1)} pts from 50%</p>
                         <p className="text-3xl font-bold text-violet-400">{pct(perfData.byConfidence.High.accuracy)}</p>
                         <p className="text-xs text-muted-foreground mt-1">{perfData.byConfidence.High.total.toLocaleString()} predictions</p>
                       </div>
@@ -1221,9 +1223,11 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   {/* Previously asserted that higher confidence is more accurate
                       regardless of what the bars below actually showed. */}
                   <CardDescription>
-                    Measured accuracy within each stored confidence tier (High ≥{engineFacts.confidenceHigh},
-                    Medium {engineFacts.confidenceMedium}–{engineFacts.confidenceHigh - 1},
-                    Low &lt;{engineFacts.confidenceMedium})
+                    Measured accuracy within each stored confidence tier. Tiers are set by
+                    conviction — distance from a 50/50 coin flip (High ≥{(engineFacts.convictionHigh * 50).toFixed(1)} pts,
+                    Medium ≥{(engineFacts.convictionMedium * 50).toFixed(1)} pts, Low below that). Only the
+                    High-vs-rest split is backed by a measurable accuracy gap; Medium and Low are
+                    within noise of each other.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">

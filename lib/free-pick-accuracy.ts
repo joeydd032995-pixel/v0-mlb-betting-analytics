@@ -12,7 +12,7 @@
 //
 // Kept separate from the route so it can be unit-tested without a database.
 
-import { selectFreePick } from "@/lib/tier-gating"
+import { selectFreePickLegacy } from "@/lib/tier-gating"
 import type { FreePickAccuracy, PinnedPickRow } from "@/lib/types"
 
 /** The minimal ModelPrediction projection the legacy (unpinned) path needs. */
@@ -68,7 +68,10 @@ export function computeFreePickAccuracy(
     // game whether or not it later resolved, so narrowing the ranking to
     // settled rows first would silently promote the #2 pick on any date with a
     // postponement — crediting the free pick with a game it never showed.
-    const pick = selectFreePick(forDate)
+    // Legacy ranker on purpose: these dates predate the FreePick pin, so the
+    // game actually shown was the confidenceScore-ranked one. Replaying them
+    // with today's conviction rule would credit a pick nobody saw.
+    const pick = selectFreePickLegacy(forDate)
     if (!pick) continue
     record(acc, date, pick.status, pick.correct)
   }
