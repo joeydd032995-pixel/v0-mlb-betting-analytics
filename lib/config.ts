@@ -39,6 +39,18 @@ export const FLAGS = {
    * the flag is off — so safe to enable mid-day.
    */
   USE_REAL_LINEUPS: envBool("USE_REAL_LINEUPS"),
+
+  /**
+   * Price value analysis against a RECONSTRUCTED line when no real book is
+   * available, so the value / Kelly surface renders instead of going dark.
+   *
+   * The resulting edge is λ·(modelProb − league base rate) by construction — it
+   * measures how far the model strays from the base rate, NOT disagreement with
+   * a real market. Every such ValueAnalysis carries `simulated: true`, and the
+   * line is never persisted to the real odds columns. Leave OFF wherever a user
+   * could mistake the output for a genuine market edge.
+   */
+  USE_SIMULATED_ODDS: envBool("USE_SIMULATED_ODDS"),
 } as const
 
 /**

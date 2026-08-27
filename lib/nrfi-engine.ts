@@ -51,6 +51,7 @@ import { simulateGameFirstInning } from "./monte-carlo"
 import { paProbsFromContext } from "./monte-carlo-bridge"
 import { combine9Models } from "./ensemble-plus"
 import { calibrateV2 } from "./calibration-v2"
+import { simulatedGameOdds } from "./synthetic-odds"
 import { hashGameId } from "@/lib/utils/hash"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -803,7 +804,14 @@ export function computeNRFIPrediction(
   }
 
   const factors      = buildFactors(game, homePitcher, awayPitcher, homeTeam, awayTeam)
-  const valueAnalysis = game.odds ? computeValueAnalysis(nrfiProb, game.odds, confScore) : undefined
+  // Real odds win. When absent and the flag is on, price against a
+  // reconstructed line so the value panel renders — but keep it OFF `game.odds`,
+  // which lib/prediction-store.ts persists verbatim into the real odds columns.
+  // A simulated line must never become indistinguishable from an observed one.
+  const oddsForValue = game.odds ?? (FLAGS.USE_SIMULATED_ODDS ? simulatedGameOdds(nrfiProb) : undefined)
+  const valueAnalysis = oddsForValue
+    ? { ...computeValueAnalysis(nrfiProb, oddsForValue, confScore), simulated: game.odds === undefined }
+    : undefined
 
   return {
     gameId:            game.id,
