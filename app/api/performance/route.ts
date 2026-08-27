@@ -13,6 +13,7 @@ import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { logLoss, pearson } from "@/lib/backtest-metrics"
 import { ENSEMBLE_WEIGHTS } from "@/lib/nrfi-models"
+import { CONVICTION_THRESHOLDS } from "@/lib/nrfi-engine"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -105,8 +106,19 @@ export async function GET() {
       : null
 
     // ── 4. By confidence level ─────────────────────────────────────────────
+    // Derived from nrfiProbability rather than the stored `confidence` string.
+    // Rows written before the conviction retier carry tiers assigned by the old
+    // reliability score, so grouping on the stored label would report old
+    // score-tier accuracy under a conviction-tier heading — presenting the
+    // previous rule's track record as evidence for the new one.
+    const tierOf = (p: { nrfiProbability: number }) => {
+      const conviction = Math.abs(p.nrfiProbability - 0.5) * 2
+      return conviction >= CONVICTION_THRESHOLDS.high ? "High"
+        : conviction >= CONVICTION_THRESHOLDS.medium ? "Medium"
+        : "Low"
+    }
     const confGroup = (label: string) => {
-      const s = withResult.filter((p) => p.confidence === label)
+      const s = withResult.filter((p) => tierOf(p) === label)
       const c = s.filter((p) => p.correct).length
       return s.length > 0
         ? { total: s.length, correct: c, accuracy: c / s.length }

@@ -103,9 +103,13 @@ export function GridView({ items, sortBy, onSortChange }: GridViewProps) {
             {items.map(({ pred, game, awayTeam, homeTeam, awayPitcher, homePitcher }) => {
               const nrfiPct = Math.round(pred.nrfiProbability * 100)
               const va = pred.valueAnalysis
-              const edge = va
+              // A simulated line yields no market edge — the number would be a
+              // restatement of the model's own distance from the league base
+              // rate, not disagreement with a book. Render it as absent.
+              const edge = va && !va.simulated
                 ? Math.max(Math.abs(va.nrfiEdge), Math.abs(va.yrfiEdge))
                 : 0
+              const edgeIsSimulated = Boolean(va?.simulated)
 
               return (
                 <tr
@@ -167,7 +171,9 @@ export function GridView({ items, sortBy, onSortChange }: GridViewProps) {
 
                   {/* Edge */}
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {edge > 0 ? (
+                    {edgeIsSimulated ? (
+                      <span className="text-muted-foreground" title="No real sportsbook line available; edge is not meaningful against a reconstructed price.">sim</span>
+                    ) : edge > 0 ? (
                       <span className="text-violet-300 font-medium">+{(edge * 100).toFixed(1)}%</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>

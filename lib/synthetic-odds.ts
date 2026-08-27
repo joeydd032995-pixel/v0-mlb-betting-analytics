@@ -101,3 +101,46 @@ export function syntheticNrfiOdds(
     yrfiOdds: impliedProbToAmerican(yrfiImplied),
   }
 }
+
+/**
+ * Bookmaker label carried by every simulated line.
+ *
+ * `GameOdds.bookmaker` is the provenance channel: anything reading a line can
+ * tell a real book from a reconstruction by this string alone, without needing
+ * a parallel flag. Never rename it to look like a real sportsbook.
+ */
+export const SIMULATED_BOOKMAKER = "simulated"
+
+/**
+ * A simulated `GameOdds` for a game with no real market line.
+ *
+ * ── Read this before trusting anything computed from it ──────────────────────
+ * The line is reconstructed FROM the model's own probability, anchored to the
+ * league base rate by λ. That makes the resulting "edge" a deterministic
+ * restatement of how far the model sits from the base rate.
+ *
+ * Against the FAIR (no-vig) market probability that works out to exactly
+ *     λ · (modelProb − 0.516)
+ * but that is NOT the number the app displays. computeValueAnalysis measures
+ * edge against the VIGGED implied probability, and syntheticNrfiOdds loads the
+ * hold asymmetrically before rounding to American odds — so the shown edge is
+ * materially smaller. At modelProb = 0.62 with DEFAULT_SYNTH the fair-line
+ * figure is 5.2 points while the displayed NRFI edge is about 2.5.
+ *
+ * Either way it is NOT a market disagreement, and ROI or CLV measured against it cannot
+ * tell you whether the model would beat a real book. It exists so the value /
+ * Kelly machinery has a well-formed line to exercise, and so users see a
+ * plausible reference price instead of an empty panel.
+ *
+ * Deliberately NOT written to ModelPrediction.nrfiOdds / .yrfiOdds — those
+ * columns mean "real line observed at prediction time", and once fabricated
+ * values land there no later reader can separate them again. The engine keeps
+ * this off `game.odds` for exactly that reason (see lib/prediction-store.ts,
+ * which persists `game.odds?.nrfiOdds` verbatim).
+ */
+export function simulatedGameOdds(
+  modelNrfiProb: number,
+  p: SyntheticOddsParams = DEFAULT_SYNTH,
+): { nrfiOdds: number; yrfiOdds: number; bookmaker: string } {
+  return { ...syntheticNrfiOdds(modelNrfiProb, p), bookmaker: SIMULATED_BOOKMAKER }
+}

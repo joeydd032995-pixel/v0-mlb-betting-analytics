@@ -12,13 +12,15 @@
 //
 // Kept separate from the route so it can be unit-tested without a database.
 
-import { selectFreePick } from "@/lib/tier-gating"
+import { CONVICTION_RANKING_SINCE, selectFreePick, selectFreePickLegacy } from "@/lib/tier-gating"
 import type { FreePickAccuracy, PinnedPickRow } from "@/lib/types"
 
 /** The minimal ModelPrediction projection the legacy (unpinned) path needs. */
 export interface FreePickRow {
   date: string
   confidenceScore: number
+  /** Needed to rank by conviction on post-cutover dates. */
+  nrfiProbability: number
   status: string
   correct: boolean | null
 }
@@ -68,7 +70,15 @@ export function computeFreePickAccuracy(
     // game whether or not it later resolved, so narrowing the ranking to
     // settled rows first would silently promote the #2 pick on any date with a
     // postponement — crediting the free pick with a game it never showed.
-    const pick = selectFreePick(forDate)
+    // Pick the ranker that was actually in force on this date. An unpinned date
+    // is NOT automatically historical — a pin can be missing because the
+    // best-effort write timed out — so keying off the cutover rather than the
+    // absence of a pin is what keeps the published record honest in both
+    // directions: pre-cutover dates were shown the confidenceScore game, and
+    // post-cutover dates the conviction one.
+    const pick = date < CONVICTION_RANKING_SINCE
+      ? selectFreePickLegacy(forDate)
+      : selectFreePick(forDate)
     if (!pick) continue
     record(acc, date, pick.status, pick.correct)
   }

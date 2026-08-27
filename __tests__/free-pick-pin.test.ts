@@ -6,12 +6,12 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { freePick: { upsert: (...args: unknown[]) => upsert(...args) } },
 }))
 
-function makePrediction(gameId: string, confidenceScore: number): NRFIPrediction {
+function makePrediction(gameId: string, confidenceScore: number, nrfiProbability = 0.6): NRFIPrediction {
   return {
     gameId,
     confidenceScore,
-    nrfiProbability:   0.6,
-    yrfiProbability:   0.4,
+    nrfiProbability,
+    yrfiProbability:   1 - nrfiProbability,
     calibratedNrfiPct: 60,
     homeExpectedRuns:  0.25,
     awayExpectedRuns:  0.25,
@@ -34,12 +34,12 @@ describe("pinFreePick", () => {
     upsert.mockReset()
   })
 
-  it("pins the top-confidence prediction with an empty update payload", async () => {
+  it("pins the top-conviction prediction with an empty update payload", async () => {
     const { pinFreePick } = await import("@/lib/server/free-pick")
     const slate = [
-      makePrediction("game-low", 40),
-      makePrediction("game-high", 90),
-      makePrediction("game-mid", 65),
+      makePrediction("game-low",  40, 0.52),
+      makePrediction("game-high", 90, 0.70),
+      makePrediction("game-mid",  65, 0.60),
     ]
 
     await pinFreePick("2026-05-01", slate)

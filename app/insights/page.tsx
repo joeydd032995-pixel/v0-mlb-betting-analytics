@@ -1,7 +1,7 @@
 import { SectionLabel } from "@/components/diamond/SectionLabel"
 import { ModelInsights, type EngineFacts } from "@/components/model-insights"
 import { FeatureImportanceChart } from "@/components/insights/FeatureImportanceChart"
-import { FINAL_BLEND_CONTRACT, CONFIDENCE_THRESHOLDS, NRFI_CALL_THRESHOLD_PUBLIC } from "@/lib/nrfi-engine"
+import { FINAL_BLEND_CONTRACT, CONVICTION_THRESHOLDS, NRFI_CALL_THRESHOLD_PUBLIC } from "@/lib/nrfi-engine"
 import { ENSEMBLE_WEIGHTS } from "@/lib/nrfi-models"
 import {
   CALIBRATION_IS_IDENTITY,
@@ -26,8 +26,8 @@ function readEngineFacts(): EngineFacts {
     clampMin:      FINAL_BLEND_CONTRACT.clampMin,
     clampMax:      FINAL_BLEND_CONTRACT.clampMax,
     callThreshold: NRFI_CALL_THRESHOLD_PUBLIC,
-    confidenceHigh:   CONFIDENCE_THRESHOLDS.high,
-    confidenceMedium: CONFIDENCE_THRESHOLDS.medium,
+    convictionHigh:   CONVICTION_THRESHOLDS.high,
+    convictionMedium: CONVICTION_THRESHOLDS.medium,
     weights: {
       poisson:           ENSEMBLE_WEIGHTS.poisson,
       zip:               ENSEMBLE_WEIGHTS.zip,

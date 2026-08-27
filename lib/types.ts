@@ -400,6 +400,13 @@ export interface ValueAnalysis {
   expectedValue: number
   /** Two-way market overround (impliedNrfiProb + impliedYrfiProb); ~1.04–1.06 for a healthy book. */
   overround: number
+  /**
+   * True when this analysis was priced against a RECONSTRUCTED line rather than
+   * a real book (see lib/synthetic-odds.ts). The edge is then a deterministic
+   * function of the model's own distance from the league base rate, so it must
+   * not be presented as a market edge or used to claim ROI.
+   */
+  simulated?: boolean
   /** False when the overround is inverted or too wide — the line is treated as illiquid and no bet is surfaced. */
   liquidityOk: boolean
 }

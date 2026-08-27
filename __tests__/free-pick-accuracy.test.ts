@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest"
 import { computeFreePickAccuracy, type FreePickRow } from "@/lib/free-pick-accuracy"
 import type { PinnedPickRow } from "@/lib/types"
 
+// Dates here are pre-CONVICTION_RANKING_SINCE, so the legacy confidenceScore
+// ranker applies and nrfiProbability is irrelevant unless a test sets it.
 function row(
   date: string,
   confidenceScore: number,
   overrides: Partial<FreePickRow> = {}
 ): FreePickRow {
-  return { date, confidenceScore, status: "complete", correct: true, ...overrides }
+  return { date, confidenceScore, nrfiProbability: 0.5, status: "complete", correct: true, ...overrides }
 }
 
 function pinned(date: string, overrides: Partial<PinnedPickRow> = {}): PinnedPickRow {
@@ -118,5 +120,26 @@ describe("computeFreePickAccuracy", () => {
     )
     expect(result.total).toBe(3)
     expect(result.dateSpan).toEqual({ from: "2026-05-01", to: "2026-05-30" })
+  })
+})
+
+// The ranker in force depends on the DATE, not on whether a pin exists: a pin
+// can be missing because the best-effort write timed out, and grading such a
+// date with the legacy rule would score a game the visitor was never shown.
+describe("fallback ranker follows the cutover date", () => {
+  it("uses confidenceScore before the cutover", () => {
+    const result = computeFreePickAccuracy([], [
+      { date: "2026-08-27", confidenceScore: 90, nrfiProbability: 0.505, status: "complete", correct: true },
+      { date: "2026-08-27", confidenceScore: 10, nrfiProbability: 0.700, status: "complete", correct: false },
+    ])
+    expect(result.correct).toBe(1) // the high-confidenceScore, low-conviction row
+  })
+
+  it("uses conviction on and after the cutover", () => {
+    const result = computeFreePickAccuracy([], [
+      { date: "2026-08-28", confidenceScore: 90, nrfiProbability: 0.505, status: "complete", correct: true },
+      { date: "2026-08-28", confidenceScore: 10, nrfiProbability: 0.700, status: "complete", correct: false },
+    ])
+    expect(result.correct).toBe(0) // the high-conviction row, which is what was shown
   })
 })

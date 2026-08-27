@@ -4,6 +4,17 @@
 // serving raw predictions bypasses the paywall.
 
 import type { Tier } from "@/lib/subscription"
+
+/**
+ * ET date from which the FREE pick is ranked by conviction.
+ *
+ * Dates before this were served by the reliability-score ranker, so their
+ * published accuracy must be reconstructed with selectFreePickLegacy or the
+ * record describes a pick nobody saw. Dates on or after it are conviction-
+ * ranked whether or not a FreePick row exists — a pin can be missing because
+ * the best-effort write timed out, not because the date is historical.
+ */
+export const CONVICTION_RANKING_SINCE = "2026-08-28"
 import type { NRFIPrediction } from "@/lib/types"
 
 // For the FREE teaser we expose the NRFI probability + basic matchup context but
@@ -40,8 +51,31 @@ export function buildProPrediction(pred: NRFIPrediction): Omit<NRFIPrediction, "
 }
 
 /**
- * The ordering FREE-tier gating ranks a slate by. V8's sort is stable, so ties
- * fall back to the order the slate was emitted in.
+ * The ordering FREE-tier gating ranks a slate by: CONVICTION descending
+ * (distance from a 50/50 coin flip). V8's sort is stable, so ties fall back to
+ * the order the slate was emitted in.
+ *
+ * ── 2026-08: was confidenceScore ─────────────────────────────────────────────
+ * Ranking by the reliability score picked a worse-than-random game. Simulated
+ * over 259 dates of verified post-fix predictions, one pick per date:
+ *   confidenceScore →  0.5019 hit   (BELOW the 0.5183 all-games average)
+ *   conviction      →  0.5714 hit   (0.5549 in 2023, 0.6104 in 2026)
+ * The reliability score measures input quality, which is uncorrelated with
+ * being right; conviction is the calibration-consistent measure. See
+ * CONVICTION_THRESHOLDS in lib/nrfi-engine.ts for the full evidence.
+ */
+export function byConvictionDesc<T extends { nrfiProbability: number }>(a: T, b: T): number {
+  return Math.abs(b.nrfiProbability - 0.5) - Math.abs(a.nrfiProbability - 0.5)
+}
+
+/**
+ * LEGACY ranker — reliability score descending.
+ *
+ * Retained for ONE purpose: reconstructing which pick was historically shown on
+ * dates that predate the FreePick pin table. Those visitors saw the
+ * confidenceScore-ranked game, so replaying history with today's conviction
+ * rule would report a pick that was never displayed and inflate the published
+ * track record. Do not use for anything live.
  */
 export function byConfidenceDesc<T extends { confidenceScore: number }>(a: T, b: T): number {
   return b.confidenceScore - a.confidenceScore
@@ -58,21 +92,43 @@ export function byConfidenceDesc<T extends { confidenceScore: number }>(a: T, b:
  * The same full-slate caveat as applyTierGating applies: pass every prediction
  * for the date, or whatever you pass is "top" unconditionally.
  */
-export function selectFreePick<T extends { confidenceScore: number }>(slate: T[]): T | undefined {
+export function selectFreePick<T extends { nrfiProbability: number }>(slate: T[]): T | undefined {
+  return [...slate].sort(byConvictionDesc)[0]
+}
+
+/**
+ * The historical counterpart of selectFreePick, for pre-pin dates only.
+ * See byConfidenceDesc for why history must not be replayed with the new rule.
+ */
+export function selectFreePickLegacy<T extends { confidenceScore: number }>(slate: T[]): T | undefined {
   return [...slate].sort(byConfidenceDesc)[0]
 }
 
 // IMPORTANT: always call this with the FULL slate of predictions for the date,
 // never a single-game subset. FREE-tier ranking picks the highest-confidence
-// game as the visible teaser by comparing confidenceScore across `predictions`
+// game as the visible teaser by comparing conviction across `predictions`
 // — passing a one-element array makes that element "top" unconditionally,
 // which lets a caller bypass the one-visible-pick restriction by requesting
 // games one at a time. Gate the full slate, then look up the game you need.
-export function applyTierGating(predictions: NRFIPrediction[], tier: Tier) {
-  // Sort by confidenceScore descending so the highest-confidence game is always first
-  const sorted = [...predictions].sort(byConfidenceDesc)
+export function applyTierGating(
+  predictions: NRFIPrediction[],
+  tier: Tier,
+  /**
+   * The gameId already pinned for this date, when one exists. The pin is
+   * insert-only, so on a date first pinned by the old ranker it names a
+   * different game than conviction would choose. Honouring it keeps the pick a
+   * visitor SEES identical to the pick /api/free-pick-accuracy later GRADES —
+   * otherwise the published record describes a card nobody was shown.
+   */
+  pinnedGameId?: string,
+) {
+  // Sort by conviction descending so the highest-conviction game is always first
+  const sorted = [...predictions].sort(byConvictionDesc)
 
   if (tier === "FREE") {
+    // A live pin outranks the sort for as long as it stands.
+    const pinnedIdx = pinnedGameId ? sorted.findIndex((p) => p.gameId === pinnedGameId) : -1
+    if (pinnedIdx > 0) sorted.unshift(...sorted.splice(pinnedIdx, 1))
     const [top, ...rest] = sorted
     if (!top) return { gated: [], lockedCount: 0 }
 

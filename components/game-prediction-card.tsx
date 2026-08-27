@@ -739,15 +739,28 @@ export function GamePredictionCard({
 
                   {va && (
                     <div className="rounded-[8px] p-3" style={{ background: "rgba(168,85,247,.05)", border: "1px solid rgba(168,85,247,.2)" }}>
-                      <p className="font-mono uppercase tracking-[0.1em] mb-2" style={{ fontSize: "9px", color: "#a855f7" }}>
-                        Value Analysis · {game.odds?.bookmaker}
+                      <p className="font-mono uppercase tracking-[0.1em] mb-2" style={{ fontSize: "9px", color: va.simulated ? "var(--hm-smoke)" : "#a855f7" }}>
+                        Value Analysis · {va.simulated ? "SIMULATED LINE" : game.odds?.bookmaker}
                       </p>
+                      {va.simulated && (
+                        <p className="font-ui mb-2" style={{ fontSize: "10px", color: "var(--hm-smoke)", lineHeight: 1.4 }}>
+                          No sportsbook line was available, so this price is reconstructed
+                          from our own projection anchored to the league average. It is not a
+                          real market number — treat it as illustrative only. Edge, stake size
+                          and expected value are withheld because they would be derived from
+                          a price no book actually offered.
+                        </p>
+                      )}
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono" style={{ fontSize: "10px" }}>
                         <span style={{ color: "var(--hm-smoke)" }}>NRFI Odds</span>
                         <span style={{ color: "var(--hm-mist)" }}>{formatOdds(va.nrfiOdds)} ({pct(va.impliedNrfiProb)} implied)</span>
                         <span style={{ color: "var(--hm-smoke)" }}>YRFI Odds</span>
                         <span style={{ color: "var(--hm-mist)" }}>{formatOdds(va.yrfiOdds)} ({pct(va.impliedYrfiProb)} implied)</span>
-                        {va.recommendedBet !== "NO_BET" && (
+                        {/* Withheld on a reconstructed line: these are staking
+                            instructions, and against a price we invented the
+                            "edge" is just a restatement of our own distance from
+                            the league base rate. */}
+                        {!va.simulated && va.recommendedBet !== "NO_BET" && (
                           <>
                             <span style={{ color: "var(--hm-smoke)" }}>Model Edge</span>
                             <span style={{ color: "#a855f7", fontWeight: 600 }}>
