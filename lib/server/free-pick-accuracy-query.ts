@@ -18,7 +18,7 @@ export async function loadFreePickAccuracy(): Promise<FreePickAccuracy> {
     prisma.freePick.findMany({ select: { date: true, gameId: true } }),
     prisma.modelPrediction.findMany({
       where: { backtested: false },
-      select: { id: true, date: true, confidenceScore: true, status: true, correct: true },
+      select: { id: true, date: true, confidenceScore: true, nrfiProbability: true, status: true, correct: true },
     }),
   ])
 
@@ -31,7 +31,7 @@ export async function loadFreePickAccuracy(): Promise<FreePickAccuracy> {
   const pinnedDates = new Set(pins.map((p) => p.date))
   const legacyRows: FreePickRow[] = allRows
     .filter((r) => !pinnedDates.has(r.date))
-    .map((r) => ({ date: r.date, confidenceScore: r.confidenceScore, status: r.status, correct: r.correct }))
+    .map((r) => ({ date: r.date, confidenceScore: r.confidenceScore, nrfiProbability: r.nrfiProbability, status: r.status, correct: r.correct }))
 
   return computeFreePickAccuracy(pinnedRows, legacyRows)
 }

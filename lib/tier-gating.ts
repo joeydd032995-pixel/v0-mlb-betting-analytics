@@ -4,6 +4,17 @@
 // serving raw predictions bypasses the paywall.
 
 import type { Tier } from "@/lib/subscription"
+
+/**
+ * ET date from which the FREE pick is ranked by conviction.
+ *
+ * Dates before this were served by the reliability-score ranker, so their
+ * published accuracy must be reconstructed with selectFreePickLegacy or the
+ * record describes a pick nobody saw. Dates on or after it are conviction-
+ * ranked whether or not a FreePick row exists — a pin can be missing because
+ * the best-effort write timed out, not because the date is historical.
+ */
+export const CONVICTION_RANKING_SINCE = "2026-08-28"
 import type { NRFIPrediction } from "@/lib/types"
 
 // For the FREE teaser we expose the NRFI probability + basic matchup context but
@@ -99,11 +110,25 @@ export function selectFreePickLegacy<T extends { confidenceScore: number }>(slat
 // — passing a one-element array makes that element "top" unconditionally,
 // which lets a caller bypass the one-visible-pick restriction by requesting
 // games one at a time. Gate the full slate, then look up the game you need.
-export function applyTierGating(predictions: NRFIPrediction[], tier: Tier) {
+export function applyTierGating(
+  predictions: NRFIPrediction[],
+  tier: Tier,
+  /**
+   * The gameId already pinned for this date, when one exists. The pin is
+   * insert-only, so on a date first pinned by the old ranker it names a
+   * different game than conviction would choose. Honouring it keeps the pick a
+   * visitor SEES identical to the pick /api/free-pick-accuracy later GRADES —
+   * otherwise the published record describes a card nobody was shown.
+   */
+  pinnedGameId?: string,
+) {
   // Sort by conviction descending so the highest-conviction game is always first
   const sorted = [...predictions].sort(byConvictionDesc)
 
   if (tier === "FREE") {
+    // A live pin outranks the sort for as long as it stands.
+    const pinnedIdx = pinnedGameId ? sorted.findIndex((p) => p.gameId === pinnedGameId) : -1
+    if (pinnedIdx > 0) sorted.unshift(...sorted.splice(pinnedIdx, 1))
     const [top, ...rest] = sorted
     if (!top) return { gated: [], lockedCount: 0 }
 

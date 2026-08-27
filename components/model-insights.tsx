@@ -849,7 +849,14 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
                   <p className="text-muted-foreground">High</p>
                 </div>
                 <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2">
-                  <p className="font-semibold text-amber-400">≤{(50 - engineFacts.convictionMedium * 50).toFixed(1)}% or ≥{(50 + engineFacts.convictionMedium * 50).toFixed(1)}%</p>
+                  {/* Both bounds: the engine assigns tiers with an else-if, so
+                      Medium is the BAND between the two cutoffs. Showing only the
+                      outer bound would describe a range that swallows High. */}
+                  <p className="font-semibold text-amber-400">
+                    {(50 - engineFacts.convictionHigh * 50).toFixed(1)}–{(50 - engineFacts.convictionMedium * 50).toFixed(1)}%
+                    {" or "}
+                    {(50 + engineFacts.convictionMedium * 50).toFixed(1)}–{(50 + engineFacts.convictionHigh * 50).toFixed(1)}%
+                  </p>
                   <p className="text-muted-foreground">Medium</p>
                 </div>
                 <div className="rounded border border-rose-500/30 bg-rose-500/5 p-2">

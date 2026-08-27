@@ -2,7 +2,7 @@
  * GET /api/predictions — today's live predictions (force-dynamic).
  *
  * The main entry point: getLiveGameSlate() → computeAllPredictions() →
- * applyTierGating() → pinFreePick() (see CLAUDE.md "Prediction Engine" for
+ * pinFreePick() → applyTierGating() (see CLAUDE.md "Prediction Engine" for
  * the full data flow). Tier-gates the response per caller; unauthenticated
  * requests get the FREE teaser. Fails closed (503 `tier_unresolved`) rather
  * than silently downgrading a signed-in user to FREE when the DB lookup
@@ -61,8 +61,11 @@ export async function GET() {
     }
 
     const rawPredictions = computeAllPredictions(games, pitchers, teams)
-    const { gated, lockedCount } = applyTierGating(rawPredictions, tier)
-    await pinFreePick(today, rawPredictions)
+    // Pin FIRST, then gate with the pin in hand. An existing pin (possibly
+    // written by the previous ranker) must win, or the teaser a visitor sees
+    // diverges from the pick /api/free-pick-accuracy grades for that date.
+    const pinnedGameId = await pinFreePick(today, rawPredictions)
+    const { gated, lockedCount } = applyTierGating(rawPredictions, tier, pinnedGameId)
 
     // Only include game/pitcher/team map entries for games visible to this tier.
     // Ghost locked-card entries (only contain gameId) don't need full game objects.

@@ -62,7 +62,10 @@ export function useSortableRows(
     // Apply value-only filter
     if (filters.showValueOnly) {
       items = items.filter(
-        (x) => x.pred.valueAnalysis && x.pred.valueAnalysis.recommendedBet !== "NO_BET"
+        // Simulated analyses are excluded: a "value bet" against a price we
+        // reconstructed ourselves is not a value bet.
+        (x) => x.pred.valueAnalysis && !x.pred.valueAnalysis.simulated &&
+               x.pred.valueAnalysis.recommendedBet !== "NO_BET"
       )
     }
 
@@ -72,16 +75,20 @@ export function useSortableRows(
         items.sort((a, b) => Math.abs(b.pred.nrfiProbability - 0.5) - Math.abs(a.pred.nrfiProbability - 0.5))
         break
       case "confidence":
-        items.sort((a, b) => b.pred.confidenceScore - a.pred.confidenceScore)
+        // Conviction, matching what the confidence tier now means. The
+        // reliability score this used to sort by has ~zero correlation with
+        // being correct, so it ordered the board by nothing in particular.
+        items.sort((a, b) =>
+          Math.abs(b.pred.nrfiProbability - 0.5) - Math.abs(a.pred.nrfiProbability - 0.5))
         break
       case "edge":
         items.sort((a, b) => {
-          const eA = a.pred.valueAnalysis
-            ? Math.max(Math.abs(a.pred.valueAnalysis.nrfiEdge), Math.abs(a.pred.valueAnalysis.yrfiEdge))
-            : 0
-          const eB = b.pred.valueAnalysis
-            ? Math.max(Math.abs(b.pred.valueAnalysis.nrfiEdge), Math.abs(b.pred.valueAnalysis.yrfiEdge))
-            : 0
+          // Simulated edges sort as 0 — ranking by them would just re-sort the
+          // board by distance from the league base rate under a "value" label.
+          const edgeOf = (va: typeof a.pred.valueAnalysis) =>
+            va && !va.simulated ? Math.max(Math.abs(va.nrfiEdge), Math.abs(va.yrfiEdge)) : 0
+          const eA = edgeOf(a.pred.valueAnalysis)
+          const eB = edgeOf(b.pred.valueAnalysis)
           return eB - eA
         })
         break

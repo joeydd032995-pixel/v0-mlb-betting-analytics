@@ -44,9 +44,10 @@ export const FLAGS = {
    * Price value analysis against a RECONSTRUCTED line when no real book is
    * available, so the value / Kelly surface renders instead of going dark.
    *
-   * The resulting edge is λ·(modelProb − league base rate) by construction — it
-   * measures how far the model strays from the base rate, NOT disagreement with
-   * a real market. Every such ValueAnalysis carries `simulated: true`, and the
+   * The resulting edge is a deterministic function of how far the model strays
+   * from the league base rate — λ·(modelProb − 0.516) against the fair line,
+   * and rather less than that once the synthetic hold is applied (the displayed
+   * figure). Either way it is NOT disagreement with a real market. Every such ValueAnalysis carries `simulated: true`, and the
    * line is never persisted to the real odds columns. Leave OFF wherever a user
    * could mistake the output for a genuine market edge.
    */

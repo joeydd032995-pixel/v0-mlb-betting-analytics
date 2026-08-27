@@ -117,6 +117,32 @@ describe("applyTierGating", () => {
 // /api/free-pick-accuracy reconstructs the historical free pick from stored
 // rows. If that reconstruction and the live paywall ever disagree, the card
 // reports the track record of a pick nobody was shown.
+describe("a live pin outranks the conviction sort", () => {
+  // The FreePick row is insert-only, so on a date first pinned by the old
+  // ranker it names a different game than conviction would pick. If gating
+  // ignored it, the teaser a visitor sees would differ from the pick
+  // /api/free-pick-accuracy later grades for that date.
+  const slate = [
+    makePrediction("conviction-pick", 40, 0.70),
+    makePrediction("already-pinned",  90, 0.52),
+  ]
+
+  it("shows the pinned game when one exists", () => {
+    const { gated } = applyTierGating(slate, "FREE", "already-pinned")
+    expect(gated[0].gameId).toBe("already-pinned")
+  })
+
+  it("falls back to conviction when no pin is supplied", () => {
+    const { gated } = applyTierGating(slate, "FREE")
+    expect(gated[0].gameId).toBe("conviction-pick")
+  })
+
+  it("ignores a pin naming a game absent from the slate", () => {
+    const { gated } = applyTierGating(slate, "FREE", "postponed-game")
+    expect(gated[0].gameId).toBe("conviction-pick")
+  })
+})
+
 describe("free-pick ranking is conviction-based", () => {
   // Regression guard for the 2026-08 retier. Ranking by confidenceScore picked
   // a game that hit 0.5019 across 259 historical dates — below the 0.5183

@@ -34,12 +34,16 @@ const PIN_TIMEOUT_MS = 3_000
  * Never throws — a persistence failure or timeout here must not break the
  * predictions response for any tier.
  */
-export async function pinFreePick(date: string, rawPredictions: NRFIPrediction[]): Promise<void> {
+export async function pinFreePick(date: string, rawPredictions: NRFIPrediction[]): Promise<string | undefined> {
   const top = selectFreePick(rawPredictions)
-  if (!top) return
+  if (!top) return undefined
 
   try {
-    await withTimeout(
+    // update:{} means an existing pin is returned untouched, so `row.gameId` is
+    // the pin actually in force — which on a date first pinned by the old
+    // ranker is NOT `top.gameId`. Returning it lets the caller show the pinned
+    // game, keeping the displayed pick and the graded pick identical.
+    const row = await withTimeout(
       prisma.freePick.upsert({
         where: { date },
         create: { date, gameId: top.gameId, confidenceScore: top.confidenceScore },
@@ -48,7 +52,12 @@ export async function pinFreePick(date: string, rawPredictions: NRFIPrediction[]
       PIN_TIMEOUT_MS,
       "free pick pin"
     )
+    return row?.gameId ?? top.gameId
   } catch (err) {
     console.error("[pinFreePick]", err)
+    // Deliberately undefined, not `top.gameId`: with no pin to honour, gating
+    // sorts by conviction and lands on this same game anyway, so returning it
+    // would add nothing while implying a pin exists when the write failed.
+    return undefined
   }
 }

@@ -117,9 +117,17 @@ export const SIMULATED_BOOKMAKER = "simulated"
  * ── Read this before trusting anything computed from it ──────────────────────
  * The line is reconstructed FROM the model's own probability, anchored to the
  * league base rate by λ. That makes the resulting "edge" a deterministic
- * restatement of how far the model sits from the base rate:
- *     edge = λ · (modelProb − 0.516)
- * It is NOT a market disagreement, and ROI or CLV measured against it cannot
+ * restatement of how far the model sits from the base rate.
+ *
+ * Against the FAIR (no-vig) market probability that works out to exactly
+ *     λ · (modelProb − 0.516)
+ * but that is NOT the number the app displays. computeValueAnalysis measures
+ * edge against the VIGGED implied probability, and syntheticNrfiOdds loads the
+ * hold asymmetrically before rounding to American odds — so the shown edge is
+ * materially smaller. At modelProb = 0.62 with DEFAULT_SYNTH the fair-line
+ * figure is 5.2 points while the displayed NRFI edge is about 2.5.
+ *
+ * Either way it is NOT a market disagreement, and ROI or CLV measured against it cannot
  * tell you whether the model would beat a real book. It exists so the value /
  * Kelly machinery has a well-formed line to exercise, and so users see a
  * plausible reference price instead of an empty panel.

@@ -572,7 +572,9 @@ export default function HomePage() {
       }
       if (filters.showValueOnly) {
         items = items.filter(
-          (x) => x.pred.valueAnalysis && x.pred.valueAnalysis.recommendedBet !== "NO_BET"
+          // Simulated analyses excluded — see lib/utils/sorting.ts.
+          (x) => x.pred.valueAnalysis && !x.pred.valueAnalysis.simulated &&
+                 x.pred.valueAnalysis.recommendedBet !== "NO_BET"
         )
       }
 
