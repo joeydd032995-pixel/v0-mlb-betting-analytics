@@ -57,7 +57,10 @@ async function fetchAllNrfiOddsSGO(): Promise<OddsEvent[]> {
       `${SGO_BASE_URL}/events/?sportID=BASEBALL&leagueID=MLB&oddsAvailable=true`,
       {
         headers: { "X-Api-Key": SGO_API_KEY },
-        next: { revalidate: 60 },
+        // SGO's own upstream data only refreshes every ~10 min — matching that
+        // (rather than the previous 60s) stretches the free-tier quota (2,500
+        // objects/month, see .env.example) without losing any real freshness.
+        next: { revalidate: 600 },
         signal: AbortSignal.timeout(8000),
       }
     )
@@ -117,7 +120,9 @@ export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
     `${BASE_URL}/sports/baseball_mlb/odds` +
     `?regions=us&markets=batter_first_inning_scored&oddsFormat=american&apiKey=${encodeURIComponent(API_KEY)}`
   try {
-    const res = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(8000) })
+    // Same rationale as the SGO fetch above — no gain from polling faster
+    // than a sane interval, and it only burns quota.
+    const res = await fetch(url, { next: { revalidate: 600 }, signal: AbortSignal.timeout(8000) })
     if (!res.ok) {
       const remaining = res.headers.get("x-requests-remaining") ?? "unknown"
       console.error(`[odds] HTTP ${res.status} — requests remaining: ${remaining}`)
