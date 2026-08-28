@@ -57,7 +57,16 @@ async function fetchAllNrfiOddsSGO(): Promise<OddsEvent[]> {
       `${SGO_BASE_URL}/events/?sportID=BASEBALL&leagueID=MLB&oddsAvailable=true`,
       {
         headers: { "X-Api-Key": SGO_API_KEY },
-        next: { revalidate: 60 },
+        // SGO's own upstream data refreshes roughly every ~10 min, but a fixed
+        // TTL on our side isn't synchronized to that clock: a fetch landing just
+        // before SGO's next refresh caches an already-stale snapshot for another
+        // full window on top, so naively matching the two intervals compounds
+        // worst-case staleness toward ~20 min rather than capping it at 10 (PR
+        // #147 review). 300s is a deliberate middle ground: bounds that worst
+        // case tighter than 600s would, while still cutting request volume 5x
+        // vs. the original 60s to protect the tightened free-tier quota (2,500
+        // objects/month, see .env.example).
+        next: { revalidate: 300 },
         signal: AbortSignal.timeout(8000),
       }
     )
@@ -117,6 +126,11 @@ export async function fetchAllNrfiOdds(): Promise<OddsEvent[]> {
     `${BASE_URL}/sports/baseball_mlb/odds` +
     `?regions=us&markets=batter_first_inning_scored&oddsFormat=american&apiKey=${encodeURIComponent(API_KEY)}`
   try {
+    // Kept at the original 60s cadence, unlike the SGO fetch above: there's no
+    // documented slow upstream cadence to justify stretching this one, and when
+    // it's actually serving prices (a paid Odds API plan, since the free tier
+    // doesn't carry this market at all) those numbers feed live Kelly/EV math —
+    // staleness there is a correctness risk, not just a quota-efficiency one.
     const res = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(8000) })
     if (!res.ok) {
       const remaining = res.headers.get("x-requests-remaining") ?? "unknown"

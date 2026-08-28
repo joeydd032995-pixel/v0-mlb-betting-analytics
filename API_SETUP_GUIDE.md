@@ -406,7 +406,10 @@ curl http://localhost:3000/api/debug
 The app uses Next.js `fetch()` with `revalidate` to minimize API calls:
 
 ```typescript
-// Odds data refreshed every 60 seconds
+// SportsGameOdds (primary odds source) refreshed every 5 minutes
+fetch(sgoOddsUrl, { next: { revalidate: 300 } })
+
+// The Odds API (fallback odds source) refreshed every 60 seconds
 fetch(oddsUrl, { next: { revalidate: 60 } })
 
 // Schedule/pitcher data refreshed every 5 minutes
