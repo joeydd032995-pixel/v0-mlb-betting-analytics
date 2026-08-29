@@ -13,8 +13,18 @@ describe("CONFIG.chat.fallbackModels", () => {
     expect(CONFIG.chat.fallbackModels.openrouter).toBeTruthy()
   })
 
-  it("no longer points at the retired OpenRouter free Llama slug", () => {
-    expect(CONFIG.chat.fallbackModels.openrouter).not.toBe("meta-llama/llama-3.3-70b-instruct:free")
+  // Each slug below took chat down in production with a 404 while every API key
+  // was valid. Pinning them keeps a well-meaning "let's use the free one"
+  // change from reintroducing a known-dead default.
+  it("no longer points at any slug that has already been retired or gated", () => {
+    const dead = [
+      "meta-llama/llama-3.3-70b-instruct:free", // dropped from OpenRouter's free tier
+      "openai/gpt-oss-20b:free", // ditto — OpenRouter now points at the paid slug
+      "llama-3.3-70b-versatile", // Groq moved it to Enterprise "contact sales"
+      "llama-3.1-8b-instant", // ditto
+    ]
+    expect(dead).not.toContain(CONFIG.chat.fallbackModels.openrouter)
+    expect(dead).not.toContain(CONFIG.chat.fallbackModels.groq)
   })
 
   it("honours the OPENROUTER_MODEL / GROQ_MODEL env overrides", async () => {

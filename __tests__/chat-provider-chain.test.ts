@@ -20,7 +20,7 @@ vi.mock("@/lib/ai/chat-loop-openai-compatible", () => ({
   runOpenAICompatibleChatLoop: (...args: unknown[]) => runOpenAICompatibleChatLoop(...args),
 }))
 
-import { runChatWithFailover } from "@/lib/ai/chat-provider-chain"
+import { runChatWithFailover, describeChatFailure, NoChatProviderConfiguredError } from "@/lib/ai/chat-provider-chain"
 
 const messages = [{ role: "user" as const, content: "who's pitching tonight?" }]
 
@@ -133,12 +133,31 @@ describe("runChatWithFailover", () => {
     await expect(runChatWithFailover(messages, {}, { userId: "user_test", tier: "FREE" })).rejects.toThrow("upstream 503")
   })
 
-  it("throws immediately when no provider is configured", async () => {
+  it("throws NoChatProviderConfiguredError when no provider is configured", async () => {
     getGroqClient.mockReturnValue(null)
     getOpenRouterClient.mockReturnValue(null)
 
-    await expect(runChatWithFailover(messages, {}, { userId: "user_test", tier: "FREE" })).rejects.toThrow(/No chat provider is configured/)
+    await expect(runChatWithFailover(messages, {}, { userId: "user_test", tier: "FREE" })).rejects.toBeInstanceOf(
+      NoChatProviderConfiguredError
+    )
     expect(runAnthropicChatLoop).not.toHaveBeenCalled()
+  })
+
+  // An OpenRouter account out of credit says nothing about Groq's balance, so a
+  // 402 must not dead-end the chain before a funded provider is tried.
+  it("falls over to the next provider on a 402 out-of-credit error", async () => {
+    process.env.GROQ_API_KEY = "groq-key"
+    process.env.OPENROUTER_API_KEY = "or-key"
+    getAnthropicClient.mockReturnValue(null)
+    getGroqClient.mockReturnValue({})
+    getOpenRouterClient.mockReturnValue({})
+    runOpenAICompatibleChatLoop
+      .mockRejectedValueOnce(apiError(402))
+      .mockResolvedValueOnce({ reply: "openrouter reply", toolCalls: [] })
+
+    const result = await runChatWithFailover(messages, {}, { userId: "user_test", tier: "FREE" })
+
+    expect(result).toEqual({ reply: "openrouter reply", toolCalls: [], provider: "openrouter" })
   })
 
   it("passes each provider's user key through independently, preferring it over the env var", async () => {
@@ -153,5 +172,49 @@ describe("runChatWithFailover", () => {
     expect(getAnthropicClient).toHaveBeenCalledWith("user-anthropic-key")
     expect(getGroqClient).toHaveBeenCalledWith("user-groq-key")
     expect(getOpenRouterClient).toHaveBeenCalledWith(undefined)
+  })
+})
+
+// The user-facing half of the same bug: chat died with "Chat assistant is not
+// configured" while GROQ_API_KEY and OPENROUTER_API_KEY were both set and valid
+// — the real failure was a 404 on retired model slugs. Only an unconfigured
+// chain may say "not configured".
+describe("describeChatFailure", () => {
+  function apiErrorWithStatus(status: number) {
+    const err = new Error(`upstream ${status}`) as Error & { status: number }
+    err.status = status
+    return err
+  }
+
+  it("reports a missing configuration only when nothing is configured", () => {
+    expect(describeChatFailure(new NoChatProviderConfiguredError())).toMatch(/isn't set up yet/)
+  })
+
+  it("blames the model slug, not the configuration, on a 404", () => {
+    const message = describeChatFailure(apiErrorWithStatus(404))
+    expect(message).toMatch(/GROQ_MODEL \/ OPENROUTER_MODEL/)
+    expect(message).not.toMatch(/isn't set up yet/)
+  })
+
+  it("blames the key on 401/403 and billing on 402", () => {
+    expect(describeChatFailure(apiErrorWithStatus(401))).toMatch(/API key/)
+    expect(describeChatFailure(apiErrorWithStatus(403))).toMatch(/API key/)
+    expect(describeChatFailure(apiErrorWithStatus(402))).toMatch(/credit/)
+  })
+
+  it("distinguishes rate limiting and oversized conversations", () => {
+    expect(describeChatFailure(apiErrorWithStatus(429))).toMatch(/rate-limit/)
+    expect(describeChatFailure(apiErrorWithStatus(413))).toMatch(/too long/)
+  })
+
+  it("falls back to a temporary-failure message for server and network errors", () => {
+    expect(describeChatFailure(apiErrorWithStatus(503))).toMatch(/temporarily unavailable/)
+    expect(describeChatFailure(new Error("socket hang up"))).toMatch(/temporarily unavailable/)
+  })
+
+  it("never echoes the provider's raw error text", () => {
+    const leaky = new Error("Incorrect API key provided: sk-or-v1-abc123") as Error & { status: number }
+    leaky.status = 401
+    expect(describeChatFailure(leaky)).not.toMatch(/sk-or-v1-abc123/)
   })
 })

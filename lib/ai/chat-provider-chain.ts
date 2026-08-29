@@ -48,13 +48,76 @@ interface ChatAttempt {
  *
  * 413 counts for the same reason: a payload over one provider's per-minute token
  * budget may fit the next one's, so the chain should move on rather than stop.
+ *
+ * 402 counts because a provider whose account is out of credit says nothing
+ * about the next one's balance — an exhausted OpenRouter balance must not stop
+ * the chain before a funded provider gets its turn.
  */
 function isRetryableProviderError(err: unknown): boolean {
   const status = (err as { status?: number } | null)?.status
   if (status !== undefined) {
-    return status === 401 || status === 403 || status === 404 || status === 413 || status === 429 || status >= 500
+    return (
+      status === 401 ||
+      status === 402 ||
+      status === 403 ||
+      status === 404 ||
+      status === 413 ||
+      status === 429 ||
+      status >= 500
+    )
   }
   return true
+}
+
+/**
+ * Thrown only when no provider in the chain has a usable key — the one failure
+ * that genuinely means "not configured".
+ *
+ * It exists so callers can tell that apart from a configured chain whose
+ * providers all failed for their own reasons. Reporting a retired model slug or
+ * a rejected key as "not configured" sent a maintainer checking env vars that
+ * were set correctly the whole time; describeChatFailure() below is the other
+ * half of that fix.
+ */
+export class NoChatProviderConfiguredError extends Error {
+  constructor() {
+    super("No chat provider is configured (ANTHROPIC_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY all unset)")
+    this.name = "NoChatProviderConfiguredError"
+  }
+}
+
+/**
+ * Turns a runChatWithFailover() rejection into a message safe to show the user
+ * and specific enough to act on. The HTTP status is the whole signal here: the
+ * chain only rethrows after every configured provider has failed, so the last
+ * error's status describes the class of failure the whole chain hit.
+ *
+ * Never echoes the provider's raw error text — it can carry account and key
+ * details that don't belong in a browser toast (the server log has the full
+ * message for whoever is debugging).
+ */
+export function describeChatFailure(err: unknown): string {
+  if (err instanceof NoChatProviderConfiguredError) {
+    return "The chat assistant isn't set up yet — no provider API key is configured on the server or your account."
+  }
+
+  const status = (err as { status?: number } | null)?.status
+  if (status === 404) {
+    return "The chat providers rejected the model this app asks for — the model slug has most likely been retired or is no longer available on this account's plan. Set GROQ_MODEL / OPENROUTER_MODEL to a current model."
+  }
+  if (status === 401 || status === 403) {
+    return "The chat providers rejected the API key in use — check the key saved on your Account page, or the server's provider keys."
+  }
+  if (status === 402) {
+    return "The chat providers rejected the request for billing reasons — the account behind the API key is out of credit."
+  }
+  if (status === 429) {
+    return "The chat providers are rate-limiting us right now — please try again in a minute."
+  }
+  if (status === 413) {
+    return "This conversation got too long for the available providers — clear the chat and ask again."
+  }
+  return "The chat assistant is temporarily unavailable — please try again in a moment."
 }
 
 /**
@@ -95,7 +158,7 @@ export async function runChatWithFailover(
   }
 
   if (attempts.length === 0) {
-    throw new Error("No chat provider is configured (ANTHROPIC_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY all unset)")
+    throw new NoChatProviderConfiguredError()
   }
 
   let lastErr: unknown

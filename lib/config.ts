@@ -171,18 +171,25 @@ export const CONFIG = {
     maxToolIterations: 4,
     dailyMessageLimit: 40,
     rateLimitPerMinute: 10,
-    // Free-tier failover models (Groq, then OpenRouter) used when Anthropic
-    // is unset/invalid/unavailable — see lib/ai/chat-provider-chain.ts.
-    // Free-tier model slugs get deprecated/renamed by providers over time. When
-    // that happens the provider returns 404 ("This model is unavailable for
-    // free…") and chat dies; setting GROQ_MODEL / OPENROUTER_MODEL in the
-    // environment is the fix — it needs no redeploy of this file. Both models
-    // must support tool-calling, since the assistant does live MLB lookups.
-    // The previous OpenRouter default, meta-llama/llama-3.3-70b-instruct:free,
-    // was retired from the free tier and 404'd in production.
+    // Failover models (Groq, then OpenRouter) used when Anthropic is
+    // unset/invalid/unavailable — see lib/ai/chat-provider-chain.ts. Both must
+    // support tool-calling, since the assistant does live MLB lookups.
+    //
+    // Model availability moves under us, and both defaults have now died in
+    // production with a 404:
+    //  - Groq moved llama-3.3-70b-versatile (and llama-3.1-8b-instant) to
+    //    Enterprise "contact sales" access, so an ordinary developer key gets
+    //    "The model `llama-3.3-70b-versatile` does not exist or you do not have
+    //    access to it". openai/gpt-oss-* are the generally available production
+    //    chat models there.
+    //  - OpenRouter retired openai/gpt-oss-20b:free (and before it
+    //    meta-llama/llama-3.3-70b-instruct:free) from its free tier.
+    // Prefer a generally available slug over a cheaper one that is gated or
+    // ":free"-tagged; setting GROQ_MODEL / OPENROUTER_MODEL in the environment
+    // stays the no-redeploy fix when one of these is retired too.
     fallbackModels: {
-      groq: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-      openrouter: process.env.OPENROUTER_MODEL || "openai/gpt-oss-20b:free",
+      groq: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+      openrouter: process.env.OPENROUTER_MODEL || "openai/gpt-oss-20b",
     },
   },
 

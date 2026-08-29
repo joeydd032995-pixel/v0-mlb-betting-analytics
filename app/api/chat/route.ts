@@ -11,7 +11,7 @@
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { runChatWithFailover, type UserProviderKeys } from "@/lib/ai/chat-provider-chain"
+import { runChatWithFailover, describeChatFailure, type UserProviderKeys } from "@/lib/ai/chat-provider-chain"
 import { getChatRateLimiter, checkDailyChatCap } from "@/lib/ai/chat-rate-limit"
 import { decryptApiKey } from "@/lib/crypto/api-key-encryption"
 import { resolveUserTierWithRetry } from "@/lib/subscription"
@@ -102,10 +102,15 @@ export async function POST(request: Request) {
     console.error("[/api/chat] all providers failed", err instanceof Error ? err.message : err)
     // If the user has saved keys that no longer decrypt, that's almost certainly
     // why nothing was configured — point at the fix instead of a dead end.
+    // Otherwise describeChatFailure() names the actual failure: reporting every
+    // provider error as "not configured" is what sent a maintainer auditing
+    // env vars while the real cause was a retired model slug (Groq moved
+    // llama-3.3-70b-versatile behind an Enterprise plan and OpenRouter retired
+    // openai/gpt-oss-20b:free, both 404ing with perfectly good keys set).
     const error =
       hadUndecryptableKey && Object.keys(userKeys).length === 0
         ? "Your saved API key can no longer be read — re-enter it on the Account page."
-        : "Chat assistant is not configured"
+        : describeChatFailure(err)
     return NextResponse.json({ error }, { status: 500 })
   }
 }
