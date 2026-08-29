@@ -161,28 +161,46 @@ export const CONFIG = {
   // AI chat assistant — model, tool-loop, and cost-control caps.
   chat: {
     model: "claude-haiku-4-5",
-    // Sized against the tightest provider budget in the chain: Groq's free tier
-    // allows 12k tokens/MINUTE across all requests. Both values below multiply
-    // TPM usage — requested completion tokens count toward the estimate, and
-    // each tool iteration is a separate charged request carrying the whole
-    // conversation so far. Raising them to 4096/6 produced 413 "Request too
-    // large" in production. Raise only alongside a paid tier or a smaller model.
+    // Sized against the tightest provider budget in the chain: Groq's Free plan,
+    // which as of this writing allows 8k tokens/MINUTE on openai/gpt-oss-20b
+    // (30 RPM, 1k requests/day) — tighter than the 12k TPM these numbers were
+    // first tuned against. Both values below multiply TPM usage: requested
+    // completion tokens count toward the estimate, and each tool iteration is a
+    // separate request carrying the whole conversation so far. Raising them to
+    // 4096/6 produced 413 "Request too large" in production, and at 8k TPM a
+    // long multi-tool exchange can still exhaust the minute budget and fall
+    // through to OpenRouter. Raise only alongside a paid tier or a smaller model.
     maxTokens: 1536,
     maxToolIterations: 4,
     dailyMessageLimit: 40,
     rateLimitPerMinute: 10,
-    // Free-tier failover models (Groq, then OpenRouter) used when Anthropic
-    // is unset/invalid/unavailable — see lib/ai/chat-provider-chain.ts.
-    // Free-tier model slugs get deprecated/renamed by providers over time. When
-    // that happens the provider returns 404 ("This model is unavailable for
-    // free…") and chat dies; setting GROQ_MODEL / OPENROUTER_MODEL in the
-    // environment is the fix — it needs no redeploy of this file. Both models
-    // must support tool-calling, since the assistant does live MLB lookups.
-    // The previous OpenRouter default, meta-llama/llama-3.3-70b-instruct:free,
-    // was retired from the free tier and 404'd in production.
+    // Failover models (Groq, then OpenRouter) used when Anthropic is
+    // unset/invalid/unavailable — see lib/ai/chat-provider-chain.ts. Both must
+    // support tool-calling, since the assistant does live MLB lookups, and both
+    // are deliberately free to run:
+    //
+    //  - Groq expresses "free" per ACCOUNT, not per model: there is no ":free"
+    //    slug there. openai/gpt-oss-20b is on Groq's Free plan (8k TPM / 30 RPM
+    //    / 1k RPD), which is what makes this leg cost nothing. Its Llama models
+    //    (llama-3.3-70b-versatile, llama-3.1-8b-instant) are NOT on the Free
+    //    plan at all — they moved to Enterprise "contact sales", which is why an
+    //    ordinary key gets "does not exist or you do not have access to it".
+    //  - OpenRouter expresses "free" per MODEL, via the ":free" suffix, so this
+    //    leg must carry one to stay free. Those slugs rotate out of the free
+    //    tier without warning — openai/gpt-oss-20b:free and, before it,
+    //    meta-llama/llama-3.3-70b-instruct:free both 404'd in production — so
+    //    expect to re-point this one and check
+    //    https://openrouter.ai/models?supported_parameters=tools for a current
+    //    ":free" model that still supports tools.
+    //
+    // GLM 5.2 is a reasoning-capable model; if replies ever come back empty,
+    // suspect reasoning tokens eating the maxTokens budget above and switch to
+    // a plain instruct model such as google/gemma-4-31b-it:free. Setting
+    // GROQ_MODEL / OPENROUTER_MODEL in the environment stays the no-redeploy fix
+    // when either default is retired.
     fallbackModels: {
-      groq: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-      openrouter: process.env.OPENROUTER_MODEL || "openai/gpt-oss-20b:free",
+      groq: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+      openrouter: process.env.OPENROUTER_MODEL || "z-ai/glm-5.2:free",
     },
   },
 
