@@ -435,8 +435,11 @@ function computeConfidence(
   // ── Reliability score — INPUT QUALITY ONLY ───────────────────────────────
   // Driven by sample size and form stability. This is NOT a hit-rate forecast
   // and must not be used to rank or tier picks: measured against outcomes it
-  // has ~zero correlation with being correct (−0.006). It answers "how much
-  // data stands behind this number", not "how likely is it to be right".
+  // carried no signal — a top-vs-bottom quintile hit-rate gap of −0.006
+  // (z = −0.22), see the 2026-08 retier note above. That figure is a quintile
+  // gap, not a correlation coefficient; describing it as one put a statistic
+  // nobody computed in front of users. It answers "how much data stands behind
+  // this number", not "how likely is it to be right".
   let score = 50
 
   const minStarts = Math.min(

@@ -202,16 +202,27 @@ function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] })
  * once in METRIC_GLOSSARY so /glossary and this pill can't drift.
  */
 function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
+  const [open, setOpen] = useState(false)
   const color = level === "High" ? "var(--hm-gold)" : level === "Medium" ? "var(--hm-diamond)" : "var(--hm-smoke)"
+  // A <button> rather than a <span>: `asChild` makes whatever is here the real
+  // Radix trigger, and a span is not focusable, so a hover-only tooltip would
+  // hide the explanation from keyboard users entirely. Controlled `open` adds
+  // the tap path — Radix opens on hover and focus but not on touch, and this
+  // pill has no other affordance a touch user could reach.
   return (
-    <Tooltip>
+    <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
-        <span className="hm-ghost cursor-help" aria-label={`Confidence: tier ${level}, input reliability score ${score}`}>
+        <button
+          type="button"
+          className="hm-ghost cursor-help"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={`Confidence: tier ${level}, input reliability score ${score}. Show explanation`}
+        >
           <span className="hm-ghost-dot" style={{ background: color }} />
           <span style={{ opacity: 0.65 }}>Conf</span>
           {level} <span style={{ opacity: 0.7 }}>{score}</span>
           <HelpCircle size={9} style={{ opacity: 0.45 }} />
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs text-xs">
         <p>
