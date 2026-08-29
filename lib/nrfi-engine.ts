@@ -161,6 +161,20 @@ export const CONVICTION_THRESHOLDS = {
   medium: 0.110,
 } as const
 
+/**
+ * Conviction on the same 0–100 scale the cutoffs are quoted in, for display
+ * beside the tier.
+ *
+ * FLOOR, not round: the cutoffs are exact hundredths, so flooring makes
+ * `points >= 18` true exactly when `conviction >= 0.180`, and the displayed
+ * number can never contradict the tier beside it. Rounding would print
+ * "Medium 18" for a conviction of 0.1795 — the High cutoff shown next to the
+ * wrong tier, which is the confusion this number exists to end.
+ */
+export function convictionPoints(conviction: number): number {
+  return Math.floor(conviction * 100)
+}
+
 // Monthly lambda multiplier: accounts for the cold-weather / heat run-environment
 // cycle that the weather multiplier alone can't capture (historical-sync often
 // lacks real game-time temperatures).  Values derived from 2018–2024 MLB first-
@@ -435,8 +449,11 @@ function computeConfidence(
   // ── Reliability score — INPUT QUALITY ONLY ───────────────────────────────
   // Driven by sample size and form stability. This is NOT a hit-rate forecast
   // and must not be used to rank or tier picks: measured against outcomes it
-  // has ~zero correlation with being correct (−0.006). It answers "how much
-  // data stands behind this number", not "how likely is it to be right".
+  // carried no signal — a top-vs-bottom quintile hit-rate gap of −0.006
+  // (z = −0.22), see the 2026-08 retier note above. That figure is a quintile
+  // gap, not a correlation coefficient; describing it as one put a statistic
+  // nobody computed in front of users. It answers "how much data stands behind
+  // this number", not "how likely is it to be right".
   let score = 50
 
   const minStarts = Math.min(
