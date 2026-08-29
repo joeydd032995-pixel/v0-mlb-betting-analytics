@@ -507,7 +507,8 @@ export interface FilterOptions {
 export const METRIC_GLOSSARY: Record<string, string> = {
   pNRFI: "Poisson-calculated probability that neither team scores a run in the first inning (0–100%)",
   pYRFI: "Poisson-calculated probability that at least one team scores a run in the first inning (0–100%)",
-  confidence: "Model confidence in the prediction, based on input data quality and historical accuracy",
+  confidence: "The tier shown on a prediction (High / Medium / Low). It is driven by CONVICTION — how far the NRFI probability sits from a coin flip, measured as |p − 50%| × 2 (High at 0.18 and up, Medium at 0.11 and up). It says how decisive the call is, not how much data is behind it",
+  confidenceScore: "The number beside the confidence tier (10–98): a reliability score for the INPUTS, not a forecast of winning. It starts at 50 and moves with starter first-inning sample size, how stable both starters' recent form has been, and simulation variance. Measured against outcomes it has almost no correlation with being correct (−0.006), so it should not be used to rank or compare picks. A high tier next to a middling score means a decisive call built on thin or noisy inputs",
   edge: "Expected value of the bet relative to public betting odds; positive = favorable for NRFI",
   kelly: "Kelly Criterion fraction; recommended bet size as a percentage of bankroll (use cautiously)",
   parkFactor: "Adjustment factor for home-run-friendly or pitcher-friendly stadiums (0.8–1.2)",

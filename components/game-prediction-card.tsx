@@ -184,13 +184,34 @@ function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] })
   return <span className={isNrfi ? "hm-stamp" : "hm-stamp hm-stamp-bad"}>{REC_CFG[rec].label}</span>
 }
 
+/**
+ * The badge shows two DIFFERENT quantities side by side, which is why a pairing
+ * like "HIGH 50" is not a contradiction:
+ *  - the tier comes from conviction (how far the probability sits from a coin flip)
+ *  - the number is a reliability score for the inputs (sample size, form stability)
+ * Nothing on the card said so, so the pairing read as an error. The tooltip is
+ * the annotation; both halves are defined once in METRIC_GLOSSARY.
+ */
 function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
   const color = level === "High" ? "var(--hm-gold)" : level === "Medium" ? "var(--hm-diamond)" : "var(--hm-smoke)"
   return (
-    <span className="hm-ghost">
-      <span className="hm-ghost-dot" style={{ background: color }} />
-      {level} <span style={{ opacity: 0.7 }}>{score}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="hm-ghost cursor-help" aria-label={`Confidence tier ${level}, input reliability score ${score}`}>
+          <span className="hm-ghost-dot" style={{ background: color }} />
+          {level} <span style={{ opacity: 0.7 }}>{score}</span>
+          <HelpCircle size={9} style={{ opacity: 0.45 }} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">
+        <p>
+          <span className="font-semibold uppercase">{level}</span> — {METRIC_GLOSSARY.confidence}
+        </p>
+        <p className="mt-1.5">
+          <span className="font-semibold">{score}</span> — {METRIC_GLOSSARY.confidenceScore}
+        </p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
