@@ -27,6 +27,21 @@ describe("CONFIG.chat.fallbackModels", () => {
     expect(dead).not.toContain(CONFIG.chat.fallbackModels.groq)
   })
 
+  // Both fallback legs are meant to cost nothing, and the two providers express
+  // that differently: OpenRouter marks free models with a ":free" suffix, while
+  // Groq has no such suffix — free there is a property of the account, and
+  // openai/gpt-oss-20b is the tool-calling model on its Free plan. Skipped when
+  // an override is set, since a deployment may deliberately run a paid model.
+  it("defaults to models that are free to run on each provider", () => {
+    if (!process.env.OPENROUTER_MODEL) {
+      expect(CONFIG.chat.fallbackModels.openrouter.endsWith(":free")).toBe(true)
+    }
+    if (!process.env.GROQ_MODEL) {
+      // Groq's Free plan chat models, from its rate-limit table.
+      expect(["openai/gpt-oss-20b", "openai/gpt-oss-120b"]).toContain(CONFIG.chat.fallbackModels.groq)
+    }
+  })
+
   it("honours the OPENROUTER_MODEL / GROQ_MODEL env overrides", async () => {
     const originalOr = process.env.OPENROUTER_MODEL
     const originalGroq = process.env.GROQ_MODEL

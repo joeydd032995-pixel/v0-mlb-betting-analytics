@@ -161,35 +161,46 @@ export const CONFIG = {
   // AI chat assistant — model, tool-loop, and cost-control caps.
   chat: {
     model: "claude-haiku-4-5",
-    // Sized against the tightest provider budget in the chain: Groq's free tier
-    // allows 12k tokens/MINUTE across all requests. Both values below multiply
-    // TPM usage — requested completion tokens count toward the estimate, and
-    // each tool iteration is a separate charged request carrying the whole
-    // conversation so far. Raising them to 4096/6 produced 413 "Request too
-    // large" in production. Raise only alongside a paid tier or a smaller model.
+    // Sized against the tightest provider budget in the chain: Groq's Free plan,
+    // which as of this writing allows 8k tokens/MINUTE on openai/gpt-oss-20b
+    // (30 RPM, 1k requests/day) — tighter than the 12k TPM these numbers were
+    // first tuned against. Both values below multiply TPM usage: requested
+    // completion tokens count toward the estimate, and each tool iteration is a
+    // separate request carrying the whole conversation so far. Raising them to
+    // 4096/6 produced 413 "Request too large" in production, and at 8k TPM a
+    // long multi-tool exchange can still exhaust the minute budget and fall
+    // through to OpenRouter. Raise only alongside a paid tier or a smaller model.
     maxTokens: 1536,
     maxToolIterations: 4,
     dailyMessageLimit: 40,
     rateLimitPerMinute: 10,
     // Failover models (Groq, then OpenRouter) used when Anthropic is
     // unset/invalid/unavailable — see lib/ai/chat-provider-chain.ts. Both must
-    // support tool-calling, since the assistant does live MLB lookups.
+    // support tool-calling, since the assistant does live MLB lookups, and both
+    // are deliberately free to run:
     //
-    // Model availability moves under us, and both defaults have now died in
-    // production with a 404:
-    //  - Groq moved llama-3.3-70b-versatile (and llama-3.1-8b-instant) to
-    //    Enterprise "contact sales" access, so an ordinary developer key gets
-    //    "The model `llama-3.3-70b-versatile` does not exist or you do not have
-    //    access to it". openai/gpt-oss-* are the generally available production
-    //    chat models there.
-    //  - OpenRouter retired openai/gpt-oss-20b:free (and before it
-    //    meta-llama/llama-3.3-70b-instruct:free) from its free tier.
-    // Prefer a generally available slug over a cheaper one that is gated or
-    // ":free"-tagged; setting GROQ_MODEL / OPENROUTER_MODEL in the environment
-    // stays the no-redeploy fix when one of these is retired too.
+    //  - Groq expresses "free" per ACCOUNT, not per model: there is no ":free"
+    //    slug there. openai/gpt-oss-20b is on Groq's Free plan (8k TPM / 30 RPM
+    //    / 1k RPD), which is what makes this leg cost nothing. Its Llama models
+    //    (llama-3.3-70b-versatile, llama-3.1-8b-instant) are NOT on the Free
+    //    plan at all — they moved to Enterprise "contact sales", which is why an
+    //    ordinary key gets "does not exist or you do not have access to it".
+    //  - OpenRouter expresses "free" per MODEL, via the ":free" suffix, so this
+    //    leg must carry one to stay free. Those slugs rotate out of the free
+    //    tier without warning — openai/gpt-oss-20b:free and, before it,
+    //    meta-llama/llama-3.3-70b-instruct:free both 404'd in production — so
+    //    expect to re-point this one and check
+    //    https://openrouter.ai/models?supported_parameters=tools for a current
+    //    ":free" model that still supports tools.
+    //
+    // GLM 5.2 is a reasoning-capable model; if replies ever come back empty,
+    // suspect reasoning tokens eating the maxTokens budget above and switch to
+    // a plain instruct model such as google/gemma-4-31b-it:free. Setting
+    // GROQ_MODEL / OPENROUTER_MODEL in the environment stays the no-redeploy fix
+    // when either default is retired.
     fallbackModels: {
       groq: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
-      openrouter: process.env.OPENROUTER_MODEL || "openai/gpt-oss-20b",
+      openrouter: process.env.OPENROUTER_MODEL || "z-ai/glm-5.2:free",
     },
   },
 
