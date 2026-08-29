@@ -161,6 +161,20 @@ export const CONVICTION_THRESHOLDS = {
   medium: 0.110,
 } as const
 
+/**
+ * Conviction on the same 0–100 scale the cutoffs are quoted in, for display
+ * beside the tier.
+ *
+ * FLOOR, not round: the cutoffs are exact hundredths, so flooring makes
+ * `points >= 18` true exactly when `conviction >= 0.180`, and the displayed
+ * number can never contradict the tier beside it. Rounding would print
+ * "Medium 18" for a conviction of 0.1795 — the High cutoff shown next to the
+ * wrong tier, which is the confusion this number exists to end.
+ */
+export function convictionPoints(conviction: number): number {
+  return Math.floor(conviction * 100)
+}
+
 // Monthly lambda multiplier: accounts for the cold-weather / heat run-environment
 // cycle that the weather multiplier alone can't capture (historical-sync often
 // lacks real game-time temperatures).  Values derived from 2018–2024 MLB first-

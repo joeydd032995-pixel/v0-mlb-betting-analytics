@@ -17,6 +17,7 @@ import {
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { hasAccess, type Tier } from "@/lib/tiers"
+import { convictionPoints } from "@/lib/nrfi-engine"
 import { PaywallOverlay } from "@/components/paywall-overlay"
 
 interface Props {
@@ -186,24 +187,35 @@ function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] })
 
 /**
  * The confidence pill, sitting between the recommendation and model-consensus
- * pills. Two things were missing from it:
+ * pills.
  *
- * 1. A NAME. Every other pill in that row states what it is ("LEAN NRFI",
- *    "7 / 7 MODELS", "$ VALUE") and so does this one's locked FREE-tier variant,
- *    which renders "CONF" — but unlocked it rendered a bare "HIGH 50", leaving
- *    the reader to guess which metric the two values even belong to.
- * 2. An EXPLANATION of why those two values disagree. They measure different
- *    things: the tier comes from conviction (how far the probability sits from
- *    a coin flip), the number is a reliability score for the inputs (sample
- *    size, form stability). "HIGH 50" is a decisive call on middling inputs,
- *    not a contradiction.
+ * It used to read "HIGH 50", pairing the tier with the reliability score. That
+ * looked broken for a reason: until the 2026-08 retier the tier WAS computed
+ * from that score (High at ≥62), so a 50 beside a High is a pairing the old
+ * rule could never have produced. The retier moved the tier onto conviction and
+ * left the score on screen in the position that implies it still sets the tier.
  *
- * The label fixes (1) inline; the tooltip fixes (2), with both halves defined
- * once in METRIC_GLOSSARY so /glossary and this pill can't drift.
+ * The number is now conviction itself — the quantity the tier is actually cut
+ * from — so label and number can never disagree: High always shows 18+, Medium
+ * 11–17, Low below 11. The reliability score keeps its place in the tooltip,
+ * where it is named as an input-quality measure rather than read as a
+ * confidence value.
  */
-function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
+function ConfidenceBadge({
+  level,
+  conviction,
+  reliability,
+}: {
+  level: NRFIPrediction["confidence"]
+  conviction: number
+  reliability: number | null
+}) {
   const [open, setOpen] = useState(false)
   const color = level === "High" ? "var(--hm-gold)" : level === "Medium" ? "var(--hm-diamond)" : "var(--hm-smoke)"
+  // Same 0–100 framing as the cutoffs quoted in the tooltip, so the pill and
+  // the thresholds are read off one scale. Floors rather than rounds — see
+  // convictionPoints().
+  const convictionPts = convictionPoints(conviction)
   // A <button> rather than a <span>: `asChild` makes whatever is here the real
   // Radix trigger, and a span is not focusable, so a hover-only tooltip would
   // hide the explanation from keyboard users entirely. Controlled `open` adds
@@ -216,21 +228,23 @@ function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]
           type="button"
           className="hm-ghost cursor-help"
           onClick={() => setOpen((v) => !v)}
-          aria-label={`Confidence: tier ${level}, input reliability score ${score}. Show explanation`}
+          aria-label={`Confidence: tier ${level}, conviction ${convictionPts} of 100. Show explanation`}
         >
           <span className="hm-ghost-dot" style={{ background: color }} />
           <span style={{ opacity: 0.65 }}>Conf</span>
-          {level} <span style={{ opacity: 0.7 }}>{score}</span>
+          {level} <span style={{ opacity: 0.7 }}>{convictionPts}</span>
           <HelpCircle size={9} style={{ opacity: 0.45 }} />
         </button>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs text-xs">
         <p>
-          <span className="font-semibold uppercase">{level}</span> — {METRIC_GLOSSARY.confidence}
+          <span className="font-semibold uppercase">{level} {convictionPts}</span> — {METRIC_GLOSSARY.confidence}
         </p>
-        <p className="mt-1.5">
-          <span className="font-semibold">{score}</span> — {METRIC_GLOSSARY.confidenceScore}
-        </p>
+        {reliability != null && (
+          <p className="mt-1.5">
+            <span className="font-semibold">Input reliability {reliability}</span> — {METRIC_GLOSSARY.confidenceScore}
+          </p>
+        )}
       </TooltipContent>
     </Tooltip>
   )
@@ -664,8 +678,16 @@ export function GamePredictionCard({
                 </span>
               </LockedBadgeWrapper>
             ) : (
-              prediction.confidence && prediction.confidenceScore != null &&
-              <ConfidenceBadge level={prediction.confidence} score={prediction.confidenceScore} />
+              prediction.confidence && (
+                <ConfidenceBadge
+                  level={prediction.confidence}
+                  // `conviction` is required on NRFIPrediction but absent from rows
+                  // persisted before it was added, so fall back to its definition
+                  // rather than rendering NaN on an archived prediction.
+                  conviction={prediction.conviction ?? Math.abs(prediction.nrfiProbability - 0.5) * 2}
+                  reliability={prediction.confidenceScore ?? null}
+                />
+              )
             )}
 
             {!isFreeTease && prediction.modelBreakdown && (
