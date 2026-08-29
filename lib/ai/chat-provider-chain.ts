@@ -87,10 +87,56 @@ export class NoChatProviderConfiguredError extends Error {
 }
 
 /**
+ * Wraps the error that ended the chain, keeping the identity of the attempt
+ * that produced it.
+ *
+ * A bare status is not enough to explain a failure: "404, set GROQ_MODEL" is
+ * useless advice when the request that 404'd went to Anthropic, whose model
+ * comes from CONFIG.chat.model instead. It also over-claims — one provider's
+ * status says nothing about the ones that failed before it for their own
+ * reasons. The wrapper carries the provider so describeChatFailure() can name
+ * the right knob and attribute the status to the right attempt.
+ *
+ * The original error stays reachable as `providerError` (and as `cause`), and
+ * its message is folded into this one so server logs still show what the
+ * provider actually said.
+ */
+export class ChatProvidersFailedError extends Error {
+  readonly provider: ChatProvider
+  readonly status?: number
+  readonly providerError: unknown
+
+  constructor(provider: ChatProvider, providerError: unknown) {
+    const detail = providerError instanceof Error ? providerError.message : String(providerError)
+    super(`chat provider "${provider}" failed: ${detail}`, { cause: providerError })
+    this.name = "ChatProvidersFailedError"
+    this.provider = provider
+    this.status = (providerError as { status?: number } | null)?.status
+    this.providerError = providerError
+  }
+}
+
+/** Provider names as a user should read them. */
+const PROVIDER_LABEL: Record<ChatProvider, string> = {
+  anthropic: "Anthropic",
+  groq: "Groq",
+  openrouter: "OpenRouter",
+}
+
+/**
+ * Where each provider's model slug is configured — the knob to turn when that
+ * provider 404s on a retired model. Anthropic's is a code constant, not an env
+ * var, which is exactly why the remediation has to be provider-specific.
+ */
+const MODEL_SOURCE: Record<ChatProvider, string> = {
+  anthropic: "CONFIG.chat.model in lib/config.ts",
+  groq: "the GROQ_MODEL environment variable",
+  openrouter: "the OPENROUTER_MODEL environment variable",
+}
+
+/**
  * Turns a runChatWithFailover() rejection into a message safe to show the user
- * and specific enough to act on. The HTTP status is the whole signal here: the
- * chain only rethrows after every configured provider has failed, so the last
- * error's status describes the class of failure the whole chain hit.
+ * and specific enough to act on: which attempt failed, how, and what to change.
  *
  * Never echoes the provider's raw error text — it can carry account and key
  * details that don't belong in a browser toast (the server log has the full
@@ -101,18 +147,29 @@ export function describeChatFailure(err: unknown): string {
     return "The chat assistant isn't set up yet — no provider API key is configured on the server or your account."
   }
 
-  const status = (err as { status?: number } | null)?.status
+  const failure = err instanceof ChatProvidersFailedError ? err : null
+  const status = failure?.status ?? (err as { status?: number } | null)?.status
+  const provider = failure?.provider ?? null
+  // Attribute the status to the attempt that actually returned it. Without a
+  // provider we can only speak generically — never invent one.
+  const subject = provider
+    ? `Chat failed on every configured provider; the last one tried (${PROVIDER_LABEL[provider]})`
+    : "The chat provider"
+
   if (status === 404) {
-    return "The chat providers rejected the model this app asks for — the model slug has most likely been retired or is no longer available on this account's plan. Set GROQ_MODEL / OPENROUTER_MODEL to a current model."
+    const fix = provider
+      ? `Point ${MODEL_SOURCE[provider]} at a current model.`
+      : "Check the configured model slugs (CONFIG.chat.model, GROQ_MODEL, OPENROUTER_MODEL)."
+    return `${subject} rejected the model this app asks for — the slug has most likely been retired or isn't available on that account's plan. ${fix}`
   }
   if (status === 401 || status === 403) {
-    return "The chat providers rejected the API key in use — check the key saved on your Account page, or the server's provider keys."
+    return `${subject} rejected the API key in use — check the key saved on your Account page, or the server's provider keys.`
   }
   if (status === 402) {
-    return "The chat providers rejected the request for billing reasons — the account behind the API key is out of credit."
+    return `${subject} rejected the request for billing reasons — the account behind that API key is out of credit.`
   }
   if (status === 429) {
-    return "The chat providers are rate-limiting us right now — please try again in a minute."
+    return `${subject} is rate-limiting us right now — please try again in a minute.`
   }
   if (status === 413) {
     return "This conversation got too long for the available providers — clear the chat and ask again."
@@ -162,6 +219,7 @@ export async function runChatWithFailover(
   }
 
   let lastErr: unknown
+  let lastProvider: ChatProvider = attempts[0].provider
   for (const attempt of attempts) {
     try {
       const result = await attempt.run()
@@ -171,13 +229,16 @@ export async function runChatWithFailover(
       return { ...result, provider: attempt.provider }
     } catch (err) {
       lastErr = err
+      lastProvider = attempt.provider
       console.warn(
         `[chat-provider-chain] provider "${attempt.provider}" failed, trying next`,
         err instanceof Error ? err.message : err
       )
-      if (!isRetryableProviderError(err)) throw err
+      // Both exits carry the failing provider, so the caller can say which
+      // attempt produced the status instead of guessing at a remediation.
+      if (!isRetryableProviderError(err)) throw new ChatProvidersFailedError(attempt.provider, err)
     }
   }
 
-  throw lastErr instanceof Error ? lastErr : new Error("All chat providers failed")
+  throw new ChatProvidersFailedError(lastProvider, lastErr)
 }
