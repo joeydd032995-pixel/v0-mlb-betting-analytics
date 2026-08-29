@@ -185,20 +185,30 @@ function RecommendationBadge({ rec }: { rec: NRFIPrediction["recommendation"] })
 }
 
 /**
- * The badge shows two DIFFERENT quantities side by side, which is why a pairing
- * like "HIGH 50" is not a contradiction:
- *  - the tier comes from conviction (how far the probability sits from a coin flip)
- *  - the number is a reliability score for the inputs (sample size, form stability)
- * Nothing on the card said so, so the pairing read as an error. The tooltip is
- * the annotation; both halves are defined once in METRIC_GLOSSARY.
+ * The confidence pill, sitting between the recommendation and model-consensus
+ * pills. Two things were missing from it:
+ *
+ * 1. A NAME. Every other pill in that row states what it is ("LEAN NRFI",
+ *    "7 / 7 MODELS", "$ VALUE") and so does this one's locked FREE-tier variant,
+ *    which renders "CONF" — but unlocked it rendered a bare "HIGH 50", leaving
+ *    the reader to guess which metric the two values even belong to.
+ * 2. An EXPLANATION of why those two values disagree. They measure different
+ *    things: the tier comes from conviction (how far the probability sits from
+ *    a coin flip), the number is a reliability score for the inputs (sample
+ *    size, form stability). "HIGH 50" is a decisive call on middling inputs,
+ *    not a contradiction.
+ *
+ * The label fixes (1) inline; the tooltip fixes (2), with both halves defined
+ * once in METRIC_GLOSSARY so /glossary and this pill can't drift.
  */
 function ConfidenceBadge({ level, score }: { level: NRFIPrediction["confidence"]; score: number }) {
   const color = level === "High" ? "var(--hm-gold)" : level === "Medium" ? "var(--hm-diamond)" : "var(--hm-smoke)"
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="hm-ghost cursor-help" aria-label={`Confidence tier ${level}, input reliability score ${score}`}>
+        <span className="hm-ghost cursor-help" aria-label={`Confidence: tier ${level}, input reliability score ${score}`}>
           <span className="hm-ghost-dot" style={{ background: color }} />
+          <span style={{ opacity: 0.65 }}>Conf</span>
           {level} <span style={{ opacity: 0.7 }}>{score}</span>
           <HelpCircle size={9} style={{ opacity: 0.45 }} />
         </span>
