@@ -39,7 +39,7 @@ import {
   type MLBPitcherSeasonStats,
   type MLBTeamHittingStats,
 } from "@/lib/api/mlb-stats"
-import { STADIUM_PARK_FACTORS } from "@/lib/constants/mlb-stadiums"
+import { STADIUM_PARK_FACTORS, STADIUM_IS_DOME } from "@/lib/constants/mlb-stadiums"
 import { MLB_TEAMS } from "@/lib/constants/mlb-teams"
 import { resolveTeamId, estimateNrfiRate, estimateOffenseFactor } from "@/lib/api/shared-helpers"
 import type { Game, Pitcher, Team, Weather } from "@/lib/types"
@@ -57,12 +57,23 @@ const MONTHLY_AVG_TEMP_F: Record<number, number> = {
   3: 48, 4: 57, 5: 66, 6: 75, 7: 83, 8: 84, 9: 76, 10: 63,
 }
 
+/** Indoor conditions — matches the DOME_WEATHER short-circuit in lib/api/weather.ts. */
+const DOME_WEATHER: Weather = {
+  temperature: 72, windSpeed: 0, windDirection: "calm", conditions: "dome", humidity: 50,
+}
+
 /**
  * Month-average weather for a date. Date-derived, so it is stable under
  * reprocessing — unlike `fetchVenueWeather(venue)`, which returns *today's*
  * conditions no matter which date is being scored.
+ *
+ * Pass `venue` so a roofed park keeps its dome conditions. Without it a
+ * September game at Tropicana Field is scored as a 76°F outdoor game: the
+ * engine reads `conditions` both to apply weather effects and to set its dome
+ * feature, so a mislabelled roof moves the prediction twice.
  */
-export function buildSeasonalWeather(date: string): Weather {
+export function buildSeasonalWeather(date: string, venue?: string): Weather {
+  if (venue && STADIUM_IS_DOME[venue]) return DOME_WEATHER
   const month = parseInt(date.split("-")[1], 10)
   return {
     temperature: MONTHLY_AVG_TEMP_F[month] ?? 72,
@@ -224,15 +235,13 @@ export async function buildAsOfSlate(
   season: number,
   options: AsOfSlateOptions = {}
 ): Promise<AsOfSlate> {
-  const seasonalWeather = buildSeasonalWeather(date)
-
   const games: Game[] = []
   const pitcherIds = new Set<string>()
   const teamIds = new Set<string>()
 
   for (const apiGame of apiGames) {
     const venue = apiGame.venue?.name ?? "Unknown Stadium"
-    const weather = options.weatherByVenue?.get(venue) ?? seasonalWeather
+    const weather = options.weatherByVenue?.get(venue) ?? buildSeasonalWeather(date, venue)
     const g = buildLightGame(apiGame, date, weather)
     games.push(g)
     if (!g.homePitcherId.startsWith("tbd-")) pitcherIds.add(g.homePitcherId)

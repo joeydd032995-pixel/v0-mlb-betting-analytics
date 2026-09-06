@@ -168,3 +168,83 @@ describe("buildAsOfSlate wiring", () => {
     expect(slate.games[0].odds).toBeUndefined()
   })
 })
+
+// ─── Fallback paths (Codex review, PR #150) ──────────────────────────────────
+//
+// Two holes found after the first push, both of which let non-as-of data back
+// into an as-of slate through a fallback rather than the main path.
+
+describe("dome venues keep dome conditions in the seasonal fallback", () => {
+  it("a roofed park is 72F/dome regardless of month", async () => {
+    const { buildSeasonalWeather } = await import("@/lib/server/asof-slate")
+    for (const date of ["2026-04-10", "2026-07-20", "2026-09-28"]) {
+      const w = buildSeasonalWeather(date, "Tropicana Field")
+      expect(w.conditions).toBe("dome")
+      expect(w.temperature).toBe(72)
+    }
+  })
+
+  it("an open-air park still tracks the month", async () => {
+    const { buildSeasonalWeather } = await import("@/lib/server/asof-slate")
+    const april = buildSeasonalWeather("2026-04-10", "Fenway Park")
+    const july = buildSeasonalWeather("2026-07-20", "Fenway Park")
+    expect(april.conditions).toBe("clear")
+    expect(april.temperature).toBeLessThan(july.temperature)
+  })
+
+  it("buildAsOfSlate applies the dome check per venue", async () => {
+    const { buildAsOfSlate } = await import("@/lib/server/asof-slate")
+    const domeGame = {
+      ...apiGame,
+      gamePk: 778002,
+      venue: { name: "Tropicana Field" },
+    }
+    const slate = await buildAsOfSlate([domeGame as never], "2026-04-10", 2026)
+    expect(slate.games[0].weather.conditions).toBe("dome")
+    expect(slate.games[0].weather.temperature).toBe(72)
+  })
+})
+
+describe("the as-of fallback carries no season measurements", () => {
+  it("computePitcherStatsAsOf yields null with no prior and no pre-cutoff start", async () => {
+    const mlb = await import("@/lib/api/mlb-stats")
+    // This is the branch the old fallback mishandled: it reached for
+    // fetchPitcherStats(playerId, season) — the FULL current-season line.
+    expect(mlb.computePitcherStatsAsOf([], CUTOFF, null, meta)).toBeNull()
+    expect(mlb.computePitcherStatsAsOf([futureStart], CUTOFF, null, meta)).toBeNull()
+  })
+
+  it("the neutral record it falls back to has zero season measurements", async () => {
+    const { neutralPitcherRecord } = await import("@/lib/api/mlb-stats")
+    const r = neutralPitcherRecord({ fullName: "Rookie Arm", throws: "L" })
+    // Nothing here can encode a game that has not been played.
+    expect(r.inningsPitched).toBe(0)
+    expect(r.gamesStarted).toBe(0)
+    expect(r.strikeOuts).toBe(0)
+    expect(r.baseOnBalls).toBe(0)
+    expect(r.hits).toBe(0)
+    expect(r.homeRuns).toBe(0)
+    // Identity survives: handedness is a fixed attribute, not a measurement.
+    expect(r.fullName).toBe("Rookie Arm")
+    expect(r.throws).toBe("L")
+    // League-average rate stand-ins, not this pitcher's season.
+    expect(r.era).toBe(4.0)
+    expect(r.whip).toBe(1.28)
+  })
+
+  it("a pitcher built from the neutral record shrinks hard toward league average", async () => {
+    const { buildLightPitcher } = await import("@/lib/server/asof-slate")
+    const { neutralPitcherRecord } = await import("@/lib/api/mlb-stats")
+    const { getDynamicPriorWeight } = await import("@/lib/nrfi-models")
+
+    const p = buildLightPitcher("605483", "bos", "Rookie Arm",
+      neutralPitcherRecord({ fullName: "Rookie Arm", throws: "L" }))
+
+    expect(p.firstInning.startCount).toBe(0)
+    expect(p.overall.innings).toBe(0)
+    expect(p.throws).toBe("L")
+    // 0 career innings -> the small-sample prior weight, not the k=50 tier an
+    // inflated current-season IP total would have earned.
+    expect(getDynamicPriorWeight(p)).toBe(30)
+  })
+})

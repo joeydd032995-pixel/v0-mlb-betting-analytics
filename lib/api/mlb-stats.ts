@@ -649,9 +649,51 @@ export async function fetchPitcherStatsAsOf(
     priorRecord && priorRecord.inningsPitched > 0 ? priorRecord : null
 
   const result = computePitcherStatsAsOf(splits, beforeDate, prior, meta)
-  // result is null only when there were no starts AND no prior — fall back to
-  // the current-season league-average record fetchPitcherStats provides.
-  return result ?? metaSource ?? fetchPitcherStats(playerId, season)
+  if (result) return result
+
+  // result is null only when there were no qualifying pre-cutoff starts AND no
+  // usable prior season — a debut start, or a prior-season fetch that failed.
+  //
+  // This used to fall back to `metaSource`, which is
+  // `fetchPitcherStats(playerId, season)` whenever the prior season is missing:
+  // the FULL current-season line, including every game after `beforeDate`. That
+  // silently defeated the point-in-time guarantee for exactly the pitchers with
+  // the least real data. Return a neutral league-average record instead.
+  //
+  // `fullName` and `throws` are carried over deliberately: handedness is a fixed
+  // attribute of the player, not a measurement of games that have not happened,
+  // and the Markov lineup-vs-hand term needs it.
+  return neutralPitcherRecord(meta)
+}
+
+/**
+ * League-average pitcher line carrying no season measurements at all.
+ *
+ * The as-of path returns this when a pitcher has no pre-cutoff start and no
+ * usable prior season, so that "we know nothing about this arm yet" is never
+ * expressed as current-season numbers. `inningsPitched: 0` and
+ * `gamesStarted: 0` matter downstream: `buildLightPitcher` reads them as
+ * absent data, and `getDynamicPriorWeight` keys off career innings to shrink
+ * hard toward the league mean.
+ */
+export function neutralPitcherRecord(meta: {
+  fullName: string
+  throws: "R" | "L" | "S"
+}): MLBPitcherSeasonStats {
+  return {
+    fullName: meta.fullName,
+    throws: meta.throws,
+    gamesStarted: 0,
+    era: 4.0,
+    whip: 1.28,
+    strikeOuts: 0,
+    baseOnBalls: 0,
+    inningsPitched: 0,
+    hits: 0,
+    homeRuns: 0,
+    wins: 0,
+    losses: 0,
+  }
 }
 
 // ─── Active Starters ─────────────────────────────────────────────────────────
