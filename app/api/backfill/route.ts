@@ -8,15 +8,36 @@
  *
  * Max range: 35 days per chunk. Dates with no games are silently skipped.
  *
- * Note: pitcher/team stats are current-season stats (not historical snapshots),
- * which is acceptable for retroactive accuracy tracking purposes.
+ * ── Point-in-time stats (2026-09 leakage fix) ────────────────────────────────
+ * Predictions are built by `buildAsOfSlate`, which reads each pitcher's and
+ * team's game log STRICTLY BEFORE the game date. This route previously called
+ * `getLiveGameSlate`, whose stat fetches return current season-to-date totals
+ * regardless of the date requested — so a game from April was "predicted" with
+ * a season line that already contained that game's own result, and every game
+ * after it. The dashboard fed by this route reported ~60.8% accuracy where
+ * predictions actually written before first pitch scored ~53.0%.
+ *
+ * Weather is now month-average for the date (`buildSeasonalWeather`) rather
+ * than `fetchVenueWeather`, which returns *today's* conditions and would have
+ * scored an April game with September weather. Odds are omitted entirely: a
+ * line fetched today does not belong to a game already played.
+ *
+ * The trade is deliberate — these inputs are coarser than the live path's
+ * (season-derived first-inning splits, no odds, no posted lineup), and that is
+ * the correct direction: inputs that respect time beat richer inputs that leak
+ * the answer. Expect dashboard accuracy to fall to roughly the ~53% the
+ * database has been recording all along; that drop is the bug being removed,
+ * not a regression.
+ *
+ * Invariant: a prediction for date D must not change when a game played after D
+ * is appended to any input. Pinned by `__tests__/asof-slate.test.ts`.
  */
 
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
-import { getLiveGameSlate } from "@/lib/api/live-data"
 import { computeAllPredictions } from "@/lib/nrfi-engine"
 import { buildTrackedPrediction } from "@/lib/prediction-store"
+import { buildAsOfSlate } from "@/lib/server/asof-slate"
 import { fetchGamesByDate, fetchGameLinescore } from "@/lib/api/mlb-stats"
 import { sanitizeForLog } from "@/lib/utils/log"
 import type { TrackedPrediction } from "@/lib/prediction-store"
@@ -87,17 +108,19 @@ export async function GET(request: Request) {
 
     for (const date of dates) {
       try {
-        // Build prediction slate for this date (uses current-season stats)
-        const { games, pitchers, teams } = await getLiveGameSlate(date)
-        if (games.length === 0) continue
+        // One schedule fetch serves both the slate and the results pairing.
+        const apiGames = await fetchGamesByDate(date)
+        if (!apiGames || apiGames.length === 0) continue
         datesWithGames++
+
+        const season = parseInt(date.slice(0, 4), 10)
+        const { games, pitchers, teams, gameById } = await buildAsOfSlate(apiGames, date, season)
+        if (games.length === 0) continue
 
         const predictions = computeAllPredictions(games, pitchers, teams)
 
-        // Fetch actual game results from the MLB Stats API
-        const apiGames = await fetchGamesByDate(date)
-        const finalApiGames = (apiGames ?? []).filter((g) => isFinal(g.status))
-
+        // Fetch actual first-inning results for the games that have finished.
+        const finalApiGames = apiGames.filter((g) => isFinal(g.status))
         const linescores = await Promise.all(
           finalApiGames.map((g) => fetchGameLinescore(g.gamePk))
         )
@@ -117,7 +140,7 @@ export async function GET(request: Request) {
 
         // Pair predictions with results and build TrackedPredictions
         for (const pred of predictions) {
-          const game = games.find((g) => g.id === pred.gameId)
+          const game = gameById.get(pred.gameId)
           if (!game) continue
 
           const tracked = buildTrackedPrediction(pred, game, pitchers, teams, date)
