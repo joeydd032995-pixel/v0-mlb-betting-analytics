@@ -673,9 +673,9 @@ export function computeNRFIPrediction(
 
   // ── Opt #8: 7-model ensemble per half ───────────────────────────────────────
   // "home half" = home pitcher on mound, away team batting
-  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx, gameTemperature, umpireWideness, zipEnvFactor, envLambdaMult)
+  const homeHalf7 = compute7ModelEnsemble(awayScoresLambda, homePitcher, awayTeam, "home", homeCtx, gameTemperature, umpireWideness, zipEnvFactor, envLambdaMult, awayOffVsHand)
   // "away half" = away pitcher on mound, home team batting
-  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx, gameTemperature, umpireWideness, zipEnvFactor, envLambdaMult)
+  const awayHalf7 = compute7ModelEnsemble(homeScoresLambda, awayPitcher, homeTeam, "away", awayCtx, gameTemperature, umpireWideness, zipEnvFactor, envLambdaMult, homeOffVsHand)
 
   // ── MAPRE game-level: cross-half ρ + NegBin overdispersion ──────────────────
   const mapreGameLevel = combineMAPREHalves(homeHalf7.mapreLambdaAdj, awayHalf7.mapreLambdaAdj)
