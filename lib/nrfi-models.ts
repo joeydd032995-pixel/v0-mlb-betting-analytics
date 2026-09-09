@@ -742,8 +742,8 @@ export function getLineupVsHandFromCard(
   const base = getLineupVsHand(pitcherThrows, team)
   const top3 = lineup?.slots
     ?.filter((s) => s.order >= 1 && s.order <= 3)
-    .slice(0, 3)
-  if (!top3 || top3.length < 3) return base
+  if (!top3 || top3.length !== 3
+    || ![1, 2, 3].every((order) => top3.some((s) => s.order === order))) return base
 
   const opposite = pitcherThrows === "L" ? "R" : "L"
   const advCount = top3.filter((s) => s.hand === opposite || s.hand === "S").length
@@ -797,6 +797,7 @@ export interface SevenModelResult {
  * @param envLambdaMult  park × weather × form × monthly × umpire λ multiplier
  *                       for Markov and MAPRE (excludes offense, which both
  *                       models already incorporate).
+ * @param matchupOffenseFactor Resolved opposing lineup vs pitcher hand; optional for legacy callers.
  */
 export function compute7ModelEnsemble(
   lambda:          number,
@@ -807,10 +808,16 @@ export function compute7ModelEnsemble(
   temperature:     number = 72,  // Fahrenheit; 72 = dome/neutral default
   umpireWideness:  number = 0,   // [-1, 1]; 0 = neutral
   zipEnvFactor:    number = 1.0,
-  envLambdaMult:   number = 1.0
+  envLambdaMult:   number = 1.0,
+  matchupOffenseFactor?: number
 ): SevenModelResult {
   // ── Original 4 models ─────────────────────────────────────────────────────
   const poisson    = Math.exp(-lambda)
+  // The engine resolves the posted lineup once, against the opposing pitcher.
+  // Older callers retain their team-level fallback. Invalid overrides are ignored.
+  const hasMatchup = matchupOffenseFactor !== undefined
+    && Number.isFinite(matchupOffenseFactor) && matchupOffenseFactor > 0
+  const lineupFactor = hasMatchup ? matchupOffenseFactor! : getLineupVsHand(pitcher.throws, team)
 
   // ZIP: full implementation (temperature + umpire corrections).  The engine
   // passes park × wind/humidity as zipEnvFactor; ZIP's own log-linear λ model
@@ -818,7 +825,7 @@ export function compute7ModelEnsemble(
   // not in `lambda` (which ZIP never reads).
   const zipResult  = computeZIPModel(
     pitcher,
-    team.firstInning.offenseFactor,
+    hasMatchup ? lineupFactor : team.firstInning.offenseFactor,
     zipEnvFactor,
     temperature,
     umpireWideness
@@ -828,7 +835,6 @@ export function compute7ModelEnsemble(
 
   // Markov: handedness-adjusted offense (Opt #2) + shrunk rate from ctx (Opt #5).
   // Environment applied as exact λ-scaling: P(0)^m = e^(−mλ).
-  const lineupFactor  = getLineupVsHand(pitcher.throws, team)
   const shrunkPitcher = { ...pitcher, firstInning: { ...pitcher.firstInning, nrfiRate: ctx.shrunkRate } }
   const paOutcomes    = computePAOutcomes(shrunkPitcher, lineupFactor)
   const markovRaw     = computeMarkovNrfi(paOutcomes).nrfiProb
@@ -847,7 +853,12 @@ export function compute7ModelEnsemble(
     isHomePitcher:         side === "home",
     awayShortRestOrTravel: false,
   }
-  const mapreResult = computeMAPREHalfInning(ctx.rawBaseLambda * envLambdaMult, mapreInputs)
+  // MAPRE already contains team offense through sOPS+. Apply only the relative
+  // matchup adjustment, preserving that baseline instead of counting it twice.
+  const teamOffense = team.firstInning.offenseFactor
+  const matchupRatio = hasMatchup && Number.isFinite(teamOffense) && teamOffense > 0
+    ? lineupFactor / teamOffense : 1
+  const mapreResult = computeMAPREHalfInning(ctx.rawBaseLambda * envLambdaMult * matchupRatio, mapreInputs)
   const mapre       = mapreResult.nrfiProb
 
   // ── 3 Meta-models (Opt #8 — display-only since the 2026-06 audit; blend

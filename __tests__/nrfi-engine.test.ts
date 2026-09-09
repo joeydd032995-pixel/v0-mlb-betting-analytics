@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { computeNRFIPrediction, computeAllPredictions } from "@/lib/nrfi-engine"
 import { LEAGUE_HALF_NRFI } from "@/lib/nrfi-models"
 import { makeGame, makePitcher, makePitchers, makeTeams, makeTeam } from "./fixtures"
+
+vi.mock("@/lib/config", async (importOriginal) => {
+  const config = await importOriginal<typeof import("@/lib/config")>()
+  return { ...config, FLAGS: { ...config.FLAGS, USE_REAL_LINEUPS: true } }
+})
 
 describe("computeNRFIPrediction — null safety", () => {
   it("returns null when homePitcher is missing from map", () => {
@@ -138,5 +143,26 @@ describe("computeAllPredictions", () => {
 
   it("returns empty array for empty games list", () => {
     expect(computeAllPredictions([], makePitchers(), makeTeams())).toHaveLength(0)
+  })
+})
+
+
+describe("posted lineup reaches each active model", () => {
+  it("routes the away lineup to the home pitcher without changing the opposite half", () => {
+    const predict = (hand: "L" | "R") => computeNRFIPrediction(makeGame({
+      lineups: {
+        away: { gamePk: "test-game-1", teamId: "team-away",
+          slots: [1, 2, 3].map((order) => ({ order, mlbamId: String(order), hand })) },
+      },
+    }), makePitchers(), makeTeams())!
+    const advantaged = predict("L")
+    const disadvantaged = predict("R")
+    for (const key of ["poissonNrfi", "zipNrfi", "markovNrfi", "mapreNrfi"] as const) {
+      expect(advantaged.modelBreakdown!.homeHalfInning[key])
+        .toBeLessThan(disadvantaged.modelBreakdown!.homeHalfInning[key])
+    }
+    expect(advantaged.modelBreakdown!.awayHalfInning)
+      .toEqual(disadvantaged.modelBreakdown!.awayHalfInning)
+    expect(advantaged.nrfiProbability).toBeLessThan(disadvantaged.nrfiProbability)
   })
 })

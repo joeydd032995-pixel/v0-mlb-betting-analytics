@@ -3,6 +3,7 @@ import {
   bayesianShrinkage,
   applyDynamicShrinkage,
   getDynamicPriorWeight,
+  getLineupVsHandFromCard,
   computeZIPModel,
   computeMarkovNrfi,
   computeMAPREHalfInning,
@@ -433,5 +434,48 @@ describe("compute7ModelEnsemble ZIP temperature routing", () => {
     const oldOmega = Math.max(0.08, Math.min(0.60, 1 / (1 + Math.exp(-(-1.38)))))
     const oldZip   = oldOmega + (1 - oldOmega) * Math.exp(-lambda)
     expect(result.zip).toBeCloseTo(oldZip, 1)
+  })
+})
+
+
+describe("matchup offense routing", () => {
+  const pitcher = makePitcher({})
+  const team = makeTeam()
+  const ctx = precomputePitcherContext(pitcher)
+  const run = (factor?: number) => compute7ModelEnsemble(
+    0.33, pitcher, team, "home", ctx, 72, 0, 1, 1, factor,
+  )
+
+  it("stronger opposing lineups lower ZIP, Markov and MAPRE scoreless probabilities", () => {
+    const weak = run(0.9)
+    const strong = run(1.1)
+    for (const key of ["zip", "markov", "mapre"] as const) {
+      expect(strong[key]).toBeLessThan(weak[key])
+    }
+    // Poisson already receives its fully adjusted lambda from the engine.
+    expect(strong.poisson).toBe(weak.poisson)
+  })
+
+  it("neutral matchup preserves the existing baseline without double-counting offense", () => {
+    expect(run(1)).toEqual(run())
+  })
+
+  it.each([NaN, Infinity, -1, 0])("ignores invalid matchup override %s", (factor) => {
+    expect(run(factor)).toEqual(run())
+  })
+
+  it("rejects duplicate top-order slots instead of inventing a complete lineup", () => {
+    const slots = [1, 1, 2].map((order) => ({ order, hand: "L" as const }))
+    expect(getLineupVsHandFromCard("R", { slots }, team)).toBe(1)
+  })
+
+  it.each([[1, 2, 3, 3], [1, 1.5, 3]])("rejects malformed top-order slots %j", (...orders) => {
+    const slots = orders.map((order) => ({ order, hand: "L" as const }))
+    expect(getLineupVsHandFromCard("R", { slots }, team)).toBe(1)
+  })
+
+  it("reads batting order independently of input array order", () => {
+    const slots = [3, 1, 2].map((order) => ({ order, hand: "L" as const }))
+    expect(getLineupVsHandFromCard("R", { slots }, team)).toBeCloseTo(1.05)
   })
 })
