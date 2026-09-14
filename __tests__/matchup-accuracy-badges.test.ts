@@ -23,12 +23,12 @@ describe("matchup historical accuracy badges", () => {
     expect(html).toContain("80.0% (8/10)")
     expect(html).toContain("70.0% (7/10)")
     expect(html).toContain("90.0% (9/10)")
-    expect(html).toContain("All 3 &gt;60%: Yes")
+    expect(html).toContain("All 3 &gt;58%: Yes")
     expect(html.match(/bg-emerald-500\/15/g)).toHaveLength(4)
   })
-  it("does not qualify exactly 60 percent", () => {
-    const html = render(0.6)
-    expect(html).toContain("All 3 &gt;60%: No")
+  it("does not qualify exactly 58 percent", () => {
+    const html = render(0.58)
+    expect(html).toContain("All 3 &gt;58%: No")
     expect(html.match(/bg-emerald-500\/15/g)).toHaveLength(2)
   })
   it("does not infer missing park history", () => {
