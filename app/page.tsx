@@ -769,6 +769,7 @@ export default function HomePage() {
                     <div key={game.id} id={`game-${game.id}`}>
                       <GamePredictionCard
                         game={game}
+                        accuracy={trackingAccuracy}
                         prediction={pred as NRFIPrediction}
                         homeTeam={homeTeam}
                         awayTeam={awayTeam}

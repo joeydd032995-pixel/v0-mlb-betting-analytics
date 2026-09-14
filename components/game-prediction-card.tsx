@@ -18,10 +18,13 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { hasAccess, type Tier } from "@/lib/tiers"
 import { convictionPoints } from "@/lib/nrfi-engine"
+import { MatchupAccuracyBadges } from "@/components/matchup-accuracy-badges"
+import type { ExtendedModelAccuracy } from "@/lib/prediction-store"
 import { PaywallOverlay } from "@/components/paywall-overlay"
 
 interface Props {
   game: Game
+  accuracy?: Pick<ExtendedModelAccuracy, "byPitcher" | "byPark">
   prediction: NRFIPrediction
   homeTeam: Team
   awayTeam: Team
@@ -514,7 +517,7 @@ function LockedBadgeWrapper({
 // ─── Main card ────────────────────────────────────────────────────────────────
 export function GamePredictionCard({
   game, prediction, homeTeam, awayTeam, homePitcher, awayPitcher,
-  tier = "FREE", isFreeTease = false,
+  tier = "FREE", isFreeTease = false, accuracy,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
   const router = useRouter()
@@ -589,6 +592,15 @@ export function GamePredictionCard({
           </span>
         </div>
       </div>
+
+      <MatchupAccuracyBadges
+        accuracy={accuracy}
+        awayPitcher={awayPitcher.name}
+        homePitcher={homePitcher.name}
+        awayTeam={awayTeam.abbreviation}
+        homeTeam={homeTeam.abbreviation}
+        venue={game.venue}
+      />
 
       {/* Tabs */}
       <Tabs defaultValue="overview" className="flex flex-col">
