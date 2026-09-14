@@ -473,8 +473,12 @@ export default function HomePage() {
     setTrackingAccuracy(computeExtendedAccuracy(updated))
   }
 
-  // Backfill historical predictions from season start to yesterday, in 30-day chunks
+  // Import one day per request; persist each completed day before continuing.
   const backfillSeason = useCallback(async () => {
+    if (!isSignedInRef.current) {
+      window.location.assign("/sign-in")
+      return
+    }
     setBackfilling(true)
     setLastSyncInfo("Calculating date range…")
     try {
@@ -488,9 +492,9 @@ export default function HomePage() {
       toDate.setDate(toDate.getDate() - 1)
       const to = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(toDate)
 
-      // Split the full season range into 30-day chunks to stay within the API
-      // timeout budget and avoid hitting the per-request date cap.
-      const chunks = buildDateChunks(seasonStartStr, to, 30)
+      // Point-in-time stats are expensive. Keep requests small enough for
+      // serverless execution and retain progress if a later day fails.
+      const chunks = buildDateChunks(seasonStartStr, to, 1)
       let allPredictions: TrackedPrediction[] = []
       let totalDaysWithGames = 0
 
@@ -499,25 +503,27 @@ export default function HomePage() {
         setLastSyncInfo(`Importing chunk ${i + 1} of ${chunks.length} (${from} → ${chunkTo})…`)
 
         const res = await fetch(`/api/backfill?from=${from}&to=${chunkTo}`)
-        if (!res.ok) throw new Error(`Backfill API error ${res.status}`)
+        if (!res.ok) {
+          if (res.status === 401) throw new Error("Your session expired. Sign in again to import season data.")
+          if (res.status === 504) throw new Error(`Import timed out on ${from}. Please retry.`)
+          throw new Error(`Import failed on ${from} (HTTP ${res.status}). Please retry.`)
+        }
         const data = await res.json()
 
         if (data.predictions?.length > 0) {
           allPredictions = allPredictions.concat(data.predictions as TrackedPrediction[])
           totalDaysWithGames += (data.datesProcessed as number) ?? 0
+          const merged = upsertPredictions(data.predictions as TrackedPrediction[])
+          setTrackedPredictions(merged)
+          setTrackingAccuracy(computeExtendedAccuracy(merged))
+          if (isSignedInRef.current) {
+            const saved = await savePredictionsToDBAction(data.predictions as TrackedPrediction[])
+            if (!saved.ok) throw new Error("Results saved on this device, but account sync failed. Please retry.")
+          }
         }
       }
 
       if (allPredictions.length > 0) {
-        const merged = upsertPredictions(allPredictions)
-        setTrackedPredictions(merged)
-        setTrackingAccuracy(computeExtendedAccuracy(merged))
-
-        // Write-through backfilled predictions to DB when authenticated
-        if (isSignedInRef.current) {
-          savePredictionsToDBAction(allPredictions).catch(console.error)
-        }
-
         const completed = allPredictions.filter((p) => p.status === "complete").length
         setLastSyncInfo(
           `Imported ${completed} completed result${completed !== 1 ? "s" : ""} across ${totalDaysWithGames} day${totalDaysWithGames !== 1 ? "s" : ""}`
@@ -525,8 +531,8 @@ export default function HomePage() {
       } else {
         setLastSyncInfo("No historical data found")
       }
-    } catch {
-      setLastSyncInfo("Backfill failed")
+    } catch (error) {
+      setLastSyncInfo(`${error instanceof Error ? error.message : "Season import failed. Please retry."} Previously imported days are retained.`)
     } finally {
       setBackfilling(false)
     }
@@ -852,12 +858,12 @@ export default function HomePage() {
                 )}
                 <button
                   onClick={backfillSeason}
-                  disabled={backfilling || syncing}
-                  title="Retroactively import predictions and results for the past 30 days to populate season accuracy stats"
+                  disabled={!authLoaded || backfilling || syncing}
+                  title="Import season predictions and results one day at a time. Sign-in required."
                   className="flex items-center gap-1.5 rounded border border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
                 >
                   <DatabaseZap className={cn("h-3 w-3", backfilling && "animate-pulse")} />
-                  {backfilling ? "Importing…" : "Import Season Data"}
+                  {backfilling ? "Importing…" : isSignedIn ? "Import Season Data" : "Sign in to Import"}
                 </button>
                 <button
                   onClick={() => syncResults()}

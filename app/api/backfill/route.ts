@@ -105,11 +105,12 @@ export async function GET(request: Request) {
 
     const allPredictions: TrackedPrediction[] = []
     let datesWithGames = 0
+    const failedDates: string[] = []
 
     for (const date of dates) {
       try {
         // One schedule fetch serves both the slate and the results pairing.
-        const apiGames = await fetchGamesByDate(date)
+        const apiGames = await fetchGamesByDate(date, { strict: true })
         if (!apiGames || apiGames.length === 0) continue
         datesWithGames++
 
@@ -163,11 +164,17 @@ export async function GET(request: Request) {
         }
       } catch (err) {
         console.error(`[backfill] Error for date ${sanitizeForLog(date)}:`, err)
+        failedDates.push(date)
         // Continue with remaining dates
       }
     }
 
+    if (failedDates.length === dates.length && dates.length > 0) {
+      return NextResponse.json({ error: "Historical data could not be loaded. Please retry.", failedDates }, { status: 502 })
+    }
+
     return NextResponse.json({
+      failedDates,
       predictions: allPredictions,
       datesProcessed: datesWithGames,
       total: allPredictions.length,
