@@ -108,6 +108,11 @@ export default function SignInPage() {
         path="/sign-in"
       />
 
+      <p className="mt-4 max-w-sm text-center text-sm text-muted-foreground">
+        If Google sign-in reports an error, try opening this page directly in Safari
+        or Chrome, or use the email sign-in option above.
+      </p>
+
       {/* ── Back-to-dashboard escape hatch ───────────────────────────────── */}
       <p className="mt-6 text-center text-sm text-muted-foreground">
         No account?{" "}

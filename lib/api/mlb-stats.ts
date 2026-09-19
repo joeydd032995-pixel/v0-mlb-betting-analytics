@@ -170,11 +170,12 @@ export interface TeamGameLogSplit {
  * the probablePitcher field entirely from the schedule response.
  * `gameType=R` restricts to regular season only (excludes spring training, playoffs).
  */
-export async function fetchGamesByDate(date: string): Promise<MLBGame[]> {
+export async function fetchGamesByDate(date: string, options?: { strict?: boolean }): Promise<MLBGame[]> {
   const data = await mlbFetch<{ dates: Array<{ games: MLBGame[] }> }>(
     `/schedule?sportId=1&date=${date}&hydrate=probablePitcher&gameType=R`,
     300
   )
+  if (options?.strict && !data) throw new Error("MLB schedule unavailable")
   return data?.dates?.[0]?.games ?? []
 }
 
