@@ -14,6 +14,10 @@ import {
   log5,
   LEAGUE_AVG_NRFI,
   LEAGUE_HALF_NRFI,
+  MARKOV_CALIBRATION_EXPONENT,
+  MARKOV_RAW_AT_LEAGUE_AVG,
+  ZIP_OMEGA_AT_LEAGUE_AVG,
+  ZIP_LAMBDA_AT_LEAGUE_AVG,
   ENSEMBLE_WEIGHTS,
 } from "../lib/nrfi-models"
 import type { Pitcher, Team } from "../lib/types"
@@ -120,17 +124,26 @@ describe("getDynamicPriorWeight", () => {
 
 describe("applyDynamicShrinkage vs bayesianShrinkage", () => {
   it("applies heavier shrinkage than legacy for a 5-start veteran pitcher", () => {
-    // careerFirstInnings: 300 → k=50; n=5; prior = LEAGUE_HALF_NRFI ≈ 0.7183
-    // dynamic:  (5*0.80 + 50*0.7183) / (5+50) ≈ 0.726
-    // legacy:   k≈1.14, dataWeight≈0.81, result ≈ 0.81*0.80 + 0.19*0.7183 ≈ 0.785
+    // careerFirstInnings: 300 → k=50; n=5; prior = LEAGUE_HALF_NRFI
+    //   dynamic: (n·observed + k·prior) / (n+k)
+    //   legacy:  k≈1.14, dataWeight≈0.81 → far closer to the observed 0.80
+    //
+    // The expectation is DERIVED from LEAGUE_HALF_NRFI, not hard-coded. It used
+    // to assert a literal 0.726, computed when the league rate was 0.516; the
+    // 2026-10 re-estimation to 0.5056 moved the prior and broke it. Deriving it
+    // also makes this a stricter test — it pins the exact formula, not 2 d.p.
     const pitcher = makePitcher({ nrfiRate: 0.80, startCount: 5, careerFirstInnings: 300 })
     const k       = getDynamicPriorWeight(pitcher)  // 50
     const dynamic = applyDynamicShrinkage(pitcher, k)
     const { shrunkenRate: legacy } = bayesianShrinkage(0.80, 5)
 
+    const expected = (5 * 0.80 + k * LEAGUE_HALF_NRFI) / (5 + k)
+    expect(dynamic).toBeCloseTo(expected, 10)
     expect(dynamic).toBeLessThan(legacy)
-    expect(dynamic).toBeCloseTo(0.726, 2)
     expect(legacy).toBeGreaterThan(0.75)
+    // Shrinking toward the league prior must pull a 0.80 pitcher down toward it.
+    expect(dynamic).toBeGreaterThan(LEAGUE_HALF_NRFI)
+    expect(dynamic).toBeLessThan(0.80)
   })
 })
 
@@ -477,5 +490,66 @@ describe("matchup offense routing", () => {
   it("reads batting order independently of input array order", () => {
     const slots = [3, 1, 2].map((order) => ({ order, hand: "L" as const }))
     expect(getLineupVsHandFromCard("R", { slots }, team)).toBeCloseTo(1.05)
+  })
+})
+
+// ─── League-constant derivations (2026-10 re-estimation) ─────────────────────
+//
+// LEAGUE_AVG_NRFI was 0.516, fitted to a 2024–2025 window containing an outlier
+// season, and three separate literals had been solved against it by hand:
+// MARKOV_CALIBRATION_EXPONENT (1.285), ZIP's lambda0 (0.435), and a duplicate
+// 0.516 in synthetic-odds.ts. Re-estimating the league rate silently invalidated
+// all three. They now derive at module load; these tests pin that they stay
+// derived, so the next re-estimation is genuinely a one-line change.
+
+describe("league-constant derivations stay derived, not hard-coded", () => {
+  it("LEAGUE_HALF_NRFI is the square root of the game-level rate", () => {
+    expect(LEAGUE_HALF_NRFI).toBeCloseTo(Math.sqrt(LEAGUE_AVG_NRFI), 12)
+  })
+
+  it("the Markov raw baseline does not depend on the league NRFI constant", () => {
+    // computePAOutcomes reads whip / bbRate / hrPer9 and never nrfiRate, which
+    // is what makes gamma = ln(half)/ln(raw) a non-circular derivation.
+    const at = (nrfiRate: number) => {
+      const p = makePitcher({ nrfiRate })
+      return computeMarkovNrfi(computePAOutcomes(p, 1.0)).nrfiProb
+    }
+    const ref = at(0.65)
+    for (const r of [0.70, LEAGUE_HALF_NRFI, 0.72, 0.75]) {
+      expect(at(r)).toBeCloseTo(ref, 12)
+    }
+  })
+
+  it("MARKOV_CALIBRATION_EXPONENT re-derives from the measured baseline", () => {
+    expect(MARKOV_CALIBRATION_EXPONENT).toBeCloseTo(
+      Math.log(LEAGUE_HALF_NRFI) / Math.log(MARKOV_RAW_AT_LEAGUE_AVG), 12)
+    // It must track the league rate, not sit at the old 1.285 literal.
+    expect(MARKOV_CALIBRATION_EXPONENT).not.toBeCloseTo(1.285, 3)
+  })
+
+  it("the Markov exponent maps the raw baseline exactly onto the league rate", () => {
+    expect(Math.pow(MARKOV_RAW_AT_LEAGUE_AVG, MARKOV_CALIBRATION_EXPONENT))
+      .toBeCloseTo(LEAGUE_HALF_NRFI, 12)
+  })
+
+  it("ZIP at fully league-average inputs reproduces the league half-inning rate", () => {
+    const pitcher = makePitcher({ nrfiRate: LEAGUE_HALF_NRFI, kRate: 0.225 })
+    const { nrfiProb } = computeZIPModel(pitcher, 1.0, 1.0, 72, 0)
+    expect(nrfiProb).toBeCloseTo(LEAGUE_HALF_NRFI, 6)
+  })
+
+  it("ZIP lambda0 solves the ZIP identity against the league rate", () => {
+    const w = ZIP_OMEGA_AT_LEAGUE_AVG
+    expect(w + (1 - w) * Math.exp(-ZIP_LAMBDA_AT_LEAGUE_AVG))
+      .toBeCloseTo(LEAGUE_HALF_NRFI, 12)
+    // Must track the league rate, not sit at the old 0.435 literal.
+    expect(ZIP_LAMBDA_AT_LEAGUE_AVG).not.toBeCloseTo(0.435, 3)
+  })
+
+  it("synthetic-odds uses the engine's league rate rather than its own copy", async () => {
+    const src = await import("node:fs/promises")
+      .then((fs) => fs.readFile("lib/synthetic-odds.ts", "utf8"))
+    expect(src).not.toMatch(/LEAGUE_NRFI_BASE\s*=\s*0\.\d+/)
+    expect(src).toMatch(/import\s*\{\s*LEAGUE_AVG_NRFI as LEAGUE_NRFI_BASE\s*\}/)
   })
 })

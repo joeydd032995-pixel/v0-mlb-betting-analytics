@@ -57,8 +57,8 @@ The engine runs the model ensemble **per half-inning**, then combines both halve
 The single most important invariant in this codebase (root cause of the pre-audit YRFI bias, `AUDIT_REPORT.md` P0-1):
 
 ```text
-LEAGUE_AVG_NRFI  = 0.516          // GAME level: P(neither team scores in the 1st)
-LEAGUE_HALF_NRFI = √0.516 ≈ 0.718 // HALF-INNING level: P(one team's half is scoreless)
+LEAGUE_AVG_NRFI  = 0.5056            // GAME level: P(neither team scores in the 1st)
+LEAGUE_HALF_NRFI = √0.5056 ≈ 0.711   // HALF-INNING level: P(one team's half is scoreless)
 ```
 
 Every per-pitcher `nrfiRate` is a **half-inning** quantity. All shrinkage priors target `LEAGUE_HALF_NRFI`, never the game-level constant. Both are exported from `lib/nrfi-models.ts`.
@@ -81,7 +81,7 @@ Every per-pitcher `nrfiRate` is a **half-inning** quantity. All shrinkage priors
 ```text
 raw      = blend7Models(homeHalf, awayHalf)      // weighted sum of per-model game probs
 cal      = calibrateWithMonotonicSpline(raw)     // identity until knots are refit
-anchor   = calibrateWithMonotonicSpline(0.516)   // = 0.516 under the identity calibration
+anchor   = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)   // = 0.5056 under the identity calibration
 P(NRFI)  = clamp(0.76 × cal + 0.24 × anchor, 0.18, 0.85)
 P(YRFI)  = 1 − P(NRFI)   // exact symmetry
 
@@ -94,14 +94,14 @@ Game-level combination (`blend7Models` in `nrfi-engine.ts`): every model value i
 
 ### Step 0 — Dynamic Bayesian Shrinkage (Opt #5, Pre-processing)
 
-Shrinks every pitcher's observed half-inning scoreless rate toward `LEAGUE_HALF_NRFI ≈ 0.718` using a **pitcher-type-specific k** (prior weight):
+Shrinks every pitcher's observed half-inning scoreless rate toward `LEAGUE_HALF_NRFI ≈ 0.711` using a **pitcher-type-specific k** (prior weight):
 
 ```text
 k = 30   // < 100 career first innings (low data, but trust what exists more)
 k = 50   // established starter (default)
 k = 80   // bullpen game / opener (heavy shrinkage)
 
-θ̂ = (n × NRFI_observed + k × 0.718) / (n + k)    // clamped to [0.35, 0.92]
+θ̂ = (n × NRFI_observed + k × LEAGUE_HALF_NRFI) / (n + k)    // clamped to [0.35, 0.92]
 w = n / (n + k)                                    // displayed data weight, capped at 0.97
 ```
 
@@ -151,7 +151,7 @@ P(NRFI_half) = ω + (1 − ω) × e^(−λ)
 ω clamped [8%, 60%]   λ floor 0.05
 ```
 
-`ω` is the probability of a certain-zero "lockdown" inning. `λ` is the Poisson scoring rate of the "active" regime. The `ln(0.435)` intercept is derived so a fully league-average half-inning lands exactly on `LEAGUE_HALF_NRFI`: with ω = σ(−1.38) ≈ 0.201, solving `ω + (1−ω)e^(−λ) = 0.7183` gives λ ≈ 0.435. Park/weather/form enter once via `zipEnvFactor` (temperature is modelled explicitly inside ZIP, so the monthly factor is excluded to avoid double-counting).
+`ω` is the probability of a certain-zero "lockdown" inning. `λ` is the Poisson scoring rate of the "active" regime. The λ₀ intercept is **solved at module load** (`ZIP_LAMBDA_AT_LEAGUE_AVG`) so a fully league-average half-inning lands exactly on `LEAGUE_HALF_NRFI`: with ω = σ(−1.38) ≈ 0.201, solving `ω + (1−ω)e^(−λ) = LEAGUE_HALF_NRFI` gives λ ≈ 0.449. It was the literal `0.435`, solved against the old 0.516 league rate, and went stale when that was re-estimated — hence the derivation. Park/weather/form enter once via `zipEnvFactor` (temperature is modelled explicitly inside ZIP, so the monthly factor is excluded to avoid double-counting).
 
 ### Step 3 — Markov Chain (48% weight)
 
@@ -205,7 +205,7 @@ Three meta-model values are computed per half-inning for the UI breakdown. They 
 logisticMeta      = 0.12×poisson + 0.30×zip + 0.48×markov + 0.10×mapre
                     // the weighted base-4 average itself (placeholder for a trained stacker)
 
-nnInteraction     = clamp(poisson × markov / 0.718, 0.02, 0.98)
+nnInteraction     = clamp(poisson × markov / LEAGUE_HALF_NRFI, 0.02, 0.98)
                     // product normalised by LEAGUE_HALF_NRFI so it stays a
                     // half-inning probability (league avg in → league avg out)
 
@@ -373,7 +373,7 @@ Key suites:
 
 | Suite | Guards |
 |---|---|
-| `__tests__/audit-regression.test.ts` | Audited invariants: league-average inputs → ≈0.516 output, per-PA scales, environment routing, Kelly payout signs, no-vig integrity |
+| `__tests__/audit-regression.test.ts` | Audited invariants: league-average inputs → ≈`LEAGUE_AVG_NRFI` output, per-PA scales, environment routing, Kelly payout signs, no-vig integrity |
 | `__tests__/nrfi-models.test.ts` | Shrinkage, ZIP, Markov, MAPRE, ensemble weights |
 | `__tests__/nrfi-engine.test.ts` | Null safety, recommendation tiers, output bounds |
 | `__tests__/calibration.test.ts` | Monotonicity, identity knots, anchor consistency |
@@ -516,7 +516,7 @@ See `.env.example` for the complete list with descriptions.
          │                                                         │
          │  Step 0: Dynamic Bayesian shrinkage (Opt #5)            │
          │    k=30/50/80 by pitcher type                           │
-         │    θ̂ = (n·NRFI_obs + k·0.718)/(n+k)   ← half-inning    │
+         │    θ̂ = (n·NRFI_obs + k·0.711)/(n+k)   ← half-inning    │
          │    Opts #2,#3,#4 + monthly factor applied to λ          │
          │                                                         │
          │  Per half-inning (×2) — lib/nrfi-models.ts             │
@@ -531,7 +531,7 @@ See `.env.example` for the complete list with descriptions.
          │    (MAPRE override: continuous cross-half correlation)  │
          │                                                         │
          │  calibrateWithMonotonicSpline(raw)  ← identity for now  │
-         │  Final: clamp(0.76×cal + 0.24×0.516, 0.18, 0.85)       │
+         │  Final: clamp(0.76×cal + 0.24×0.5056, 0.18, 0.85)      │
          │                                                         │
          │  [flags] DeepNRFI · Monte Carlo · v2.9 stacker          │
          └───────────────────┬────────────────────────────────────┘
@@ -644,8 +644,8 @@ const RAW_ENSEMBLE_WEIGHTS = {
   hierarchicalBayes: 0,     // display-only
 }
 
-export const LEAGUE_AVG_NRFI  = 0.516              // game level, 2024–2025
-export const LEAGUE_HALF_NRFI = Math.sqrt(0.516)   // half-inning level ≈ 0.718
+export const LEAGUE_AVG_NRFI  = 0.5056                       // game level, 2023–2026
+export const LEAGUE_HALF_NRFI = Math.sqrt(LEAGUE_AVG_NRFI)   // half-inning level ≈ 0.711
 export const MARKOV_CALIBRATION_EXPONENT = 1.285   // structural-bias correction
 ```
 
@@ -653,7 +653,7 @@ export const MARKOV_CALIBRATION_EXPONENT = 1.285   // structural-bias correction
 
 ```typescript
 const ENSEMBLE_BLEND      = 0.76
-const LEAGUE_ANCHOR       = calibrateWithMonotonicSpline(0.516)  // = 0.516 under identity
+const LEAGUE_ANCHOR       = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)  // = 0.5056 under identity
 const CLAMP_MIN           = 0.18
 const CLAMP_MAX           = 0.85
 const NRFI_CALL_THRESHOLD = 0.52

@@ -15,9 +15,74 @@ import type { Pitcher, Team, EnsembleWeights } from "./types"
 
 // ─── League Constants ─────────────────────────────────────────────────────────
 
-/** ~51.6% of MLB first innings produce zero runs (2024–2025 recalibrated).
- *  GAME-level rate: P(neither team scores in the 1st). */
-export const LEAGUE_AVG_NRFI = 0.516
+/**
+ * GAME-level league NRFI rate: P(neither team scores in the 1st).
+ *
+ * ── 2026-10 re-estimation (four complete seasons) ────────────────────────────
+ * Measured from `GameResult` ground truth — every regular-season game, so these
+ * are populations, not samples:
+ *
+ *   2023   n=2430   49.79%
+ *   2024   n=2428   53.25%   <- outlier high
+ *   2025   n=2430   49.79%
+ *   2026   n=2429   49.40%
+ *   ALL    n=9717   50.56%
+ *
+ * The previous value, 0.516, was documented as "2024–2025 recalibrated" and was
+ * correct arithmetic on the wrong window: 2024+2025 averages 51.52%. 2024 is the
+ * outlier; the other three seasons cluster at 49.4–49.8%. Against all four
+ * seasons 0.516 sat 1.04 pts high (z = 2.05), outside the 95% interval.
+ *
+ * Because each season is a population, within-season sampling error is the wrong
+ * uncertainty — what matters is year-to-year movement, SD ≈ 1.8 pts across these
+ * four. Treat this as a figure to re-estimate every off-season, not a constant
+ * pinned to three decimals.
+ *
+ * ── Walk-forward gate, recomputed end to end ─────────────────────────────────
+ * An earlier version of this note claimed "AUC is unchanged by construction,
+ * because re-centring is strictly monotone". That was wrong, and the way it was
+ * measured was wrong: the gate shifted STORED predictions by a constant, which
+ * assumes this change is a pure re-centring of the output. It is not. Moving
+ * LEAGUE_AVG_NRFI also moves LEAGUE_HALF_NRFI, which is the shrinkage prior
+ * TARGET (so each pitcher's rate moves by an amount that depends on his sample
+ * size), plus ERA_COEF/RUNS_COEF in lib/api/shared-helpers.ts, the Markov
+ * exponent and the ZIP baseline — each by a different amount. Predictions can
+ * therefore reorder, and AUC is an empirical question, not a theorem.
+ *
+ * Re-measured properly: the full 2026 season re-predicted end to end
+ * (fetchGamesByDate → buildAsOfSlate → computeAllPredictions) under each
+ * constant, both arms reading byte-identical raw MLB API responses from a
+ * shared cache, scored against linescore ground truth. n = 2,428 games.
+ *
+ *   0.50943 (trained 2023–2025, no 2026 data) vs 0.516 — the honest OOS gate:
+ *     Brier  0.249313 → 0.249071   Δ −0.000241, 95% CI [−0.000487, +0.000007]
+ *                                  P(improvement) = 0.972
+ *     AUC    0.539319 → 0.539325   Δ +0.000006, 95% CI [−0.000029, +0.000041]
+ *     Kendall τ 0.99973 — 393 of 2,946,378 pairs DO invert
+ *
+ *   0.5056 (deployed, all four seasons) vs 0.516:
+ *     Brier  0.249313 → 0.248969   Δ −0.000344, 95% CI [−0.000733, +0.000049]
+ *     AUC    0.539319 → 0.539326   Δ +0.000007
+ *     Kendall τ 0.99958 — 623 pairs invert
+ *
+ * So the reordering is real and immaterial: ~0.00001 AUC, versus the 0.0058 AUC
+ * the isotonic refit in CALIBRATION_WALK_FORWARD_REPORT.md cost. The Brier gain
+ * is directionally consistent but NOT individually significant on one season —
+ * its CI includes zero, which the shift-based gate understated by suppressing
+ * the per-game variation the real recomputation has.
+ *
+ * That is why the Brier delta is a SAFETY CHECK here, not the justification.
+ * The justification is that 0.516 was a mis-estimate of the quantity it names:
+ * measured over 9,717 games of ground truth it sat 1.04 pts high (z = 2.05).
+ * You do not need a significant Brier delta to prefer a correctly estimated
+ * constant to a demonstrably wrong one — you need evidence the correction does
+ * not cost ranking, which is what the AUC measurement above provides.
+ *
+ * Caveat: the reconstruction uses month-average weather and no odds, so it is
+ * not the identical input set the live path saw; it is self-consistent across
+ * arms, which is what a paired comparison needs. See ANCHOR_VALIDATION.md.
+ */
+export const LEAGUE_AVG_NRFI = 0.5056
 
 /**
  * HALF-INNING league rate: P(one team's half of the 1st is scoreless).
@@ -39,6 +104,44 @@ const LEAGUE_BB_RATE = 0.085
 const LEAGUE_HR_RATE = 0.030
 const LEAGUE_AVG_OBP = 0.314
 const LEAGUE_HIT_RATE = LEAGUE_AVG_OBP - LEAGUE_BB_RATE   // ≈ 0.229
+
+/**
+ * League-average pitcher peripherals, used only to measure the Markov chain's
+ * raw baseline (see MARKOV_RAW_AT_LEAGUE_AVG).
+ *
+ * `computePAOutcomes` reads exactly three of these — bbRate, hrPer9 and whip —
+ * and never `nrfiRate`, which is what makes the baseline invariant to the
+ * league NRFI constant and the γ derivation non-circular.
+ */
+const LEAGUE_WHIP = 1.28                            // (BB+H)/IP; the value the
+                                                    // H/PA note in computePAOutcomes cites
+const LEAGUE_HR_PER_9 = 1.16                        // ⇒ LEAGUE_HR_RATE once ÷ 38.7
+const LEAGUE_ERA_FOR_BASELINE = 4.12
+
+/** Synthetic league-average pitcher. Not exported — derivation scaffolding only. */
+function leagueAveragePitcher(): Pitcher {
+  const era = LEAGUE_ERA_FOR_BASELINE
+  const whip = LEAGUE_WHIP
+  // nrfiRate is deliberately the half-inning league rate for readability; the
+  // Markov baseline does not depend on it (pinned by audit-regression).
+  const nrfiRate = Math.sqrt(LEAGUE_AVG_NRFI)
+  return {
+    id: "__league__", name: "League Average", teamId: "", throws: "R", age: 28,
+    firstInning: {
+      era, whip, kRate: LEAGUE_K_RATE, bbRate: LEAGUE_BB_RATE,
+      hrPer9: LEAGUE_HR_PER_9, babip: 0.300,
+      nrfiRate, avgRunsAllowed: 1 - nrfiRate,
+      firstBatterOBP: (whip / (1 + whip)) * 0.85,
+      last5Results: [], last5RunsAllowed: [], startCount: 30,
+      homeNrfiRate: nrfiRate, awayNrfiRate: nrfiRate,
+    },
+    overall: {
+      era, fip: era, xfip: era, whip,
+      kPer9: LEAGUE_K_RATE * 27, bbPer9: LEAGUE_BB_RATE * 27,
+      innings: 180, wins: 10, losses: 10,
+    },
+  }
+}
 
 // ─── ERA-based barrel deviation proxy ────────────────────────────────────────
 
@@ -264,16 +367,29 @@ function applyHR(runners: number): [0, number] {
  * The chain's deliberate simplifications (outs never advance runners, singles
  * advance every runner exactly one base, no errors/wild pitches/steals) all
  * suppress run scoring, so with exactly league-average PA inputs it returns
- * P(0) ≈ 0.773 where the empirical half-inning rate is LEAGUE_HALF_NRFI
- * ≈ 0.718.  Correct via exact λ-scaling P(0)^γ = e^(−γλ) with
+ * P(0) ≈ 0.773 where the empirical half-inning rate is LEAGUE_HALF_NRFI.
+ * Correct via exact λ-scaling P(0)^γ = e^(−γλ) with
  *
- *   γ = ln(LEAGUE_HALF_NRFI) / ln(0.7731) ≈ 1.285
+ *   γ = ln(LEAGUE_HALF_NRFI) / ln(markovRaw at league-average inputs)
  *
- * (0.7731 measured from computeMarkovNrfi(computePAOutcomes(league pitcher,
- * 1.0)) — see __tests__/audit-regression.test.ts which re-derives it.)
- * Applied in compute7ModelEnsemble and to the Monte Carlo output (same chain).
+ * ── 2026-10: derived, not hard-coded ─────────────────────────────────────────
+ * This was `1.285`, a literal fitted when LEAGUE_AVG_NRFI was 0.516. When that
+ * constant was re-estimated from four complete seasons the literal silently
+ * went stale — exactly the drift that put a 0.516 league rate into production
+ * two seasons after the window it was fitted to. It now re-derives at module
+ * load, so re-estimating LEAGUE_AVG_NRFI is a one-line change.
+ *
+ * `MARKOV_RAW_AT_LEAGUE_AVG` is measured, not assumed: computePAOutcomes reads
+ * only WHIP / BB-rate / HR-rate, never `nrfiRate`, so the raw baseline is
+ * invariant to the league NRFI constant and the derivation is not circular.
+ * `__tests__/audit-regression.test.ts` pins both facts.
  */
-export const MARKOV_CALIBRATION_EXPONENT = 1.285
+export const MARKOV_RAW_AT_LEAGUE_AVG: number = computeMarkovNrfi(
+  computePAOutcomes(leagueAveragePitcher(), 1.0)
+).nrfiProb
+
+export const MARKOV_CALIBRATION_EXPONENT: number =
+  Math.log(LEAGUE_HALF_NRFI) / Math.log(MARKOV_RAW_AT_LEAGUE_AVG)
 
 export interface MarkovResult {
   /** P(NRFI) — probability of 0 runs in this half-inning */
@@ -374,6 +490,28 @@ export function computeMarkovNrfi(
 
 // ─── 4. Zero-Inflated Poisson (ZIP) ──────────────────────────────────────────
 
+/**
+ * ZIP intercept for the "lockdown" logit, at league-average inputs.
+ * A design choice (target ω ≈ 0.20), not a function of the league NRFI rate.
+ */
+const ZIP_OMEGA_INTERCEPT = -1.38
+
+/** ω at league-average inputs: σ(ZIP_OMEGA_INTERCEPT) ≈ 0.201. */
+export const ZIP_OMEGA_AT_LEAGUE_AVG = 1 / (1 + Math.exp(-ZIP_OMEGA_INTERCEPT))
+
+/**
+ * λ at league-average inputs, solved so the model reproduces the league rate:
+ *
+ *   ω + (1−ω)·e^(−λ) = LEAGUE_HALF_NRFI
+ *   ⇒ λ = −ln( (LEAGUE_HALF_NRFI − ω) / (1 − ω) )
+ *
+ * Derived at module load. This was the literal `0.435`, solved against the old
+ * 0.516 league rate; re-estimating LEAGUE_AVG_NRFI silently invalidated it.
+ */
+export const ZIP_LAMBDA_AT_LEAGUE_AVG: number = -Math.log(
+  (LEAGUE_HALF_NRFI - ZIP_OMEGA_AT_LEAGUE_AVG) / (1 - ZIP_OMEGA_AT_LEAGUE_AVG)
+)
+
 export interface ZIPResult {
   /** ω — probability of a "locked down" 1-2-3 inning (certain zero regime) */
   omega: number
@@ -412,18 +550,20 @@ export function computeZIPModel(
   const kDeviation = kRate - LEAGUE_K_RATE          // positive = above avg K%
   const tempEffect = (72 - temperatureF) * 0.008    // cold weather → slight lockdown boost
   const umpireEffect = umpireWideness * 0.18         // wide zone → more K → more lockdowns
-  const logitOmega = -1.38 + 4.0 * kDeviation + tempEffect + umpireEffect
+  const logitOmega = ZIP_OMEGA_INTERCEPT + 4.0 * kDeviation + tempEffect + umpireEffect
   const omega = 1 / (1 + Math.exp(-logitOmega))
 
   // ── Lambda: log-linear model for "active inning" scoring rate ─────────────
   // log(λ) = β₀ + β₁·log(offFactor) + β₂·log(parkFactor) + β₃·tempEffect
   // Calibration: at offFactor=1.0, park=1.0, 72°F, league K%:
-  //   ω = σ(−1.38) = 0.2010 and we need ω + (1−ω)e^(−λ) = LEAGUE_HALF_NRFI
-  //   ⇒ e^(−λ) = (0.7183 − 0.2010)/0.7990 ⇒ λ ≈ 0.435
+  //   ω = σ(−1.38) = ZIP_OMEGA_AT_LEAGUE_AVG and we need
+  //   ω + (1−ω)e^(−λ) = LEAGUE_HALF_NRFI
   // so a fully league-average half-inning lands exactly on the league rate.
+  // β₀ = ln(ZIP_LAMBDA_AT_LEAGUE_AVG) is derived at module load rather than
+  // hard-coded (it was `Math.log(0.435)`, fitted to the old 0.516 league rate).
   const tempLambdaAdj = (temperatureF - 72) * 0.004  // heat → ball carries farther
   const logLambda =
-    Math.log(0.435) +
+    Math.log(ZIP_LAMBDA_AT_LEAGUE_AVG) +
     0.90 * Math.log(Math.max(0.4, offenseFactor)) +
     0.60 * Math.log(Math.max(0.7, parkFactor)) +
     tempLambdaAdj

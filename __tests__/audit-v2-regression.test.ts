@@ -25,12 +25,13 @@ import type { Pitcher, Weather } from "@/lib/types"
 
 describe("final-blend contract (mirrored by scripts/deepnrfi/transforms.py)", () => {
   it("constants match the Python transforms module", () => {
-    // If this test fails you changed the engine's final blend — update
-    // ENSEMBLE_BLEND / LEAGUE_ANCHOR / FINAL_CLAMP_* in transforms.py and
-    // re-run scripts/deepnrfi/test_transforms.py before shipping.
+    // Note this asserts TS against TS; the Python side is compared against
+    // these values by __tests__/python-mirror-contract.test.ts, which parses
+    // transforms.py. This test alone cannot catch Python drift — and did not
+    // when LEAGUE_AVG_NRFI moved to 0.5056 while transforms.py kept 0.516.
     expect(FINAL_BLEND_CONTRACT).toEqual({
       ensembleBlend: 0.76,
-      leagueAnchor:  LEAGUE_AVG_NRFI, // 0.516 under the identity calibration
+      leagueAnchor:  LEAGUE_AVG_NRFI, // == LEAGUE_AVG_NRFI under the identity calibration
       clampMin:      0.18,
       clampMax:      0.85,
     })

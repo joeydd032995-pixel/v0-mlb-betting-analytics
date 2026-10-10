@@ -42,18 +42,34 @@ const LAMBDA_SWEEP = [0.25, 0.5, 0.75, 1.0]
 // Under the post-audit IDENTITY calibration cal(raw)=raw, so the stored final is
 // invertible back to raw wherever the clamp doesn't bind (it essentially never
 // does — pred stddev ≈ 0.057 around 0.5). We then re-blend at each candidate β.
+//
+// ── Which anchor inverts which row ───────────────────────────────────────────
+// This file used to hold `const LEAGUE_ANCHOR_VALUE = 0.516` and invert EVERY
+// row with it. That was correct only while one anchor had ever been deployed.
+// Rows written after the 2026-10 re-estimation carry a 0.5056 anchor, and
+// inverting those with 0.516 shifts the recovered raw by
+// (1−0.76)(0.5056−0.516)/0.76 ≈ −0.0033 — enough to move the sweep's verdict on
+// which β is best while every printed number still looks reasonable.
+//
+// So inversion is per-row, by the era that WROTE the row (lib/anchor-eras.ts),
+// while the re-blend uses the CURRENT anchor: the sweep asks "what would
+// deploying β do from here", and that deployment would use today's anchor.
+import {
+  CLAMP_MAX,
+  CLAMP_MIN,
+  CURRENT_ERA,
+  ENSEMBLE_BLEND as PROD_ENSEMBLE_BLEND,
+  describeEraAssignment,
+  eraForContentDate,
+  invertFinalForEra,
+} from "../lib/anchor-eras"
+
 const RUN_ANCHOR_SWEEP = process.argv.includes("--anchor-sweep")
-const PROD_ENSEMBLE_BLEND = 0.76
-const LEAGUE_ANCHOR_VALUE = 0.516
-const CLAMP_MIN = 0.18
-const CLAMP_MAX = 0.85
 const ANCHOR_BLEND_SWEEP = [0.65, 0.70, 0.76, 0.80, 0.85]
 
-function invertFinalToRaw(final: number): number {
-  return (final - (1 - PROD_ENSEMBLE_BLEND) * LEAGUE_ANCHOR_VALUE) / PROD_ENSEMBLE_BLEND
-}
+/** Re-blend at a candidate β using the anchor a deploy today would use. */
 function reblend(raw: number, beta: number): number {
-  return Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, beta * raw + (1 - beta) * LEAGUE_ANCHOR_VALUE))
+  return Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, beta * raw + (1 - beta) * CURRENT_ERA.anchor))
 }
 
 function pct(n: number) { return (n * 100).toFixed(2) + "%" }
@@ -66,6 +82,22 @@ interface PredRow {
   confidence: string
   nrfiOdds: number | null
   yrfiOdds: number | null
+  /** Row insert time — half of the CONTENT date used to pick the anchor era. */
+  createdAt: Date
+  /**
+   * `{ weather, odds, lineup, recomputedAt? }`. A recompute stamp is the only
+   * positive evidence that the probability was REWRITTEN (and so written by a
+   * later engine); `updatedAt` is bumped by settlement writes that never touch
+   * it, so it cannot date a row's content.
+   */
+  inputsPresence: unknown
+}
+
+/** The date at which a row's PROBABILITY was written. */
+function contentDateOf(p: Pick<PredRow, "createdAt" | "inputsPresence">): Date {
+  const ip = p.inputsPresence as { recomputedAt?: string } | null | undefined
+  const stamp = ip && typeof ip.recomputedAt === "string" ? new Date(ip.recomputedAt) : null
+  return stamp !== null && !isNaN(stamp.getTime()) ? stamp : p.createdAt
 }
 
 /**
@@ -76,9 +108,24 @@ function buildRows(
   predictions: PredRow[],
   grMap: Map<number, boolean>,
   synth: SyntheticOddsParams | null,
-): { rows: BacktestRow[]; rowDates: string[]; skipped: number } {
+): {
+  rows: BacktestRow[]
+  rowDates: string[]
+  skipped: number
+  /**
+   * Pre-anchor ensemble value per kept row, index-aligned with `rows`, each
+   * recovered through the anchor era that wrote THAT row. Index alignment
+   * rather than a probability-keyed map: `rows` is a filtered subset of
+   * `predictions`, and two rows can legitimately share a probability.
+   */
+  preAnchorRaw: number[]
+  /** Per-era row counts over the kept rows, for the provenance report. */
+  eraCounts: Map<string, number>
+} {
   const rows: BacktestRow[] = []
   const rowDates: string[] = []
+  const preAnchorRaw: number[] = []
+  const eraCounts = new Map<string, number>()
   let skipped = 0
   for (const p of predictions) {
     const grNrfi = grMap.get(parseInt(p.id))
@@ -100,8 +147,12 @@ function buildRows(
       yrfiOdds,
     })
     rowDates.push(p.date.slice(0, 7))  // "YYYY-MM-DD" → "YYYY-MM"
+
+    const era = eraForContentDate(contentDateOf(p))
+    eraCounts.set(era.id, (eraCounts.get(era.id) ?? 0) + 1)
+    preAnchorRaw.push(invertFinalForEra(p.nrfiProbability, era))
   }
-  return { rows, rowDates, skipped }
+  return { rows, rowDates, skipped, preAnchorRaw, eraCounts }
 }
 
 async function runSeason(season: number) {
@@ -110,6 +161,7 @@ async function runSeason(season: number) {
     select: {
       id: true, date: true, nrfiProbability: true,
       confidence: true, nrfiOdds: true, yrfiOdds: true,
+      createdAt: true, inputsPresence: true,
     },
     orderBy: { date: "asc" },
   })
@@ -127,7 +179,7 @@ async function runSeason(season: number) {
   const grMap = new Map<number, boolean>(gameResults.map(r => [r.gamePk, r.nrfi]))
 
   const primarySynth = USE_SYNTHETIC ? SYNTH_PARAMS : null
-  const { rows, rowDates, skipped } = buildRows(predictions, grMap, primarySynth)
+  const { rows, rowDates, skipped, preAnchorRaw, eraCounts } = buildRows(predictions, grMap, primarySynth)
   const m = computeBacktestMetrics(rows, true)
 
   const oddsLabel = USE_SYNTHETIC
@@ -199,10 +251,15 @@ async function runSeason(season: number) {
     console.log(`\n  Anchor-strength (ENSEMBLE_BLEND) sweep — Brier/ROI by β:`)
     console.log(`    ${"β".padStart(5)}  ${"Brier".padStart(8)}  ${"Accuracy".padStart(9)}  ${"ROI-Kelly".padStart(10)}`)
     console.log(`    ${"─".repeat(40)}`)
+    // Each row's raw was recovered through its own era in buildRows; a split
+    // that disagrees with the deploy history means ANCHOR_RECAL_AT needs setting,
+    // so print it rather than assume it.
+    console.log("\n    " + describeEraAssignment(eraCounts).split("\n").join("\n    "))
+
     for (const beta of ANCHOR_BLEND_SWEEP) {
-      const sweepRows = rows.map((r) => ({
+      const sweepRows = rows.map((r, i) => ({
         ...r,
-        nrfiProbability: reblend(invertFinalToRaw(r.nrfiProbability), beta),
+        nrfiProbability: reblend(preAnchorRaw[i], beta),
       }))
       const sm = computeBacktestMetrics(sweepRows, true)
       const marker = beta === PROD_ENSEMBLE_BLEND ? "  ← current" : ""

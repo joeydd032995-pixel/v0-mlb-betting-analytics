@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { LEAGUE_AVG_NRFI, LEAGUE_HALF_NRFI } from "@/lib/nrfi-models"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { InfoTip } from "@/components/diamond/InfoTip"
@@ -449,7 +450,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <div className="rounded-lg border border-border/30 bg-card/50 p-4 space-y-2">
               <p className="font-mono text-sm text-muted-foreground">w = n / (n + k)   where k = 30 (spot starter) / 50 (established) / 80 (bullpen game)</p>
               <p className="font-mono text-sm text-muted-foreground">θ̂ = w × cleanFirstRate_observed + (1 − w) × 0.718</p>
-              <p className="text-xs text-muted-foreground mt-1">0.718 = league-average scoreless-HALF rate (√0.516 — the per-pitcher rate is a half-inning quantity). Clamped to [0.35, 0.92].</p>
+              <p className="text-xs text-muted-foreground mt-1">{LEAGUE_HALF_NRFI.toFixed(3)} = league-average scoreless-HALF rate (√{LEAGUE_AVG_NRFI} — the per-pitcher rate is a half-inning quantity). Clamped to [0.35, 0.92].</p>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs text-center">
               {[
@@ -684,7 +685,7 @@ export function ModelInsights({ userId, engineFacts }: ModelInsightsProps) {
             <div className="space-y-1 text-xs text-muted-foreground">
               <p><span className="text-foreground font-medium">k</span> — dynamic shrinkage strength by pitcher type (career first innings + bullpen-game flag)</p>
               <p><span className="text-foreground font-medium">0.718</span> — league-average scoreless-HALF rate anchor; same as step 0 prior</p>
-              <p><span className="text-foreground font-medium">Identical to step 0</span> — the pre-audit version re-shrunk the already-shrunk rate toward the game-level 0.516 (wrong scale, double regression); shown for transparency only</p>
+              <p><span className="text-foreground font-medium">Identical to step 0</span> — the pre-audit version re-shrunk the already-shrunk rate toward the game-level rate (wrong scale, double regression); shown for transparency only</p>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs text-center mt-1">
               {[

@@ -36,6 +36,15 @@ import {
   type PredictionsPayload,
 } from "@/lib/api/gated-predictions"
 import { MLB_SEASON_START } from "@/lib/config"
+// Imported rather than restated: the KPI baselines and the formula shown below
+// were literal 0.516 / 51.6% strings and went stale the moment the league rate
+// was re-estimated, leaving the page advertising a number the engine no longer
+// used. One source of truth, including for user-facing copy.
+import { LEAGUE_AVG_NRFI } from "@/lib/nrfi-models"
+import { FINAL_BLEND_CONTRACT } from "@/lib/nrfi-engine"
+
+/** League NRFI base rate as the KPI cards label it, e.g. "50.6%". */
+const LEAGUE_BASELINE_LABEL = `${(LEAGUE_AVG_NRFI * 100).toFixed(1)}%`
 
 // Lazy-load onboarding modal to avoid SSR issues
 const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((m) => ({ default: m.OnboardingModal })), {
@@ -628,8 +637,8 @@ export default function HomePage() {
             value={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? `${(trackingAccuracy.nrfiAccuracy * 100).toFixed(1)}%` : "—"}
             delta={trackingAccuracy && trackingAccuracy.nrfiBestModelAccuracy > 0
               ? `Best: ${trackingAccuracy.nrfiBestModel} ${(trackingAccuracy.nrfiBestModelAccuracy * 100).toFixed(1)}%`
-              : "vs 51.6% baseline"}
-            deltaPositive={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? trackingAccuracy.nrfiAccuracy > 0.516 : undefined}
+              : `vs ${LEAGUE_BASELINE_LABEL} baseline`}
+            deltaPositive={trackingAccuracy && trackingAccuracy.nrfiTotal > 0 ? trackingAccuracy.nrfiAccuracy > LEAGUE_AVG_NRFI : undefined}
             variant="cy"
           />
           <KpiCard
@@ -637,8 +646,8 @@ export default function HomePage() {
             value={trackingAccuracy && trackingAccuracy.yrfiTotal > 0 ? `${(trackingAccuracy.yrfiAccuracy * 100).toFixed(1)}%` : "—"}
             delta={trackingAccuracy && trackingAccuracy.yrfiBestModelAccuracy > 0
               ? `Best: ${trackingAccuracy.yrfiBestModel} ${(trackingAccuracy.yrfiBestModelAccuracy * 100).toFixed(1)}%`
-              : "vs 51.6% baseline"}
-            deltaPositive={trackingAccuracy && trackingAccuracy.yrfiTotal > 0 ? trackingAccuracy.yrfiAccuracy > 0.516 : undefined}
+              : `vs ${LEAGUE_BASELINE_LABEL} baseline`}
+            deltaPositive={trackingAccuracy && trackingAccuracy.yrfiTotal > 0 ? trackingAccuracy.yrfiAccuracy > LEAGUE_AVG_NRFI : undefined}
             variant="bl"
           />
           <KpiCard
@@ -656,7 +665,7 @@ export default function HomePage() {
             delta={trackingAccuracy && trackingAccuracy.bestOverallAccuracy > 0
               ? `${(trackingAccuracy.bestOverallAccuracy * 100).toFixed(1)}% accuracy`
               : "no resolved games yet"}
-            deltaPositive={trackingAccuracy && trackingAccuracy.bestOverallAccuracy > 0 ? trackingAccuracy.bestOverallAccuracy > 0.516 : undefined}
+            deltaPositive={trackingAccuracy && trackingAccuracy.bestOverallAccuracy > 0 ? trackingAccuracy.bestOverallAccuracy > LEAGUE_AVG_NRFI : undefined}
             variant="tl"
           />
           <KpiCard
@@ -672,7 +681,7 @@ export default function HomePage() {
             delta={freePick && freePick.total > 0
               ? `${freePick.correct}W-${freePick.total - freePick.correct}L daily picks`
               : "no settled free picks yet"}
-            deltaPositive={freePick && freePick.total > 0 ? freePick.accuracy > 0.516 : undefined}
+            deltaPositive={freePick && freePick.total > 0 ? freePick.accuracy > LEAGUE_AVG_NRFI : undefined}
             variant="gold"
           />
         </div>
@@ -812,7 +821,9 @@ export default function HomePage() {
                 calibration are applied before final blending. Calibration currently uses an identity mapping pending an out-of-sample refit.
               </p>
               <p>
-                P(NRFI) = clamp(0.76 × calibrated_ensemble + 0.24 × 0.516,&nbsp;0.18,&nbsp;0.85)
+                P(NRFI) = clamp({FINAL_BLEND_CONTRACT.ensembleBlend} × calibrated_ensemble
+                +{" "}{(1 - FINAL_BLEND_CONTRACT.ensembleBlend).toFixed(2)} × {FINAL_BLEND_CONTRACT.leagueAnchor},&nbsp;
+                {FINAL_BLEND_CONTRACT.clampMin},&nbsp;{FINAL_BLEND_CONTRACT.clampMax})
               </p>
               <p>
                 Value bets are identified when the model&apos;s implied probability exceeds the bookmaker&apos;s

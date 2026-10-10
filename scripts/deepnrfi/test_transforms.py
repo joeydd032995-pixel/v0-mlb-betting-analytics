@@ -31,6 +31,13 @@ from transforms import (
 
 failures = 0
 
+# The league rate, restated here ON PURPOSE.  Every expectation below is
+# re-derived from this literal rather than from transforms.LEAGUE_AVG_NRFI, so
+# a regression in transforms.py cannot self-verify.  Keeping it to one name
+# means re-estimating the league rate is a one-line change here too.
+EXPECTED_LEAGUE_AVG_NRFI = 0.5056
+EXPECTED_LEAGUE_HALF_NRFI = math.sqrt(EXPECTED_LEAGUE_AVG_NRFI)
+
 
 def ok(label: str, cond: bool, detail: str = "") -> None:
     global failures
@@ -47,14 +54,15 @@ def approx(label: str, actual: float | None, expected: float, tol: float = 1e-9)
 
 
 print("league constants:")
-approx("LEAGUE_HALF_NRFI = sqrt(0.516)", LEAGUE_HALF_NRFI, math.sqrt(0.516))
+approx("LEAGUE_AVG_NRFI matches the TS constant", LEAGUE_AVG_NRFI, EXPECTED_LEAGUE_AVG_NRFI, 1e-12)
+approx("LEAGUE_HALF_NRFI = sqrt(LEAGUE_AVG_NRFI)", LEAGUE_HALF_NRFI, EXPECTED_LEAGUE_HALF_NRFI)
 approx("half rate squared recovers game rate", LEAGUE_HALF_NRFI ** 2, LEAGUE_AVG_NRFI)
 
 print("estimate_nrfi_rate_from_first_inning_runs (anchored to league):")
 # Anchor: league 0.52 runs/half must map EXACTLY to LEAGUE_HALF_NRFI.
 approx("league input → LEAGUE_HALF_NRFI", estimate_nrfi_rate_from_first_inning_runs(0.52), LEAGUE_HALF_NRFI, 1e-12)
-# Independent re-derivation for a non-league input: c = −ln(0.7183)/0.52.
-c = -math.log(math.sqrt(0.516)) / 0.52
+# Independent re-derivation for a non-league input: c = −ln(LEAGUE_HALF)/0.52.
+c = -math.log(EXPECTED_LEAGUE_HALF_NRFI) / 0.52
 approx("0.30 runs/half", estimate_nrfi_rate_from_first_inning_runs(0.30), math.exp(-0.30 * c), 1e-12)
 ok("clamps to [0.45, 0.92]",
    estimate_nrfi_rate_from_first_inning_runs(5.0) == 0.45
@@ -67,8 +75,8 @@ ok("33-start season, no careerIP → 30 (99 < 100)", dynamic_prior_weight(33) ==
 ok("careerIP 150 → 50", dynamic_prior_weight(10, career_first_innings=150) == 50)
 
 print("apply_dynamic_shrinkage (prior = HALF-inning league rate):")
-# Independent: (0.80·20 + 0.7183·30) / 50
-expected = (0.80 * 20 + math.sqrt(0.516) * 30) / 50
+# Independent: (0.80·20 + LEAGUE_HALF·30) / 50
+expected = (0.80 * 20 + EXPECTED_LEAGUE_HALF_NRFI * 30) / 50
 approx("obs 0.80, n=20, k=30", apply_dynamic_shrinkage(0.80, 20, 30), expected, 1e-12)
 ok("clamped to [0.35, 0.92]",
    apply_dynamic_shrinkage(0.99, 1000, 1) <= 0.92 and apply_dynamic_shrinkage(0.01, 1000, 1) >= 0.35)
@@ -78,13 +86,13 @@ print("serving_shrunk_nrfi (full chain):")
 rate = estimate_nrfi_rate_from_first_inning_runs(0.30)
 approx("runs 0.30, 20 starts",
        serving_shrunk_nrfi(0.30, 20),
-       (rate * 20 + math.sqrt(0.516) * 30) / 50, 1e-12)
+       (rate * 20 + EXPECTED_LEAGUE_HALF_NRFI * 30) / 50, 1e-12)
 ok("no data → None", serving_shrunk_nrfi(None, 5) is None and serving_shrunk_nrfi(0.4, 0) is None)
 # The legacy builder's output for the same pitcher (k=1.14 toward 0.516) was
 # materially different — pin the gap so nobody "simplifies" this back.
-legacy = (0.72 * 6 + 0.516 * 1.14) / (6 + 1.14)
+legacy = (0.72 * 6 + EXPECTED_LEAGUE_AVG_NRFI * 1.14) / (6 + 1.14)
 current = serving_shrunk_nrfi(0.30, 6)
-ok("differs from legacy k=1.14/0.516 scheme by > 0.02",
+ok("differs from legacy k=1.14/game-level scheme by > 0.02",
    current is not None and abs(current - legacy) > 0.02,
    f"current={current}, legacy={legacy}")
 
@@ -107,7 +115,7 @@ print("invert_league_anchor (exact inverse of the identity-knot final blend):")
 # Boundary preimages: the cal values whose blend lands exactly on the clamps.
 LOWER_PREIMAGE = (FINAL_CLAMP_MIN - (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR) / ENSEMBLE_BLEND  # ≈ 0.0737
 UPPER_PREIMAGE = (FINAL_CLAMP_MAX - (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR) / ENSEMBLE_BLEND  # ≈ 0.9553
-for cal in (0.0, 0.10, 0.30, 0.516, 0.65, 0.95, 1.0):
+for cal in (0.0, 0.10, 0.30, EXPECTED_LEAGUE_AVG_NRFI, 0.65, 0.95, 1.0):
     final_unclamped = ENSEMBLE_BLEND * cal + (1 - ENSEMBLE_BLEND) * LEAGUE_ANCHOR
     final = min(FINAL_CLAMP_MAX, max(FINAL_CLAMP_MIN, final_unclamped))
     recovered = invert_league_anchor(final)
@@ -118,7 +126,7 @@ for cal in (0.0, 0.10, 0.30, 0.516, 0.65, 0.95, 1.0):
         approx(f"lower-clamped cal={cal} → lower boundary preimage", recovered, LOWER_PREIMAGE, 1e-12)
     else:
         approx(f"upper-clamped cal={cal} → upper boundary preimage", recovered, UPPER_PREIMAGE, 1e-12)
-approx("anchor fixed point: 0.516 → 0.516", invert_league_anchor(LEAGUE_AVG_NRFI), LEAGUE_AVG_NRFI, 1e-12)
+approx("anchor is a fixed point of the inversion", invert_league_anchor(LEAGUE_AVG_NRFI), LEAGUE_AVG_NRFI, 1e-12)
 approx("non-finite input → league rate", invert_league_anchor(float("nan")), LEAGUE_AVG_NRFI)
 ok("monotone over the stored range",
    all(invert_league_anchor(a) <= invert_league_anchor(b) + 1e-12

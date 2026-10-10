@@ -108,9 +108,19 @@ const NRFI_CALL_THRESHOLD = 0.52
 /**
  * Cross-language contract: scripts/deepnrfi/transforms.py replicates the final
  * blend (ENSEMBLE_BLEND / LEAGUE_ANCHOR / clamps) to invert stored headline
- * probabilities back to the pre-anchor scale for training parity.  If any of
- * these values change, transforms.py MUST change with them — the regression
- * test in __tests__/audit-v2-regression.test.ts pins this object.
+ * probabilities back to the pre-anchor scale for training parity.
+ *
+ * `__tests__/python-mirror-contract.test.ts` reads transforms.py and compares
+ * these numbers against it, so changing one side without the other fails CI.
+ * That test replaced the instruction that used to live in this comment: a note
+ * telling a maintainer to "also update transforms.py" is what allowed
+ * LEAGUE_AVG_NRFI to sit at 0.516 in Python for a release after the engine
+ * moved to 0.5056.
+ *
+ * The feature-contract version that pairs with transforms.py's
+ * TRAINING_FEATURE_CONTRACT_VERSION lives in lib/features/feature-vector.ts
+ * (next to FEATURE_ORDER), because lib/deepnrfi-model.ts needs it to validate
+ * an artifact and this module imports that one — the reverse would be a cycle.
  */
 export const FINAL_BLEND_CONTRACT = {
   ensembleBlend: ENSEMBLE_BLEND,
@@ -118,6 +128,7 @@ export const FINAL_BLEND_CONTRACT = {
   clampMin:      CLAMP_MIN,
   clampMax:      CLAMP_MAX,
 } as const
+
 
 /**
  * Probability at or above which the engine calls NRFI.
