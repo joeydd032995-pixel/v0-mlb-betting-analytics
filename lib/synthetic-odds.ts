@@ -41,9 +41,10 @@
  * toward NRFI.  We reproduce that with `totalVig` + `nrfiVigSkew`.
  */
 
-// Game-level league NRFI rate. Mirrors LEAGUE_AVG_NRFI in lib/nrfi-engine.ts
-// (the two-scale convention; half-inning rate is √0.516 ≈ 0.718).
-const LEAGUE_NRFI_BASE = 0.516
+// Game-level league NRFI rate. Imported rather than mirrored: this used to be a
+// second literal `0.516`, which would have silently kept the old league rate
+// after the 2026-10 re-estimation. One source of truth.
+import { LEAGUE_AVG_NRFI as LEAGUE_NRFI_BASE } from "./nrfi-models"
 
 export interface SyntheticOddsParams {
   /**
