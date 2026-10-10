@@ -1,5 +1,7 @@
 {
   "activeVersion": "v2",
+  "featureContractVersion": 2,
+  "featureContractNote": "Trained 2026-06-11 against feature-contract v2, i.e. with LEAGUE_AVG_NRFI = 0.516. The engine moved to 0.5056 on 2026-10, which is serving contract v3, so every league-anchored column (*_pitcher_shrunk_nrfi, umpire_career_nrfi, ensemble7_nrfi) now has a different mean. loadDeepNrfiModel() therefore refuses this artifact and the engine serves the legacy 7-model path. Re-stamping this field without rebuilding training.csv and retraining would reintroduce AUDIT_REPORT_V2.md V2-1.",
   "modelFile": "model_v2.txt",
   "calibrationFile": "calibration_v2.json",
   "importanceFile": "feature_importance_v2.json",

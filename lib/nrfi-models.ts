@@ -38,13 +38,49 @@ import type { Pitcher, Team, EnsembleWeights } from "./types"
  * four. Treat this as a figure to re-estimate every off-season, not a constant
  * pinned to three decimals.
  *
- * Validated walk-forward before adoption: the 2023–2025 mean (0.50943, using no
- * 2026 data) re-centres the engine by −0.0066 and improves 2026 Brier by
- * 0.000307, 95% CI [0.000183, 0.000546] — excludes zero. AUC is unchanged at
- * 0.5388, because re-centring is strictly monotone and so cannot cost ranking
- * (unlike the isotonic refit rejected in CALIBRATION_WALK_FORWARD_REPORT.md,
- * which destroyed up to 0.0058 AUC). The deployed value below uses all four
- * completed seasons; 2026 is in-sample for it, out-of-sample for the gate.
+ * ── Walk-forward gate, recomputed end to end ─────────────────────────────────
+ * An earlier version of this note claimed "AUC is unchanged by construction,
+ * because re-centring is strictly monotone". That was wrong, and the way it was
+ * measured was wrong: the gate shifted STORED predictions by a constant, which
+ * assumes this change is a pure re-centring of the output. It is not. Moving
+ * LEAGUE_AVG_NRFI also moves LEAGUE_HALF_NRFI, which is the shrinkage prior
+ * TARGET (so each pitcher's rate moves by an amount that depends on his sample
+ * size), plus ERA_COEF/RUNS_COEF in lib/api/shared-helpers.ts, the Markov
+ * exponent and the ZIP baseline — each by a different amount. Predictions can
+ * therefore reorder, and AUC is an empirical question, not a theorem.
+ *
+ * Re-measured properly: the full 2026 season re-predicted end to end
+ * (fetchGamesByDate → buildAsOfSlate → computeAllPredictions) under each
+ * constant, both arms reading byte-identical raw MLB API responses from a
+ * shared cache, scored against linescore ground truth. n = 2,428 games.
+ *
+ *   0.50943 (trained 2023–2025, no 2026 data) vs 0.516 — the honest OOS gate:
+ *     Brier  0.249313 → 0.249071   Δ −0.000241, 95% CI [−0.000487, +0.000007]
+ *                                  P(improvement) = 0.972
+ *     AUC    0.539319 → 0.539325   Δ +0.000006, 95% CI [−0.000029, +0.000041]
+ *     Kendall τ 0.99973 — 393 of 2,946,378 pairs DO invert
+ *
+ *   0.5056 (deployed, all four seasons) vs 0.516:
+ *     Brier  0.249313 → 0.248969   Δ −0.000344, 95% CI [−0.000733, +0.000049]
+ *     AUC    0.539319 → 0.539326   Δ +0.000007
+ *     Kendall τ 0.99958 — 623 pairs invert
+ *
+ * So the reordering is real and immaterial: ~0.00001 AUC, versus the 0.0058 AUC
+ * the isotonic refit in CALIBRATION_WALK_FORWARD_REPORT.md cost. The Brier gain
+ * is directionally consistent but NOT individually significant on one season —
+ * its CI includes zero, which the shift-based gate understated by suppressing
+ * the per-game variation the real recomputation has.
+ *
+ * That is why the Brier delta is a SAFETY CHECK here, not the justification.
+ * The justification is that 0.516 was a mis-estimate of the quantity it names:
+ * measured over 9,717 games of ground truth it sat 1.04 pts high (z = 2.05).
+ * You do not need a significant Brier delta to prefer a correctly estimated
+ * constant to a demonstrably wrong one — you need evidence the correction does
+ * not cost ranking, which is what the AUC measurement above provides.
+ *
+ * Caveat: the reconstruction uses month-average weather and no odds, so it is
+ * not the identical input set the live path saw; it is self-consistent across
+ * arms, which is what a paired comparison needs. See ANCHOR_VALIDATION.md.
  */
 export const LEAGUE_AVG_NRFI = 0.5056
 

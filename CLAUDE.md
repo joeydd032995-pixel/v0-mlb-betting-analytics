@@ -44,12 +44,25 @@ Data flow:
 3. `lib/nrfi-models.ts` — implements the 7 models: Poisson, ZIP, Markov Chain (24-state), MAPRE, logisticMeta, nnInteraction, hierarchicalBayes; weights defined in `ENSEMBLE_WEIGHTS`
 4. `lib/calibration.ts` — monotonic piecewise-linear calibration over knots applied to raw ensemble output (currently the identity mapping pending an out-of-sample refit — see AUDIT_REPORT.md P1-4)
 5. Final formula: `clamp(0.76 × calibrated + 0.24 × LEAGUE_ANCHOR, 0.18, 0.85)`
-   where `LEAGUE_ANCHOR = calibrateWithMonotonicSpline(0.516)` — equals 0.516 under the identity calibration (computed at module load, not a magic constant)
+   where `LEAGUE_ANCHOR = calibrateWithMonotonicSpline(LEAGUE_AVG_NRFI)` — equals `LEAGUE_AVG_NRFI` (0.5056) under the identity calibration (computed at module load, not a magic constant)
 
 Scale convention: every per-pitcher `nrfiRate` is the HALF-INNING scoreless rate
-(league average `LEAGUE_HALF_NRFI = √0.516 ≈ 0.718`); the game-level league NRFI
-rate is `LEAGUE_AVG_NRFI = 0.516`. Shrinkage priors must target the half-inning
-constant — see AUDIT_REPORT.md P0-1 and `__tests__/audit-regression.test.ts`.
+(league average `LEAGUE_HALF_NRFI = √LEAGUE_AVG_NRFI ≈ 0.711`); the game-level
+league NRFI rate is `LEAGUE_AVG_NRFI = 0.5056`, re-estimated 2026-10 from four
+complete seasons of `GameResult` ground truth (it was 0.516, fitted to a
+2024–2025 window containing the 2024 outlier). Shrinkage priors must target the
+half-inning constant — see AUDIT_REPORT.md P0-1 and
+`__tests__/audit-regression.test.ts`.
+
+Everything downstream of `LEAGUE_AVG_NRFI` derives at module load rather than
+restating a hand-solved number — `MARKOV_CALIBRATION_EXPONENT`,
+`ZIP_LAMBDA_AT_LEAGUE_AVG`, `ERA_COEF`/`RUNS_COEF` in `lib/api/shared-helpers.ts`
+— because three such literals went stale when the constant moved. Two guards
+keep the restatements that cannot be avoided honest:
+`__tests__/python-mirror-contract.test.ts` parses `scripts/deepnrfi/*.py` and
+compares its constants against the TS source, and `__tests__/anchor-eras.test.ts`
+fails if the league rate changes without appending an entry to
+`lib/anchor-eras.ts` (the table saying which anchor wrote which stored row).
 
 API route `app/api/predictions/route.ts` calls `getLiveGameSlate()` → `computeAllPredictions()` and returns JSON. All date resolution uses ET timezone: `new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())`.
 

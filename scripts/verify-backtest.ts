@@ -110,9 +110,10 @@ function runOfflineChecks(): void {
   // ── 5. NN Interaction normalizer ────────────────────────────────────────────
   section("NN Interaction normalizer")
 
-  // After the fix, normalizer = LEAGUE_AVG_NRFI (0.516).
-  // For average half-inning: poisson ≈ markov ≈ sqrt(0.516) ≈ 0.718
-  // Expected: 0.718 × 0.718 / 0.516 ≈ 1.0 (normalises to league average)
+  // After the fix, normalizer = LEAGUE_AVG_NRFI (0.5056 since the 2026-10
+  // re-estimation; the identity below holds for any value of it).
+  // For average half-inning: poisson ≈ markov ≈ sqrt(LEAGUE_AVG_NRFI) ≈ 0.711
+  // Expected: 0.711 × 0.711 / 0.5056 ≈ 1.0 (normalises to league average)
   const halfAvg = Math.sqrt(LEAGUE_AVG_NRFI)
   const nnAtAvg = halfAvg * halfAvg / LEAGUE_AVG_NRFI
   assert(

@@ -8,16 +8,18 @@
  *
  *   final = clamp( ENSEMBLE_BLEND·cal(raw) + (1-ENSEMBLE_BLEND)·ANCHOR, 0.18, 0.85 )
  *
- * That inversion depends on WHICH ENGINE wrote the row, and the archive contains
- * two.  Commit 09baf70 (2026-06-09T22:20:23Z, "Fix all findings from the
- * prediction-engine audit") reset the knot table to the identity and moved
- * LEAGUE_ANCHOR from 0.559 to 0.516.  Rows written before it went through
- * non-identity knots and the 0.559 anchor, so inverting them with the current
- * identity/0.516 pipeline yields a value that is NOT their raw ensemble.
+ * That inversion depends on WHICH ENGINE wrote the row, and the archive now
+ * contains THREE generations.  The era table, the frozen per-era anchors and
+ * the inversion itself live in lib/anchor-eras.ts — this script used to carry
+ * a private `const ANCHOR = 0.516`, which went stale the moment the league rate
+ * was re-estimated and would have shifted every newly-written row's recovered
+ * raw by (1−0.76)(0.5056−0.516)/0.76 ≈ −0.0033, contaminating the very refit
+ * this script exists to produce.
  *
- * Each row is therefore inverted with the pipeline that actually produced it:
- *   POST_FIX  final = 0.76·raw          + 0.24·0.516   (identity knots)
- *   PRE_FIX   final = 0.76·calOld(raw)  + 0.24·0.559   (OLD_KNOTS, inverted)
+ * Each row is inverted with the pipeline that actually produced it:
+ *   PRE_AUDIT    final = 0.76·calOld(raw) + 0.24·0.559   (pre-audit knots)
+ *   POST_AUDIT   final = 0.76·raw         + 0.24·0.516   (identity knots)
+ *   POST_RECAL   final = 0.76·raw         + 0.24·0.5056  (identity knots)
  *
  * Dating a row's CONTENT is subtle: `updatedAt` is bumped by settlement writes
  * that never touch nrfiProbability, so a late updatedAt does not prove a
@@ -53,26 +55,31 @@
 
 import { computeBacktestMetrics, logLoss } from "../lib/backtest-metrics"
 import { prisma } from "../lib/prisma"
+import {
+  ANCHOR_ERAS,
+  AUDIT_FIX_AT,
+  CLAMP_MAX,
+  CLAMP_MIN,
+  CURRENT_ERA,
+  ENSEMBLE_BLEND,
+  describeEraAssignment,
+  eraForContentDate,
+  invertFinalForEra,
+  type AnchorEra,
+} from "../lib/anchor-eras"
 
-const ENSEMBLE_BLEND = 0.76
-const ANCHOR = 0.516
-const CLAMP_MIN = 0.18
-const CLAMP_MAX = 0.85
+/**
+ * The anchor to COMPENSATE new knots against.
+ *
+ * This is the only place the CURRENT anchor belongs: freshly fitted knots will
+ * be deployed by today's engine, so they must be compensated against today's
+ * anchor — not against whichever era happened to write the training rows.
+ */
+const ANCHOR = CURRENT_ERA.anchor
 const CLAMP_EPS = 1e-4
 const KNOT_GRID = Array.from({ length: 19 }, (_, i) => 0.05 + i * 0.05)
 const SEASONS = [2023, 2024, 2025, 2026]
 
-/** Commit 09baf70 — the audit reset that made the knots identity and the anchor 0.516. */
-const AUDIT_FIX_AT = new Date("2026-06-09T22:20:23Z")
-
-/** The knot table and anchor in force BEFORE that commit (git show 09baf70^). */
-const OLD_KNOTS: [number, number][] = [
-  [0.05, 0.060], [0.10, 0.114], [0.15, 0.168], [0.20, 0.224], [0.25, 0.278],
-  [0.30, 0.324], [0.35, 0.382], [0.40, 0.436], [0.45, 0.489], [0.50, 0.542],
-  [0.55, 0.595], [0.60, 0.648], [0.65, 0.692], [0.70, 0.730], [0.75, 0.765],
-  [0.80, 0.800], [0.85, 0.828], [0.90, 0.855], [0.95, 0.930],
-]
-const OLD_ANCHOR = 0.559
 
 // ─── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -95,7 +102,7 @@ if (!["verified", "all"].includes(POOL)) {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Pipeline = "POST_FIX" | "PRE_FIX"
+type Pipeline = string   // AnchorEra["id"] — see lib/anchor-eras.ts
 
 interface Row {
   raw: number
@@ -122,29 +129,6 @@ function knotPredict(knots: number[][], x: number): number {
     if (x <= x1) return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0)
   }
   return knots[knots.length - 1][1]
-}
-
-/** Inverse of knotPredict for a strictly increasing knot table (used for OLD_KNOTS). */
-function knotInverse(knots: [number, number][], y: number): number {
-  if (y <= knots[0][1]) return knots[0][0]
-  const last = knots[knots.length - 1]
-  if (y >= last[1]) return last[0]
-  for (let i = 0; i < knots.length - 1; i++) {
-    const [x0, y0] = knots[i]
-    const [x1, y1] = knots[i + 1]
-    if (y <= y1) return x0 + ((y - y0) / (y1 - y0)) * (x1 - x0)
-  }
-  return last[0]
-}
-
-/** Invert the deployed transform using the pipeline that actually wrote the row. */
-function invertFinal(final: number, pipeline: Pipeline): number {
-  if (pipeline === "POST_FIX") {
-    return (final - (1 - ENSEMBLE_BLEND) * ANCHOR) / ENSEMBLE_BLEND
-  }
-  // PRE_FIX: undo the 0.559 anchor blend, then undo the old non-identity knots.
-  const calibrated = (final - (1 - ENSEMBLE_BLEND) * OLD_ANCHOR) / ENSEMBLE_BLEND
-  return knotInverse(OLD_KNOTS, calibrated)
 }
 
 // ─── Isotonic regression (pool-adjacent-violators) ───────────────────────────
@@ -375,18 +359,19 @@ async function loadRows(): Promise<Row[]> {
     // written; updatedAt is bumped by settlement writes that never touch it.
     const recomputedAt = r.recomputed_at ? new Date(r.recomputed_at) : null
     const contentAt = recomputedAt ?? new Date(r.created_at)
-    const pipeline: Pipeline = contentAt >= AUDIT_FIX_AT ? "POST_FIX" : "PRE_FIX"
+    const era: AnchorEra = eraForContentDate(contentAt)
+    const pipeline: Pipeline = era.id
     const verified = recomputedAt !== null && recomputedAt >= AUDIT_FIX_AT
     const final = Number(r.final)
     return {
-      raw: invertFinal(final, pipeline),
+      raw: invertFinalForEra(final, era),
       final,
       y: (r.nrfi ? 1 : 0) as 0 | 1,
       season: Number(r.season),
       date: r.date,
       pipeline,
       verified,
-      cohort: `${verified ? "V" : pipeline === "POST_FIX" ? "U" : "P"}/${r.season}`,
+      cohort: `${verified ? "V" : era.id === "PRE_AUDIT" ? "P" : "U"}/${r.season}`,
     }
   })
 }
@@ -451,8 +436,8 @@ function runFold(
   }
   if (provisional) {
     console.log(`  PROVISIONAL: contains rows with no post-fix recompute stamp. Their raw`)
-    console.log(`  values are reconstructed through the pre-fix pipeline (OLD_KNOTS, anchor`)
-    console.log(`  ${OLD_ANCHOR}); that inversion is arithmetically correct but the engine that`)
+    console.log(`  values are reconstructed through the pre-audit pipeline (anchor`)
+    console.log(`  ${ANCHOR_ERAS[0].anchor}); that inversion is arithmetically correct but the engine that`)
     console.log(`  produced them also predates the P0-1 shrinkage fix, so its raw scale is not`)
     console.log(`  commensurable with today's. Treat as indicative only.`)
   }
@@ -588,6 +573,15 @@ async function main() {
   console.log(`Clamp check: 0 on the [${CLAMP_MIN}, ${CLAMP_MAX}] boundary — inversion arithmetic is exact.`)
   console.log(`Provenance: ${all.filter(r => r.verified).length} verified post-fix (recompute stamp ≥ ` +
     `${AUDIT_FIX_AT.toISOString()}), ${all.filter(r => !r.verified).length} unverified.`)
+  // Each era inverts with a different anchor, so a split that disagrees with the
+  // deploy history means ANCHOR_RECAL_AT needs setting — print it, don't assume it.
+  const eraCounts = new Map<string, number>()
+  for (const r of all) eraCounts.set(r.pipeline, (eraCounts.get(r.pipeline) ?? 0) + 1)
+  console.log("\n" + describeEraAssignment(eraCounts))
+  if ((eraCounts.get(CURRENT_ERA.id) ?? 0) === 0) {
+    console.log(`\nNOTE: no rows fell in ${CURRENT_ERA.id}. Expected until the ` +
+      `re-estimated anchor has been deployed long enough to write predictions.`)
+  }
   console.log(`Pool "${POOL}" → ${rows.length} rows in play.`)
 
   const cohortsPresent = [...new Set(rows.map(r => r.cohort))].sort()
@@ -631,7 +625,7 @@ async function main() {
     if (POOL === "all") {
       const ea1 = runFold(
         "Fold EA-1: P/2024 → P/2025",
-        "Pre-fix pipeline only; inverted through OLD_KNOTS.",
+        "Pre-audit pipeline only; inverted through the pre-audit knot table.",
         inCohort("P/2024"), inCohort("P/2025"), ["P/2024"])
       if (ea1) fits.push(ea1)
     }

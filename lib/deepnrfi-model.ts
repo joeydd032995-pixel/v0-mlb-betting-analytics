@@ -16,14 +16,14 @@
  * failure that downgrades the engine to the legacy 7-model path with a warning.
  *
  * Artifact layout under `scripts/deepnrfi/artifacts/`:
- *   manifest.json          — { activeVersion, featureOrder, brier, logLoss, ... }
+ *   manifest.json          — { activeVersion, featureContractVersion, featureOrder, ... }
  *   model_v{N}.txt         — LightGBM booster (model.save_model(...))
  *   calibration_v{N}.json  — { knots: [[raw, calibrated], ...] }
  *   feature_importance_v{N}.json (UI-only, not loaded here)
  */
 
 import type { DeepNrfiFeatureVector, DeepNrfiFeaturePresence, DeepNrfiResult, FeatureContribution } from "./types"
-import { FEATURE_ORDER } from "./features/feature-vector"
+import { FEATURE_ORDER, SERVING_FEATURE_CONTRACT_VERSION } from "./features/feature-vector"
 
 // Node-only modules are loaded lazily through a runtime-resolved `require` so
 // that bundlers (Turbopack/webpack) do not try to include `node:fs` /
@@ -71,6 +71,16 @@ interface Manifest {
   brier?: number
   logLoss?: number
   trainedAt?: string
+  /**
+   * Feature-contract version the booster was TRAINED on — see
+   * SERVING_FEATURE_CONTRACT_VERSION in lib/features/feature-vector.ts.
+   *
+   * Optional only so that pre-existing artifacts parse; an artifact without it
+   * is rejected, because "unstamped" and "stamped with the current version"
+   * are not the same claim and the conservative reading of an unstamped
+   * artifact is that it predates the stamp.
+   */
+  featureContractVersion?: number
 }
 
 interface CalibrationFile {
@@ -269,6 +279,23 @@ export function loadDeepNrfiModel(): LoadedHandle | null {
       return null
     }
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Manifest
+
+    // A booster learned its split thresholds on one feature distribution; feeding
+    // it another is the train/serve skew that AUDIT_REPORT_V2.md §2.1 identified
+    // as a root cause of the v1/v2 stackers failing their Brier gate. The
+    // 2026-10 league-rate re-estimation moved every league-anchored column, so
+    // an artifact trained before it cannot score features emitted after it.
+    // Fall back to the legacy ensemble rather than score through the mismatch.
+    if (manifest.featureContractVersion !== SERVING_FEATURE_CONTRACT_VERSION) {
+      console.warn(
+        `[deepnrfi] artifact feature-contract v${manifest.featureContractVersion ?? "unstamped"} ` +
+        `!= serving v${SERVING_FEATURE_CONTRACT_VERSION} — falling back to legacy ensemble. ` +
+        `Rebuild training.csv and retrain, then stamp featureContractVersion in manifest.json.`
+      )
+      CACHED_HANDLE = null
+      return null
+    }
+
     const modelFile = manifest.modelFile ?? `model_${manifest.activeVersion}.txt`
     const calibFile = manifest.calibrationFile ?? `calibration_${manifest.activeVersion}.json`
     const modelPath = path.join(dir, path.basename(modelFile))

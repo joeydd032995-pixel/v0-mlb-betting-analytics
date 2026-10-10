@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import { LEAGUE_AVG_NRFI } from "@/lib/nrfi-models"
 import { SIMULATED_BOOKMAKER, simulatedGameOdds, syntheticMarketProb, DEFAULT_SYNTH } from "@/lib/synthetic-odds"
 import { makeGame, makePitcher, makeTeam } from "./fixtures"
 import type { Game, Pitcher, Team } from "@/lib/types"
@@ -32,8 +33,8 @@ describe("simulated odds are always identifiable", () => {
     // construction. Anchoring is what keeps the reconstruction from being circular.
     const model = 0.62
     const market = syntheticMarketProb(model, DEFAULT_SYNTH)
-    expect(market).toBeLessThan(model)   // pulled back toward 0.516
-    expect(market).toBeGreaterThan(0.516)
+    expect(market).toBeLessThan(model)   // pulled back toward the league rate
+    expect(market).toBeGreaterThan(LEAGUE_AVG_NRFI)
   })
 
   it("prices both sides with a real book's hold, not a fair coin", () => {

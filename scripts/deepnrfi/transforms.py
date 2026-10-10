@@ -33,12 +33,28 @@ import math
 #   v1 — legacy 30-day-window builder (pre Audit V2)
 #   v2 — serving-parity builder: season-to-date slices, half-inning shrinkage,
 #        wind token, pre-anchor ensemble7_nrfi (AUDIT_REPORT_V2.md §2.1)
-TRAINING_FEATURE_CONTRACT_VERSION = 2
+#   v3 — LEAGUE_AVG_NRFI re-estimated 0.516 -> 0.5056 (2026-10). Every column
+#        anchored to the league rate moves: *_pitcher_shrunk_nrfi (prior target
+#        and the e^(-c*r) coefficient feeding it), umpire_career_nrfi (EB prior)
+#        and ensemble7_nrfi (anchor inversion). v2 and v3 rows are NOT
+#        interchangeable, so the version must move with the constant.
+TRAINING_FEATURE_CONTRACT_VERSION = 3
 
 # ─── League constants (mirror lib/nrfi-models.ts) ─────────────────────────────
+#
+# These restate TypeScript values because Python cannot import them.  That
+# restatement is the whole risk: the 0.516 below sat here for a release after
+# lib/nrfi-models.ts moved to 0.5056, which is precisely the train/serve skew
+# this module exists to prevent.  A comment saying "keep in sync" did not keep
+# them in sync, so the pairing is now asserted by a test that parses THIS FILE
+# and compares it against the TS source:
+#     __tests__/python-mirror-contract.test.ts
+# Change a value here and the TS value must move in the same commit, or CI
+# fails.  Do not add a second copy of any of these anywhere else in Python —
+# import them from this module.
 
-LEAGUE_AVG_NRFI = 0.516                      # game-level P(no run in the 1st)
-LEAGUE_HALF_NRFI = math.sqrt(LEAGUE_AVG_NRFI)  # ≈ 0.7183 — HALF-INNING scoreless rate
+LEAGUE_AVG_NRFI = 0.5056                     # game-level P(no run in the 1st)
+LEAGUE_HALF_NRFI = math.sqrt(LEAGUE_AVG_NRFI)  # ≈ 0.7111 — HALF-INNING scoreless rate
 
 # lib/api/shared-helpers.ts: league runs per half-first-inning and the derived
 # coefficient anchoring estimateNrfiRateFromFirstInningRuns(league) == LEAGUE_HALF_NRFI.
@@ -90,7 +106,7 @@ def apply_dynamic_shrinkage(observed_rate: float, start_count: int,
                             prior_weight: int) -> float:
     """Port of applyDynamicShrinkage (lib/nrfi-models.ts).
 
-    Shrinks the HALF-INNING scoreless rate toward LEAGUE_HALF_NRFI (≈ 0.718).
+    Shrinks the HALF-INNING scoreless rate toward LEAGUE_HALF_NRFI (≈ 0.711).
     The legacy builder shrank toward the GAME-level 0.516 with k = 1.14 — a
     scale error (the exact P0-1 bug, reintroduced in the training pipeline)
     that gave the training column a different mean (≈ 0.69 vs ≈ 0.72) and

@@ -257,6 +257,29 @@ export function buildDeepNrfiFeatures(args: BuildFeaturesArgs): BuildFeaturesRes
   return { vector, presence: fullPresence }
 }
 
+/**
+ * Semantic version of the feature contract this module EMITS, and the
+ * counterpart of `TRAINING_FEATURE_CONTRACT_VERSION` in
+ * scripts/deepnrfi/transforms.py.  The two must move together, and
+ * `__tests__/python-mirror-contract.test.ts` fails if they diverge.
+ *
+ * A DeepNRFI artifact is only valid against features carrying the version it
+ * was trained on, so `loadDeepNrfiModel()` refuses an artifact whose manifest
+ * is stamped with a different one (falling back to the legacy 7-model path)
+ * rather than silently scoring v3 features with a v2 booster.
+ *
+ * Bump whenever the MEANING or scale of any feature column changes — not when
+ * rows are merely appended under unchanged semantics.
+ *
+ *   v1 — legacy 30-day-window builder (pre Audit V2)
+ *   v2 — serving-parity features (AUDIT_REPORT_V2.md §2.1)
+ *   v3 — LEAGUE_AVG_NRFI re-estimated 0.516 → 0.5056 (2026-10), which moves
+ *        every league-anchored column: `*_pitcher_shrunk_nrfi` (both the prior
+ *        target and the e^(−c·r) coefficient feeding it), `umpire_career_nrfi`
+ *        (empirical-Bayes prior) and `ensemble7_nrfi` (anchor inversion).
+ */
+export const SERVING_FEATURE_CONTRACT_VERSION = 3
+
 /** Stable feature key order — used by the LightGBM artifact's manifest.json. */
 export const FEATURE_ORDER: (keyof DeepNrfiFeatureVector)[] = [
   "home_pitcher_shrunk_nrfi", "home_pitcher_k_rate", "home_pitcher_bb_rate",

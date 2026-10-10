@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from park_factors import lookup_park, lookup_venue, lookup_cf_bearing, haversine_miles, venue_coords  # noqa: E402
 from weather_archive import prefetch_weather, fetch_game_weather  # noqa: E402
 from transforms import (  # noqa: E402
+    LEAGUE_AVG_NRFI,
     LEAGUE_HALF_NRFI,
     TRAINING_FEATURE_CONTRACT_VERSION,
     invert_league_anchor,
@@ -72,7 +73,11 @@ CSV_PATH = DATA_DIR / "training.csv"
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-LEAGUE_AVG_NRFI = 0.516            # game-level rate (umpire career_nrfi prior)
+# LEAGUE_AVG_NRFI is imported from transforms (see the import block above), not
+# restated here. It used to be a second literal 0.516 in this file, which went
+# stale independently of transforms.py and of lib/nrfi-models.ts — three copies
+# of one number. The umpire career_nrfi EB prior and the ensemble7_nrfi default
+# below both read the imported value.
 ROLLING_WINDOW_DAYS = 30           # bulk-pull margin before --from (legacy name)
 TOP_OF_ORDER = 4
 # Pitcher/batter aggregates are SEASON-TO-DATE (strictly before each game
@@ -380,7 +385,7 @@ def aggregate_pitcher(season: pd.DataFrame, pitcher_id: int, game_date: date) ->
       - shrunk_nrfi replicates the live chain exactly: runs-per-1st →
         estimateNrfiRateFromFirstInningRuns → applyDynamicShrinkage toward
         LEAGUE_HALF_NRFI (transforms.serving_shrunk_nrfi).  The legacy builder
-        shrank the raw scoreless fraction toward the game-level 0.516 with
+        shrank the raw scoreless fraction toward the game-level LEAGUE_AVG_NRFI with
         k = 1.14 — wrong prior scale and ~2.2× the serving feature's spread.
       - start_count is season-to-date first-inning starts (0–33 at serving;
         the legacy 30-day window capped it at ~6).
@@ -664,7 +669,7 @@ def build_umpire_map(db_url: str) -> dict[int, dict[str, float]]:
     window, so prior-season history carries forward) and computes each game's
     features from the umpire's strictly-PRIOR games only — no lookahead, safe
     for walk-forward validation.  Mirrors scripts/data/refresh_umpires.ts:
-      career_nrfi:    EB-shrunk toward 0.516 (k=20)
+      career_nrfi:    EB-shrunk toward LEAGUE_AVG_NRFI (k=20)
       zone_tightness: clamp(−z/2, −1, 1), z = shrunk z-score of the umpire's
                       prior mean K/game vs the running league game-K
                       distribution (game-level std, so magnitudes are smaller
