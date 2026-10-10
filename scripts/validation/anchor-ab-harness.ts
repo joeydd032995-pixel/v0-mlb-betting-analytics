@@ -20,7 +20,10 @@
  *
  * Arm B reporting `misses=0` is the check that matters: a nonzero count means
  * the arms diverged on which raw inputs they read, and the comparison is not
- * attributable to the code change alone.
+ * attributable to the code change alone. `oversize` must also be 0 — a body too
+ * large to cache is served but not persisted, so it would be refetched by the
+ * second arm rather than shared with it. `passthrough` counts requests to hosts
+ * outside the allowlist; those are never cached and never compared.
  *
  * Runs the REAL deployed path -- fetchGamesByDate -> buildAsOfSlate ->
  * computeAllPredictions -> fetchGameLinescore -- inside whichever checkout it
@@ -43,10 +46,49 @@ const LABEL = process.env.AB_LABEL!
 fs.mkdirSync(CACHE, { recursive: true })
 
 // ── Shared on-disk fetch cache: guarantees both arms see identical raw bytes ──
+//
+// This replaces GLOBAL fetch, so without the guards below it would persist the
+// body of every outbound request any imported module happens to make. Two
+// reasons that is wrong, one security and one correctness:
+//
+//   - CodeQL js/http-to-file-access: writing unvalidated network data to the
+//     filesystem. Response bytes never reach the PATH here (the filename is a
+//     SHA-256 of the URL), so there is no traversal, but the write was
+//     unbounded — and this harness issued 22k+ requests in one run, against a
+//     fixed per-session disk allowance.
+//   - The experiment's whole claim is that both arms read identical bytes from
+//     ONE API. lib/api/live-data.ts and weather.ts can reach OpenWeatherMap and
+//     open-meteo, so an un-allowlisted cache could have been quietly covering a
+//     different surface than the claim describes.
+//
+// So: only the MLB Stats API is cached, anything else passes straight through
+// uncached, and an implausibly large body is neither buffered nor stored.
+const CACHEABLE_HOST = "statsapi.mlb.com"   // lib/api/mlb-stats.ts BASE_URL
+const MAX_CACHE_BYTES = 8 * 1024 * 1024     // ~25x the largest real MLB payload
+const MAX_BODY_BYTES = 64 * 1024 * 1024     // hard refusal; never buffered
+
 const realFetch = globalThis.fetch
-let hits = 0, misses = 0
+let hits = 0, misses = 0, passthrough = 0, oversize = 0
+
+/** True only for the one API this experiment is entitled to cache. */
+function isCacheable(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return u.protocol === "https:" && u.hostname === CACHEABLE_HOST
+  } catch {
+    return false   // unparseable URL is never cacheable
+  }
+}
+
 globalThis.fetch = (async (input: any, init?: any) => {
   const url = typeof input === "string" ? input : input.url
+
+  // Not the allowlisted API: do not read it, do not write it, just forward.
+  if (!isCacheable(url)) {
+    passthrough++
+    return realFetch(input, init)
+  }
+
   const key = crypto.createHash("sha256").update(url).digest("hex")
   const file = path.join(CACHE, key + ".json")
   if (fs.existsSync(file)) {
@@ -58,11 +100,27 @@ globalThis.fetch = (async (input: any, init?: any) => {
   }
   misses++
   const res = await realFetch(input, init)
+
+  // Refuse an absurd payload before buffering it, so a hostile or broken
+  // endpoint cannot exhaust memory or the session's disk allowance.
+  const declared = Number(res.headers.get("content-length") ?? "0")
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    throw new Error(
+      `[fetch-cache] refusing ${declared} B from ${CACHEABLE_HOST} (cap ${MAX_BODY_BYTES} B)`
+    )
+  }
+
   const body = await res.text()
-  if (res.status === 200) {
+  const size = Buffer.byteLength(body, "utf8")
+  if (res.status === 200 && size <= MAX_CACHE_BYTES) {
     const tmp = file + "." + process.pid + ".tmp"
     fs.writeFileSync(tmp, JSON.stringify({ status: res.status, body }))
     fs.renameSync(tmp, file)
+  } else if (res.status === 200) {
+    // Served but not persisted: the next arm will refetch it, which shows up as
+    // a nonzero miss count rather than silently diverging the two arms.
+    oversize++
+    console.error(`[fetch-cache] not caching ${size} B response (cap ${MAX_CACHE_BYTES} B)`)
   }
   return new Response(body, { status: res.status, headers: { "content-type": "application/json" } })
 }) as any
@@ -126,9 +184,12 @@ async function main() {
       LEAGUE_HALF_NRFI: models.LEAGUE_HALF_NRFI,
       MARKOV_CALIBRATION_EXPONENT: models.MARKOV_CALIBRATION_EXPONENT,
     },
-    cache: { hits, misses },
+    cache: { hits, misses, passthrough, oversize },
     rows,
   }, null, 1))
-  console.error(`[${LABEL}] wrote ${rows.length} rows; cache hits=${hits} misses=${misses}`)
+  console.error(
+    `[${LABEL}] wrote ${rows.length} rows; cache hits=${hits} misses=${misses} ` +
+    `passthrough=${passthrough} oversize=${oversize}`
+  )
 }
 main().catch(e => { console.error(e); process.exit(1) })

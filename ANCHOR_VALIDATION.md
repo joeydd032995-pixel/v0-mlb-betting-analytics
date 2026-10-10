@@ -37,8 +37,19 @@ Both arms run the real deployed path — `fetchGamesByDate` → `buildAsOfSlate`
 `computeAllPredictions` → `fetchGameLinescore` — in separate checkouts
 differing only in the constant. `globalThis.fetch` is patched to a shared
 on-disk cache, so **both arms consume byte-identical raw MLB API responses**;
-both the `old` and `wf` arms reported `hits=22208 misses=0`, which is the check that the
-difference is attributable to the code alone.
+both the `old` and `wf` arms reported `hits=22208 misses=0`, which is the check
+that the difference is attributable to the code alone.
+
+The cache is restricted to `statsapi.mlb.com` and refuses to persist an
+implausibly large body. Both guards came out of a CodeQL finding
+(`js/http-to-file-access`) on the harness, and the host allowlist matters for
+the result as well as for the write: patching *global* `fetch` would otherwise
+cache any request an imported module made — `lib/api/live-data.ts` and
+`weather.ts` can reach OpenWeatherMap and open-meteo — so "identical bytes"
+would have been claimed of a wider surface than stated. Re-running the guarded
+harness reports `passthrough=0`, confirming retrospectively that only MLB Stats
+API responses ever entered the cache, and it reproduces the original
+predictions to within 1e-12.
 
 Ground truth is first-inning runs from the linescore. Full 2026 regular season,
 **n = 2,428 scored games**. Paired bootstrap, 2,000 resamples.
